@@ -2,13 +2,15 @@
 default:
     @just --list
 
+alias dist := package-macos
+
 # 把 game/ 中的游戏资源打包为 dist/Balatro.app, 使用 assets/icon.png 作为应用图标.
 package-macos:
     scripts/package-macos.sh --icon assets/icon.png
 
 # 用指定 png 作为应用图标打包, 例如: just package-macos-icon icon.png
 package-macos-icon icon:
-    scripts/package-macos.sh --icon {{icon}}
+    scripts/package-macos.sh --icon {{ icon }}
 
 # 打包时不使用自定义图标, 沿用 LÖVE 自带的图标.
 package-macos-default-icon:
