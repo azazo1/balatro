@@ -85,6 +85,55 @@ just clean       # 删除 dist/
 存档路径为 `~/Library/Application Support/Balatro` 而非 `~/Library/Containers/` 下的沙箱
 容器, 因为应用包为 ad-hoc 签名且未启用 App Sandbox.
 
+## 游戏配置
+
+游戏没有单独的配置文件, 相关设置分散在四个地方, 按可修改程度从低到高排列.
+
+| 位置 | 性质 | 是否随包固定 |
+| --- | --- | --- |
+| `game/version.jkr` | 发行标记, 记录完整版本, 基础版本与构建变体 | 是, 运行时不读取 |
+| `game/conf.lua` | LÖVE 引擎配置, 如窗口尺寸与标题 | 是, 重新打包才能改 |
+| `game/globals.lua` 的 `G.F_*` | 功能开关, 并按操作系统覆盖 | 是, 重新打包才能改 |
+| `settings.jkr` | 玩家设置, 在游戏内选项菜单中修改 | 否 |
+
+`version.jkr` 内容形如:
+
+```
+1.0.1n-FULL
+1.0.1n
+PROD_PC_Console
+```
+
+依次为完整版本, 基础版本和构建变体, 其中基础版本即打包脚本写入 `CFBundleVersion` 的值.
+
+`conf.lua` 中 `t.window` 的宽高为 0, 实际窗口由游戏按玩家设置自行创建. 该文件未设置
+`t.identity`, 因此存档目录名只能取自 `.love` 归档的文件名, 这也是上一节所述目录名的由来.
+
+`G.F_*` 是一组编译进包里的常量, 例如 `F_NO_ACHIEVEMENTS`, `F_VIDEO_SETTINGS`,
+`F_SAVE_TIMER`, `F_EXTERNAL_LINKS`. 定义之后会按平台覆盖, 其中已包含 macOS 分支, 会设置
+存档节流间隔, 语言选择与崩溃上报等. 游戏本身即以 macOS 为目标平台之一, 移植只需补齐
+`main.lua` 中缺失的 Steam 模块.
+
+`settings.jkr` 是通常所说的游戏配置, 与存档位于同一目录, 默认值定义在 `globals.lua`.
+游戏内选项菜单的改动会经 `save_settings` 写回该文件. 主要字段:
+
+| 字段 | 内容 |
+| --- | --- |
+| `SOUND` | `volume`, `music_volume`, `game_sounds_volume` |
+| `GRAPHICS` | `texture_scaling` (1x 或 2x), `shadows`, `crt`, `bloom` |
+| `WINDOW` | `screenmode`, `vsync`, `selected_display`, `DISPLAYS` |
+| `language` | 语言代码, 如 `zh_CN` |
+| `GAMESPEED` | 0.5, 1, 2, 4 倍速 |
+| `colourblind_option`, `screenshake`, `rumble` | 辅助显示与手感 |
+| `ACHIEVEMENTS_EARNED` | 成就达成记录 |
+| `CUSTOM_DECK` | 自定义牌组 |
+| `version` | 该文件自身的版本号 |
+
+末项用于设置的版本比对, 读取时会与游戏版本比较, 以便在不兼容时迁移.
+
+本仓库未改动以上任何一层, 仅 `game/main.lua` 因移植需要做过修改. 打包参数位于
+`scripts/package-macos.sh` 顶部的常量, 包括应用名, 版本号与运行时校验值.
+
 ## 已知情况
 
 - 应用包为 ad-hoc 签名, 已清除隔离属性, 首次打开无需放行操作.
