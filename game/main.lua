@@ -89,27 +89,34 @@ function love.load()
 	local os = love.system.getOS()
 	if os == 'OS X' or os == 'Windows' then 
 		local st = nil
+		local ok = false
 		--To control when steam communication happens, make sure to send updates to steam as little as possible
 		if os == 'OS X' then
 			local dir = love.filesystem.getSourceBaseDirectory()
 			local old_cpath = package.cpath
 			package.cpath = package.cpath .. ';' .. dir .. '/?.so'
-			st = require 'luasteam'
+			ok, st = pcall(require, 'luasteam')
 			package.cpath = old_cpath
 		else
-			st = require 'luasteam'
+			ok, st = pcall(require, 'luasteam')
 		end
 
-		st.send_control = {
-			last_sent_time = -200,
-			last_sent_stage = -1,
-			force = false,
-		}
-		if not (st.init and st:init()) then
-			love.event.quit()
+		--|macOS 移植: luasteam 是需要随包分发的原生模块, 缺少时降级为无 Steam 模式,
+		--|此时成就与统计数据由本地存档接管 (见 functions/common_events.lua 的 G.SETTINGS.ACHIEVEMENTS_EARNED 分支)
+		if ok and st then
+			st.send_control = {
+				last_sent_time = -200,
+				last_sent_stage = -1,
+				force = false,
+			}
+			if not (st.init and st:init()) then
+				love.event.quit()
+			end
+			--Set up the render window and the stage for the splash screen, then enter the gameloop with :update
+			G.STEAM = st
+		else
+			G.STEAM = nil
 		end
-		--Set up the render window and the stage for the splash screen, then enter the gameloop with :update
-		G.STEAM = st
 	else
 	end
 
