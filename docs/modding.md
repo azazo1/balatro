@@ -46,6 +46,16 @@ just windows dist-modded     # 打包 dist/windows/Balatro-Modded-<版本>-win64
 
 运行时替身的日志写在 `Mods/lovely/log/lovely-shim.log`.
 
+启动时设环境变量 `BALATRO_SAVE_IDENTITY=<目录名>` 可以临时换一个存档目录, 例如给 agent 单独一份存档.
+只接受单层目录名, mod 会同样释放到该目录下.
+
+## 内置 mod
+
+| mod | 来源 | 说明 |
+| --- | --- | --- |
+| Steamodded | [26.829.0](https://github.com/Steamodded/smods/releases/tag/26.829.0) | mod 加载器与 API |
+| balatrobot | [v1.5.2](https://github.com/coder/balatrobot/releases/tag/v1.5.2) | 供 agent 游玩的 HTTP 接口, 默认关闭, 见 [agent-api.md](agent-api.md) |
+
 ## 实现
 
 代码在 `scripts/lib/modding/`:

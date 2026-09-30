@@ -445,12 +445,25 @@ function M.before(target)
     end
 end
 
+-- 运行时覆盖存档标识的环境变量, 例如 agent 专用存档, 避免污染日常存档.
+local IDENTITY_ENV = "BALATRO_SAVE_IDENTITY"
+
 -- 追加在 conf.lua 末尾: 在原有配置之后覆盖存档标识, 让带 mod 的版本与原版存档互不影响.
 function M.wrap_conf()
     local original = love.conf
     love.conf = function(t)
         if original then original(t) end
         if manifest.identity then t.identity = manifest.identity end
+        local override = os.getenv(IDENTITY_ENV)
+        if override and override ~= "" then
+            -- 只接受单层目录名, 防止写到存档根目录之外.
+            if override:match("^[%w%-_ ]+$") then
+                t.identity = override
+                log("INFO", "按 %s 使用存档目录 %s", IDENTITY_ENV, override)
+            else
+                log("WARN", "忽略非法的 %s: %s", IDENTITY_ENV, override)
+            end
+        end
     end
 end
 

@@ -64,6 +64,11 @@ mods-check mods="mods":
 mods-tree mods="mods":
     {{ python }} scripts/patch_mods.py --mods {{ mods }}
 
+# just agent-call play '{"cards":[0,1]}' [端口]
+# 调用 mod 版内置的 agent 接口 (需先开启), 输出 JSON-RPC 响应, 见 docs/agent-api.md.
+agent-call method params="{}" port="12346":
+    @curl -sS -X POST http://127.0.0.1:{{ port }} -H "Content-Type: application/json" -d {{ quote('{"jsonrpc":"2.0","method":"' + method + '","params":' + params + ',"id":1}') }}
+
 # 从游戏源码生成静态卡牌目录, 不运行游戏或访问存档.
 game-docs:
     luajit scripts/gen-card-docs.lua

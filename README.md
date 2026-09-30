@@ -36,7 +36,8 @@ just windows dist    # 打包 Windows 免安装版
 ```
 
 产物都在 `dist/` 下按平台分目录. 每个平台另有 `dist-modded`, 打包内置 `mods/` 中 mod 的版本,
-它与原版可同时安装, 存档互不影响, 详见 [docs/modding.md](docs/modding.md). 其它 recipe:
+它与原版可同时安装, 存档互不影响, 详见 [docs/modding.md](docs/modding.md). mod 版内置供 agent
+游玩的 HTTP 接口 (默认关闭), 见 [docs/agent-api.md](docs/agent-api.md). 其它 recipe:
 
 ```shell
 just check-lua       # 用 LuaJIT 校验 game/ 下的 lua 语法
