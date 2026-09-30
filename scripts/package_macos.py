@@ -18,7 +18,7 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from lib import archive, gamezip, icns, info_plist, layout, log, runtime
+from lib import archive, gamezip, icns, info_plist, layout, log, runtime, version as versionlib
 
 log.set_prefix("macos")
 
@@ -46,7 +46,7 @@ def main():
     if sys.platform != "darwin":
         log.die("macOS 应用包只能在 macOS 上生成 (需要 codesign 与 xattr)")
 
-    version = layout.game_version()
+    version = versionlib.build_version()
     log.info("游戏版本: %s" % version)
 
     runtime_zip = runtime.require("macos")

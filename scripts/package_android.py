@@ -18,7 +18,7 @@ import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from lib import android_manifest, archive, gamezip, layout, log, pngutil, runtime
+from lib import android_manifest, archive, gamezip, layout, log, pngutil, runtime, version as versionlib
 
 log.set_prefix("android")
 
@@ -175,8 +175,8 @@ def main():
 
     store_pass = args.keystore_pass or os.environ.get("BALATRO_KEYSTORE_PASS") or "balatro"
     key_pass = args.key_pass or store_pass
-    version = layout.game_version()
-    version_code = args.version_code or layout.android_version_code(version)
+    version = versionlib.build_version()
+    version_code = args.version_code or versionlib.android_version_code(version)
     icon_src = args.icon or layout.icon_path()
     if not os.path.isfile(icon_src):
         log.die("找不到图标源图: %s" % icon_src)

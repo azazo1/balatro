@@ -69,13 +69,32 @@ jobs:
             git rev-parse --verify "refs/tags/$tag_name^{commit}" >/dev/null
             source_ref="refs/tags/$tag_name"
             version="${tag_name#v}"
+
+            # tag 形如 <上游版本>-<仓库版本>, 例如 v1.0.1n-0.1.0.
+            # 形如 v1.0.1n 的裸上游版本不允许, 因为它只能发布一次, 修了打包问题就没法再发.
+            if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+(\.[0-9]+)?[A-Za-z]*-[0-9]+\.[0-9]+\.[0-9]+$'; then
+              echo "::error::tag 格式不正确: $version"
+              echo "应为 <上游版本>-<仓库版本>, 例如 v1.0.1n-0.1.0"
+              exit 1
+            fi
+
+            # 校验上游版本部分与仓库中的版本文件一致, 挡住"打错版本"这类错误:
+            # 例如游戏其实还是 1.0.1n, 却打了 v1.0.2-0.1.0.
+            tag_upstream="${version%-*}"
+            file_upstream="$(head -1 game/version.jkr | sed 's/-FULL$//')"
+            if [ "$tag_upstream" != "$file_upstream" ]; then
+              echo "::error::tag 中的上游版本与 game/version.jkr 不一致"
+              echo "  tag: $tag_upstream  文件: $file_upstream"
+              echo "如需发布新的游戏版本, 先把新的游戏资源更新进 game/ 并提交"
+              exit 1
+            fi
             build_version="$version"
           else
-            # 非发布构建用游戏版本加短 hash, 便于区分同版本的不同提交.
-            game_version="$(head -1 game/version.jkr | sed 's/-FULL$//')"
+            # 非发布构建用上游版本加短 hash, 便于区分同版本的不同提交, 且与发布版本形式上可区分.
+            file_upstream="$(head -1 game/version.jkr | sed 's/-FULL$//')"
             short="$(git rev-parse --short=7 "$EVENT_SHA")"
             version=""
-            build_version="${game_version}+${short}"
+            build_version="${file_upstream}+${short}"
           fi
 
           echo "is_release=$is_release" >> "$GITHUB_OUTPUT"

@@ -180,6 +180,32 @@ Android 的存档通过 `t.externalstorage` 写入外置存储, 而不是应用�
 融合后的 exe 回读校验放在 `scripts/verify_windows_bundle.py`, 本机与 CI 共用同一份实现,
 会检查 PE 头, 尾部 zip 的起点, 以及归档内确实含有 `main.lua` 与 `conf.lua`.
 
+## 版本号
+
+版本号分两段, 形式为 `<上游版本>-<仓库版本>`:
+
+| 段 | 含义 | 来源 |
+| --- | --- | --- |
+| 上游版本 | 游戏自身版本 | `game/version.jkr` 首行 |
+| 仓库版本 | 本仓库重打包的版本 | 由发布 tag 指定 |
+
+例如 `1.0.1n-0.1.0` 表示上游游戏 `1.0.1n` 的第 `0.1.0` 次重打包.
+
+这样分段是因为同一份游戏可能被重打包多次: 只写上游版本则一个版本只能发布一次, 之后修正
+打包问题就无法再发新版. 分段后 `1.0.1n-0.1.0` 与 `1.0.1n-0.2.0` 是两次独立发布.
+
+未发布的构建使用 `<上游版本>+<短哈希>`, 例如 `1.0.1n+32cfe92`, 与发布版本在形式上明确区分.
+
+Android 的 `versionCode` 由两段版本折算而来, 保证单调递增, 否则设备上无法覆盖安装:
+
+```
+1.0.1n-0.1.0  ->  10001010
+1.0.1n-0.2.0  ->  10001020
+1.0.2n-0.1.0  ->  10002010
+```
+
+其中上游三段各占两位十进制, 仓库三段各占一位.
+
 ## 持续集成
 
 `.github/workflows/build.yml` 在三种情况下运行:
@@ -197,12 +223,12 @@ Android 的存档通过 `t.externalstorage` 写入外置存储, 而不是应用�
 | `ANDROID_KEY_ALIAS` | 密钥别名, 通常是 `balatro` |
 
 发布说明维护在 `docs/changelog/<版本>.md`, 打 tag 时其内容会同时用作 annotated tag 的正文,
-CI 会校验两者一致:
+CI 会校验两者一致; 同时还会校验 tag 中的上游版本与 `game/version.jkr` 相符, 免得打错版本:
 
 ```shell
-git tag -a "v1.0.1n" --cleanup=verbatim -F "docs/changelog/1.0.1n.md"
+git tag -a "v1.0.1n-0.1.0" --cleanup=verbatim -F "docs/changelog/1.0.1n-0.1.0.md"
 git push origin main
-git push origin "v1.0.1n"
+git push origin "v1.0.1n-0.1.0"
 ```
 
 ## 学习与修改游戏代码

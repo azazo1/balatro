@@ -21,7 +21,7 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from lib import archive, gamezip, layout, log, runtime
+from lib import archive, gamezip, layout, log, runtime, version as versionlib
 
 log.set_prefix("windows")
 
@@ -42,7 +42,7 @@ def parse_args():
 
 def main():
     args = parse_args()
-    version = layout.game_version()
+    version = versionlib.build_version()
     log.info("游戏版本: %s" % version)
 
     runtime_zip = runtime.require("windows")
