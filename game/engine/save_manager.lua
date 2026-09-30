@@ -1,6 +1,6 @@
 require "love.system" 
 
-if (love.system.getOS() == 'OS X' or love.system.getOS() == 'Android') and (jit.arch == 'arm64' or jit.arch == 'arm') then jit.off() end
+if (love.system.getOS() == 'OS X' ) and (jit.arch == 'arm64' or jit.arch == 'arm') then jit.off() end
 
 require "love.timer"
 require "love.thread"

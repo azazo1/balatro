@@ -1,6 +1,4 @@
---|macOS 与 Android 的 arm 系列上, LuaJIT 可用的编译内存范围有限, SDL 等库占用后
---|JIT 编译会失败且耗时很长, 因此这些平台直接关闭 JIT 走解释执行.
-if (love.system.getOS() == 'OS X' or love.system.getOS() == 'Android') and (jit.arch == 'arm64' or jit.arch == 'arm') then jit.off() end
+if (love.system.getOS() == 'OS X' ) and (jit.arch == 'arm64' or jit.arch == 'arm') then jit.off() end
 require "engine/object"
 require "bit"
 require "engine/string_packer"

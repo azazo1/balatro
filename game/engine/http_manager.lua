@@ -10,7 +10,7 @@ local httpencode = function(str)
     return str
 end
 
-if (love.system.getOS() == 'OS X' or love.system.getOS() == 'Android')and (jit.arch == 'arm64' or jit.arch == 'arm') then jit.off() end
+if (love.system.getOS() == 'OS X' )and (jit.arch == 'arm64' or jit.arch == 'arm') then jit.off() end
 
 IN_CHANNEL = love.thread.getChannel("http_request")
 OUT_CHANNEL = love.thread.getChannel("http_response")
