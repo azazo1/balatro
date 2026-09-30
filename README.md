@@ -79,8 +79,8 @@ adb install -r dist/android/Balatro-*.apk
 需要 Android SDK 里装有 `build-tools` (提供 `apksigner` 与 `zipalign`) 以及 JDK 17
 (用于首次生成签名密钥). 不需要 NDK 与 gradle, 因为运行时用的是官方预编译产物.
 
-签名密钥默认生成在 `dist/android/balatro.keystore`, 该目录不纳入版本控制. 同一个应用要覆盖
-安装必须用同一个密钥, 换密钥只能先卸载. 也可以指定自己的密钥与口令:
+签名密钥默认生成在 `secrets/balatro.keystore`, 该目录不纳入版本控制, `just clean` 也不会删它.
+同一个应用要覆盖安装必须用同一个密钥, 换密钥只能先卸载. 也可以指定自己的密钥与口令:
 
 ```shell
 just android keystore 我的.jks

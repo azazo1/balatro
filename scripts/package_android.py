@@ -43,7 +43,7 @@ def parse_args():
                         help="应用包名, 默认 %s, 带 mod 时为 %s"
                         % (layout.VANILLA.android_package, layout.MODDED.android_package))
     parser.add_argument("--keystore", default=None,
-                        help="签名密钥, 默认 dist/android/%s.keystore" % KEYSTORE_DEFAULT_ALIAS)
+                        help="签名密钥, 默认 secrets/%s.keystore" % KEYSTORE_DEFAULT_ALIAS)
     parser.add_argument("--keystore-pass", default=None,
                         help="密钥库口令, 也可用环境变量 BALATRO_KEYSTORE_PASS")
     parser.add_argument("--key-alias", default=KEYSTORE_DEFAULT_ALIAS,
@@ -237,8 +237,9 @@ def main():
         aligned = os.path.join(work_dir, "aligned.apk")
         log.run([zipalign, "-f", "-p", "4", out_apk, aligned], quiet=True)
 
-        keystore = args.keystore or os.path.join(out_dir, "%s.keystore" % key_alias)
+        keystore = args.keystore or os.path.join(layout.SECRETS_DIR, "%s.keystore" % key_alias)
         if not os.path.isfile(keystore):
+            os.makedirs(os.path.dirname(os.path.abspath(keystore)), exist_ok=True)
             generate_keystore(keystore, key_alias, store_pass, key_pass, layout.APP_NAME)
 
         apk_out = os.path.join(out_dir, "%s-%s.apk" % (flavor.file_stem, version))

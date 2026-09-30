@@ -11,6 +11,8 @@ GAME_DIR = os.path.join(ROOT_DIR, "game")
 ASSETS_DIR = os.path.join(ROOT_DIR, "assets")
 VENDOR_DIR = os.path.join(ROOT_DIR, "vendor")
 DIST_DIR = os.path.join(ROOT_DIR, "dist")
+# 本机私密文件, 如 Android 签名密钥. 不入库, 也不随 just clean 删除.
+SECRETS_DIR = os.path.join(ROOT_DIR, "secrets")
 SCRIPTS_DIR = os.path.join(ROOT_DIR, "scripts")
 
 # 应用标识, 同时决定 .love 归档名与存档目录名.
