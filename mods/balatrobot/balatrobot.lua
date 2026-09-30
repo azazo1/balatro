@@ -9,7 +9,7 @@ BalatroBot 入口, 由本仓库在 upstream v1.5.2 的基础上改写. 本仓库
 - 请求可带 reason, 另有 notify 方法, 在游戏内以原版通知的样式显示 agent 的决策消息.
 - 弹窗 (解锁通知, 胜利界面等) 打开时拦截操作, 等待中的请求先返回, 见 agent/overlay.lua.
   解锁通知用 continue 关掉, 胜利后用 endless 进入无尽模式.
-- BALATROBOT_RECORD=skip|keep 时按局录制 mp4 与时间线 JSON, 见 agent/record/recorder.lua.
+- BALATROBOT_RECORD=on 时按局录制完整版与剪辑版视频 (带声音) 和时间线 JSON, 见 agent/record/recorder.lua.
 ]]
 
 local MOD = SMODS.current_mod

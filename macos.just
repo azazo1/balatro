@@ -18,14 +18,14 @@ dist-modded mods="mods":
 run-modded: dist-modded
     dist/macos/Balatro-Modded.app/Contents/MacOS/love
 
-# just macos run-agent [skip|keep|off] [fast]
-# 打包带 mod 的应用并开启 agent 接口运行, 使用独立存档 Balatro-Agent, 默认正常速度并按局录像到 recordings/.
-run-agent record="skip" fast="0": dist-modded
+# just macos run-agent [on|off] [fast]
+# 打包带 mod 的应用并开启 agent 接口运行, 使用独立存档 Balatro-Agent, 默认正常速度, 按局录制完整版与剪辑版视频到 recordings/.
+run-agent record="on" fast="0": dist-modded
     #!/usr/bin/env bash
     set -euo pipefail
     case {{ quote(record) }} in
-        skip|keep|off) ;;
-        *) echo "record 只能是 skip, keep 或 off, 收到: {{ record }}" >&2; exit 2 ;;
+        on|off) ;;
+        *) echo "record 只能是 on 或 off, 收到: {{ record }}" >&2; exit 2 ;;
     esac
     case {{ quote(fast) }} in
         0|1) ;;

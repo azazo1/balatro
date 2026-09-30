@@ -1,16 +1,22 @@
 --[[
-整局录制. 由 BALATROBOT_RECORD=skip|keep 开启, 每局 (start_run 到回主菜单/下一局/退出) 输出
-同名的 <stem>.mp4 与 <stem>.json.
+整局录制. 由 BALATROBOT_RECORD=on 开启, 每局 (start_run 到回主菜单/下一局/退出) 输出:
+- <stem>-full.mp4: 按墙钟原样录制, 带声音.
+- <stem>-cut.mp4: 同一份素材剪掉 agent 思考时的无意义等待, 见 record/cuts.lua.
+- <stem>.json: 关键时间点, 同时给出两份视频里的时间.
+两份视频在局末由后台脚本生成 (record/post.lua), 录制中只写中间文件 <stem>.video.mp4 与 <stem>.pcm.
 
 画面: 录制期间把 "画到屏幕" 的 setCanvas 调用改到一张全分辨率的 frame canvas, love.draw 结束后
 画回屏幕, 再缩放到录制尺寸读出像素, 交给编码线程写进 ffmpeg. CRT, smods 屏幕着色器, 通知都在里面.
-时间: 见 record/clock.lua. 活动期 = agent 请求处理中, 响应后 hold 秒内, 通知仍在屏幕上.
+帧数按墙钟计算 (第 n 帧对应开局后 n/fps 秒), 卡顿时重复上一帧, 与录音保持同步.
+声音: 见 record/audio.lua.
+剪辑: 活动 = agent 请求处理中, 通知在屏幕上, 或者动画还没停下; 前后各留 pre/post 秒.
 
 环境变量:
 - BALATROBOT_RECORD_DIR     输出目录, 默认 <存档目录>/recordings
 - BALATROBOT_RECORD_FPS     默认 30
 - BALATROBOT_RECORD_HEIGHT  默认 720, 宽度按窗口比例, 取偶数
-- BALATROBOT_RECORD_HOLD    响应后保留的秒数, 默认 0.8
+- BALATROBOT_RECORD_PRE     剪辑版在每次活动前保留的秒数, 默认 0.6
+- BALATROBOT_RECORD_POST    剪辑版在动画停下后保留的秒数, 默认 0.8
 - BALATROBOT_FFMPEG         ffmpeg 路径, 默认在 PATH, /opt/homebrew/bin, /usr/local/bin 中查找
 - BALATROBOT_RECORD_CODEC   videotoolbox 或 x264, 默认 ffmpeg 支持时用 videotoolbox (macOS 硬件编码)
                             x264 画质体积比更好, 但与游戏争抢 CPU, 动画多时游戏会掉帧
@@ -18,13 +24,17 @@
 
 local LOGGER = "BB.AGENT.RECORD"
 local MAX_QUEUE = 8
-local START_GRACE = 1.5 -- 开局后固定录下的秒数, 覆盖开局动画
+local START_GRACE = 1.5 -- 开局后固定算作活动的秒数, 覆盖开局动画
 local QUIT_WAIT = 5
+local MIN_GAP = 1.5 -- 剪掉的部分短于它时不剪
+-- 动画判定的上限: 距上次请求, 通知, 状态变化或手动输入超过这么久, 即使还有未完成的阻塞事件
+-- 也视为停下, 防止某个一直挂着的事件让剪辑版一刀都剪不掉.
+local SETTLE_MAX = 10
 
-local Clock, Timeline -- 在 init 中加载
+local Cuts, Timeline, Audio, Post -- 在 init 中加载
 
 local M = {
-  mode = nil, ---@type "skip"|"keep"|nil
+  enabled = false,
   status = "off",
 }
 
@@ -36,7 +46,7 @@ local redirect = false -- 本局是否录视频
 local drawing = false -- 正在执行被包装的 love.draw
 local frame_canvas = nil
 local set_canvas = love.graphics.setCanvas
-local last_update = nil
+local last_input = -math.huge -- 最近一次手动输入 (鼠标, 键盘, 手柄)
 
 local function now()
   return love.timer.getTime()
@@ -277,31 +287,61 @@ local function drain_status(item)
   end
 end
 
+---@param part table? {thread, status, done, error}
+---@return boolean
+local function part_finished(part)
+  if not part then
+    return true
+  end
+  drain_status(part)
+  return part.done ~= nil or part.error ~= nil or not part.thread:isRunning()
+end
+
+--- 画面与声音都写完后启动后台合成. force 为 true 时 (退出前等不及了) 直接启动.
+---@param item table
+---@param force boolean
+---@return boolean started
+local function try_post(item, force)
+  if not force and not (part_finished(item.video) and part_finished(item.audio)) then
+    return false
+  end
+  local video_done = item.video and item.video.done or {}
+  local audio_ok = item.audio ~= nil and not item.audio.error
+  if audio_ok then
+    local file = io.open(item.post.base .. ".pcm", "rb")
+    local size = file and file:seek("end") or 0
+    if file then
+      file:close()
+    end
+    audio_ok = size > 0
+  end
+  item.post.audio = audio_ok
+  local ok, err = Post.spawn(item.post)
+  sendInfoMessage(
+    string.format(
+      "Recording %s: %d frames, audio %s, building -full.mp4 and -cut.mp4 in background%s",
+      item.stem,
+      video_done.frames or 0,
+      audio_ok and "ok" or "missing",
+      ok and "" or (" (failed to start: " .. tostring(err) .. ")")
+    ),
+    LOGGER
+  )
+  return true
+end
+
 local function poll_finishing(block_until)
   local kept = {}
   for _, item in ipairs(finishing) do
-    repeat
-      drain_status(item)
-      if item.done or item.error or not item.thread:isRunning() then
-        break
-      end
-      if not block_until or now() >= block_until then
-        break
-      end
+    local started = try_post(item, false)
+    while not started and block_until and now() < block_until do
       love.timer.sleep(0.01)
-    until false
-    if item.done or not item.thread:isRunning() then
-      local done = item.done or {}
-      sendInfoMessage(
-        string.format(
-          "Recording saved: %s (%d frames written, ffmpeg %s)",
-          item.video,
-          done.frames or 0,
-          done.exit_ok and "ok" or ("failed, see " .. item.log)
-        ),
-        LOGGER
-      )
-    else
+      started = try_post(item, false)
+    end
+    if not started and block_until then
+      started = try_post(item, true)
+    end
+    if not started then
       kept[#kept + 1] = item
     end
   end
@@ -311,6 +351,23 @@ end
 -- ==========================================================================
 -- 会话
 -- ==========================================================================
+
+--- 当前时刻算作活动, 返回它在完整版与剪辑版里的时间.
+---@return number wall
+---@return number cut
+local function mark_now(s)
+  local wall = now() - s.started
+  s.cuts:mark(wall)
+  s.last_busy = now()
+  return wall, s.cuts:cut_time(wall)
+end
+
+--- 记一个事件, 同时算作活动, 保证事件所在的时刻留在剪辑版里.
+---@return table event
+local function log_event(s, kind, fields)
+  local wall, cut = mark_now(s)
+  return s.timeline:event(wall, cut, kind, fields)
+end
 
 local function start_session(resumed)
   local game = G.GAME or {}
@@ -324,31 +381,42 @@ local function start_session(resumed)
   w = w - w % 2
 
   local meta = {
-    mode = M.mode,
     fps = cfg.fps,
     size = { w, h },
-    video = cfg.ffmpeg and (stem .. ".mp4") or nil,
+    videos = cfg.ffmpeg and { full = stem .. "-full.mp4", cut = stem .. "-cut.mp4" } or nil,
     started_at = os.date("!%Y-%m-%dT%H:%M:%SZ"),
     deck = game.selected_back and game.selected_back.name or nil,
     stake = game.stake,
     seed = seed,
     seeded = game.seeded or false,
     resumed = resumed,
+    padding = { pre = cfg.pre, post = cfg.post, min_gap = MIN_GAP },
   }
 
   session = {
     stem = stem,
+    base = base,
     started = now(),
-    clock = Clock.new({ mode = M.mode, fps = cfg.fps }),
+    last_busy = now(),
+    cuts = Cuts.new({ pre = cfg.pre, post = cfg.post, min_gap = MIN_GAP }),
     timeline = Timeline.new(base .. ".json", meta),
     size = { w, h },
+    frames_out = 0, -- 已交给画面的帧数 (含待写出的 pending)
     pending = 0,
     last_state = G.STATE,
     last_blind = nil,
     won = game.won or false,
-    open_actions = {},
   }
-  session.timeline:event(0, 0, "run_start", { resumed = resumed })
+  log_event(session, "run_start", { resumed = resumed })
+
+  if cfg.ffmpeg then
+    local audio, audio_err = Audio.start(deps.mod_path, base .. ".pcm", session.started)
+    if audio then
+      session.audio = audio
+    else
+      sendWarnMessage("Recording without sound: " .. tostring(audio_err), LOGGER)
+    end
+  end
 
   if cfg.ffmpeg then
     -- 尺寸变了 (窗口比例不同) 时旧画布不再能用, 释放掉.
@@ -361,19 +429,31 @@ local function start_session(resumed)
       end
     end
     rec_pool = kept
-    local ok, thread, frames, status = pcall(start_encoder, base .. ".mp4", base .. ".ffmpeg.txt", w, h)
+    local ok, thread, frames, status = pcall(start_encoder, base .. ".video.mp4", base .. ".ffmpeg.txt", w, h)
     if ok then
       session.thread, session.frames, session.status = thread, frames, status
-      session.video, session.log = base .. ".mp4", base .. ".ffmpeg.txt"
       redirect = true
     else
       sendErrorMessage("Failed to start encoder: " .. tostring(thread), LOGGER)
-      session.timeline:set("video", nil)
+      session.timeline:set("videos", nil)
     end
   end
+  session.timeline:set("audio", session.audio ~= nil)
   session.timeline:flush(now(), true)
   M.status = "recording " .. stem
-  sendInfoMessage(string.format("Recording started: %s (%s, %dx%d@%d)", base, M.mode, w, h, cfg.fps), LOGGER)
+  sendInfoMessage(
+    string.format("Recording started: %s (%dx%d@%d, sound %s)", base, w, h, cfg.fps, session.audio and "on" or "off"),
+    LOGGER
+  )
+end
+
+--- 把画面帧数补到墙钟时间 wall 对应的帧.
+local function advance_frames(s, wall)
+  local target = math.floor(wall * cfg.fps + 1e-9)
+  if target > s.frames_out then
+    s.pending = s.pending + (target - s.frames_out)
+    s.frames_out = target
+  end
 end
 
 local function end_session(reason)
@@ -384,7 +464,9 @@ local function end_session(reason)
   session = nil
   redirect = false
 
-  -- 写出还没读回的帧. 已计入时钟但还没画的帧用最后一帧补齐, 视频时长与时间线一致.
+  local wall = now() - s.started
+  advance_frames(s, wall)
+  -- 写出还没读回的帧. 已计入但还没画的帧用最后一帧补齐, 画面与声音等长.
   if s.thread and frame_canvas then
     if s.pending > 0 then
       if #staged > 0 then
@@ -397,37 +479,47 @@ local function end_session(reason)
     collect_frames(s, true)
   end
   staged = {}
-  s.clock:finish()
+  local length = s.frames_out / cfg.fps -- 视频的实际长度
+  s.cuts:finish(length)
   local info = run_info()
   -- 回主菜单时 G.GAME 可能已重置, 以本局记录到的 won 事件为准.
   local won = s.won or (G.GAME and G.GAME.won) or false
   local result = { reason = reason, won = won, ante = info.ante, round = info.round }
-  s.timeline:event(s.clock:video_time(), s.clock.wall, "run_end", result)
+  s.timeline:event(length, s.cuts:cut_time(length), "run_end", result)
   s.timeline:set("result", result)
-  s.timeline:sync_clock(s.clock)
+  s.timeline:sync_cuts(s.cuts, length)
   local ok, err = s.timeline:flush(now(), true)
   if not ok then
     sendErrorMessage("Failed to write timeline: " .. tostring(err), LOGGER)
   end
 
+  if s.audio then
+    Audio.stop(s.audio, length)
+  end
   if s.thread then
     s.frames:push("stop")
     finishing[#finishing + 1] = {
       stem = s.stem,
-      thread = s.thread,
-      status = s.status,
-      video = s.video,
-      log = s.log,
+      video = { stem = s.stem, thread = s.thread, status = s.status },
+      audio = s.audio and { stem = s.stem, thread = s.audio.thread, status = s.audio.status } or nil,
+      post = {
+        ffmpeg = cfg.ffmpeg,
+        codec_args = CODEC_ARGS[cfg.codec]:gsub(" %-realtime 1", ""),
+        base = s.base,
+        fps = cfg.fps,
+        cuts = s.cuts.list,
+      },
     }
   end
-  M.status = M.mode
+  M.status = "on"
   sendInfoMessage(
     string.format(
-      "Recording ended (%s): video %.1fs, wall %.1fs, waited %.1fs",
+      "Recording ended (%s): full %.1fs, cut %.1fs, %d cuts removing %.1fs",
       reason,
-      s.clock:video_time(),
-      s.clock.wall,
-      s.clock:waited()
+      length,
+      length - s.cuts.removed,
+      #s.cuts.list,
+      s.cuts.removed
     ),
     LOGGER
   )
@@ -435,44 +527,66 @@ end
 
 local function track_state(s)
   local state = G.STATE
-  local t, wall = s.clock:video_time(), s.clock.wall
   if state ~= s.last_state then
     s.last_state = state
     local name = state_name(state)
+    -- 状态变化本身算作活动: 它会带出动画, 不记事件的过渡状态也一样.
+    mark_now(s)
     if name:match("^%-?%d+$") then
       -- 不在 G.STATES 里的过渡值, 例如 delete_run 设置的 -1
     elseif state == G.STATES.GAME_OVER then
       local info = run_info()
-      s.timeline:event(t, wall, "game_over", { won = G.GAME.won or false, ante = info.ante, round = info.round })
+      log_event(s, "game_over", { won = G.GAME.won or false, ante = info.ante, round = info.round })
     elseif state == G.STATES.SELECTING_HAND then
       local blind = G.GAME.blind
       local key = blind and blind.config and blind.config.blind and blind.config.blind.key or nil
       local id = tostring(key) .. "@" .. tostring(G.GAME.round)
       if blind and id ~= s.last_blind then
         s.last_blind = id
-        s.timeline:event(t, wall, "blind", { key = key, name = blind.name, round = G.GAME.round })
+        log_event(s, "blind", { key = key, name = blind.name, round = G.GAME.round })
       end
     elseif name ~= "HAND_PLAYED" and name ~= "DRAW_TO_HAND" and name ~= "NEW_ROUND" and name ~= "PLAY_TAROT" then
       local info = run_info()
-      s.timeline:event(t, wall, "state", { state = name, ante = info.ante, round = info.round, money = info.money })
+      log_event(s, "state", { state = name, ante = info.ante, round = info.round, money = info.money })
     end
   end
   if G.GAME and G.GAME.won and not s.won then
     s.won = true
     local info = run_info()
-    s.timeline:event(t, wall, "won", { ante = info.ante, round = info.round })
+    log_event(s, "won", { ante = info.ante, round = info.round })
   end
+end
+
+--- 画面还在动: 有未完成的阻塞事件 (发牌, 计分, 翻牌等动画都是), 或者控制器被锁住.
+--- 暂停时 (弹窗打开) 事件都停着, 算作停下.
+local function animating()
+  if G.SETTINGS.paused then
+    return false
+  end
+  if G.CONTROLLER and G.CONTROLLER.locked then
+    return true
+  end
+  for _, queue in pairs(G.E_MANAGER.queues) do
+    for _, event in ipairs(queue) do
+      if event.blocking and not event.complete then
+        return true
+      end
+    end
+  end
+  return false
 end
 
 -- ==========================================================================
 -- 对外接口
 -- ==========================================================================
 
+local ENABLE_VALUES = { on = true, ["1"] = true, ["true"] = true, yes = true }
+
 ---@param options {activity: table, toast: table, mod_path: string}
 function M.init(options)
   deps = options
   local mode = os.getenv("BALATROBOT_RECORD")
-  if mode ~= "skip" and mode ~= "keep" then
+  if not ENABLE_VALUES[mode or ""] then
     M.status = "off"
     return
   end
@@ -482,12 +596,15 @@ function M.init(options)
     return
   end
 
-  Clock = assert(SMODS.load_file("agent/record/clock.lua"))()
+  Cuts = assert(SMODS.load_file("agent/record/cuts.lua"))()
   Timeline = assert(SMODS.load_file("agent/record/timeline.lua"))()
+  Audio = assert(SMODS.load_file("agent/record/audio.lua"))()
+  Post = assert(SMODS.load_file("agent/record/post.lua"))()
 
-  cfg.fps = env_number("BALATROBOT_RECORD_FPS", 30)
+  cfg.fps = math.floor(env_number("BALATROBOT_RECORD_FPS", 30))
   cfg.height = math.floor(env_number("BALATROBOT_RECORD_HEIGHT", 720))
-  cfg.hold = env_number("BALATROBOT_RECORD_HOLD", 0.8)
+  cfg.pre = env_number("BALATROBOT_RECORD_PRE", 0.6)
+  cfg.post = env_number("BALATROBOT_RECORD_POST", 0.8)
   local dir = os.getenv("BALATROBOT_RECORD_DIR")
   cfg.dir = (dir and dir ~= "") and dir:gsub("/+$", "") or (love.filesystem.getSaveDirectory() .. "/recordings")
   local created, err = SMODS.NFS.createDirectory(cfg.dir)
@@ -500,8 +617,8 @@ function M.init(options)
   if cfg.ffmpeg then
     cfg.codec = pick_codec(cfg.ffmpeg)
   end
-  M.mode = mode
-  M.status = cfg.ffmpeg and mode or (mode .. ", ffmpeg not found (json only)")
+  M.enabled = true
+  M.status = cfg.ffmpeg and "on" or "on, ffmpeg not found (json only)"
   if not cfg.ffmpeg then
     sendWarnMessage("ffmpeg not found, recording writes timeline JSON only. Set BALATROBOT_FFMPEG to its path", LOGGER)
   end
@@ -517,8 +634,7 @@ function M.init(options)
     if next(params) ~= nil then
       fields.params = params
     end
-    session.open_action = session.timeline:event(session.clock:video_time(), session.clock.wall, "action", fields)
-    session.action_started = session.clock:video_time()
+    session.open_action = log_event(session, "action", fields)
   end)
   activity.on("response", function(method, ok, message)
     if not session or not session.open_action or session.open_action.method ~= method then
@@ -526,17 +642,30 @@ function M.init(options)
     end
     local event = session.open_action
     session.open_action = nil
+    local wall, cut = mark_now(session)
     event.ok = ok
     event.error = message
-    event.t_end = math.floor(session.clock:video_time() * 1000 + 0.5) / 1000
+    event.wall_end = math.floor(wall * 1000 + 0.5) / 1000
+    event.cut_end = math.floor(cut * 1000 + 0.5) / 1000
     session.timeline.dirty = true
   end)
   activity.on("message", function(title, text, _, source)
     if not session or source ~= "notify" then
       return
     end
-    session.timeline:event(session.clock:video_time(), session.clock.wall, "message", { title = title, text = text })
+    log_event(session, "message", { title = title, text = text })
   end)
+
+  -- 手动操作也算活动, 人玩的部分不会被剪掉.
+  for _, name in ipairs({ "mousepressed", "keypressed", "gamepadpressed", "touchpressed" }) do
+    local original = love[name]
+    love[name] = function(...)
+      last_input = now()
+      if original then
+        return original(...)
+      end
+    end
+  end
 
   local start_run = Game.start_run
   function Game:start_run(args) ---@diagnostic disable-line: duplicate-set-field
@@ -562,10 +691,11 @@ function M.init(options)
 
   sendInfoMessage(
     string.format(
-      "Recording enabled: %s, %d fps, height %d, dir %s, ffmpeg %s, codec %s",
-      mode,
+      "Recording enabled: %d fps, height %d, padding %.1f/%.1fs, dir %s, ffmpeg %s, codec %s",
       cfg.fps,
       cfg.height,
+      cfg.pre,
+      cfg.post,
       cfg.dir,
       tostring(cfg.ffmpeg),
       tostring(cfg.codec)
@@ -577,8 +707,6 @@ end
 --- 每帧在游戏 update 之后调用.
 function M.update()
   local t = now()
-  local dt = last_update and (t - last_update) or 0
-  last_update = t
   if #finishing > 0 then
     poll_finishing(nil)
   end
@@ -593,15 +721,25 @@ function M.update()
     s.thread = nil
   end
 
+  local wall = t - s.started
+  advance_frames(s, wall)
+  if s.audio then
+    Audio.tick()
+  end
+
+  -- 活动: 请求处理中, 通知在屏幕上, 开局动画, 手动操作; 之后动画还没停下的部分也算,
+  -- 但距上一次活动最多 SETTLE_MAX 秒.
   local activity = deps.activity
-  local active = activity.busy(t)
-    or (activity.last_response and t - activity.last_response < cfg.hold)
-    or deps.toast.active()
-    or t - s.started < START_GRACE
-  s.pending = s.pending + s.clock:advance(dt, active and true or false)
+  local busy = activity.busy(t) or deps.toast.active() or wall < START_GRACE or t - last_input < 1
+  if busy then
+    s.last_busy = t
+  end
+  if busy or (t - s.last_busy < SETTLE_MAX and animating()) then
+    s.cuts:mark(wall)
+  end
 
   track_state(s)
-  s.timeline:sync_clock(s.clock)
+  s.timeline:sync_cuts(s.cuts, wall)
   local ok, err = s.timeline:flush(t, false)
   if not ok then
     sendWarnMessage("Failed to write timeline: " .. tostring(err), LOGGER)

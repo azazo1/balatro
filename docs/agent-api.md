@@ -19,7 +19,7 @@ JSON-RPC 2.0 over HTTP 接口, 外部程序 (agent, 脚本) 可以读取完整�
 
 | 环境变量 | 作用 |
 | --- | --- |
-| `BALATROBOT_FAST=1` | 10 倍速, 动画 60fps, 不限帧率, 关 vsync (`run-agent skip 1` 即此项) |
+| `BALATROBOT_FAST=1` | 10 倍速, 动画 60fps, 不限帧率, 关 vsync (`run-agent on 1` 即此项) |
 | `BALATROBOT_HEADLESS=1` | 不显示窗口, 跳过开场动画 |
 | `BALATROBOT_AUDIO=1` | 强制开声音, 不设时沿用存档音量 |
 | `BALATROBOT_GAMESPEED`, `BALATROBOT_FPS_CAP`, `BALATROBOT_ANIMATION_FPS` | 显式设置时覆盖 |
@@ -132,60 +132,73 @@ just agent-call discard '{"cards":[0,3,5],"reason":"弃 3 张杂牌追同花"}'
 
 ## 录制
 
-`just macos run-agent` 默认就按局录制 mp4 和标记关键时间点的 JSON, 不需要另外设置:
+`just macos run-agent` 默认就按局录制, 每局输出两份带声音的视频和一份时间线 JSON, 不需要另外设置:
 
 ```shell
-just macos run-agent          # 默认 skip: 剪掉 agent 思考的等待时间, 正常速度
-just macos run-agent keep     # keep: 保留等待时间, 视频时长等于实际时长
+just macos run-agent          # 录制, 正常速度
 just macos run-agent off      # 不录制
-just macos run-agent skip 1   # 10 倍速, 仅在需要时使用
+just macos run-agent on 1     # 10 倍速, 仅在需要时使用
 ```
 
+| 文件 | 内容 |
+| --- | --- |
+| `<开始时间>-<种子>-full.mp4` | 完整版, 与实际时长相同, 保留 agent 思考的时间 |
+| `<开始时间>-<种子>-cut.mp4` | 剪辑版, 去掉 agent 思考时的无意义等待 |
+| `<开始时间>-<种子>.json` | 关键时间点, 同时给出两份视频里的时间 |
+
 - 一局从开局 (或读档) 开始, 到回主菜单, 开下一局或退出为止. 游戏结束后停留在结算界面的部分也会录.
-- 输出在仓库根目录的 `recordings/`, 文件名为 `<开始时间>-<种子>.mp4/.json`, ffmpeg 的报错在同名 `.ffmpeg.txt`.
-  每次启动的游戏日志 (含崩溃信息) 在 `recordings/<启动时间>-game.log`.
-- 等待的判定: agent 没有请求在处理, 上次响应后超过 0.8 秒, 屏幕上也没有决策消息. 只查询状态和截图的
-  请求 (`gamestate`, `health`, `screenshot`, `rpc.discover`) 不算活动.
-- skip 模式只看 agent 的请求, 人手动玩时会被当成等待剪掉, 手动玩请用 keep.
-- 画面与屏幕一致, 包括 CRT 效果和决策消息. 不录声音. fast 模式录到的就是加速后的画面.
+- 输出在仓库根目录的 `recordings/`. 两份视频在局末由后台进程生成, 一般几秒到十几秒, 游戏可以继续玩或退出.
+  ffmpeg 的报错在同名 `.ffmpeg.txt`. 生成失败时留下中间文件 `.video.mp4`, `.pcm` 和脚本 `.post.sh`,
+  可以 `sh <文件名>.post.sh` 重跑. 每次启动的游戏日志 (含崩溃信息) 在 `recordings/<启动时间>-game.log`.
+- 剪辑版保留的部分: agent 请求处理中, 决策消息在屏幕上, 状态变化, 手动操作, 以及之后动画完全停下之前
+  (发牌, 计分, 翻牌等). 每段前留 0.6 秒, 动画停下后留 0.8 秒, 中间的等待剪掉; 不足 1.5 秒的停顿不剪.
+  只查询状态和截图的请求 (`gamestate`, `health`, `screenshot`, `rpc.discover`) 不算活动.
+- 画面与屏幕一致, 包括 CRT 效果和决策消息. fast 模式录到的就是加速后的画面.
+- 声音按游戏发给声音线程的指令另外混出, 与画面同步, 与实际听到的基本一致. 不跟随 Options 里的总音量,
+  静音玩时录像仍有声音; 音乐与音效各自的音量照常生效.
 - 需要 ffmpeg, 找不到时只写 JSON. macOS 上默认用 videotoolbox 硬件编码, 对游戏帧率影响很小.
 
 `run-agent` 已经设好下面的变量. 表格供直接启动应用或调参时参考:
 
 | 环境变量 | 默认 | 作用 |
 | --- | --- | --- |
-| `BALATROBOT_RECORD` | 关闭 | `skip` 或 `keep` |
+| `BALATROBOT_RECORD` | 关闭 | `on` 开启 |
 | `BALATROBOT_RECORD_DIR` | `<存档目录>/recordings` | 输出目录, `run-agent` 设为 `recordings/` |
 | `BALATROBOT_RECORD_FPS` | 30 | 视频帧率 |
 | `BALATROBOT_RECORD_HEIGHT` | 720 | 视频高度, 宽度按窗口比例 |
-| `BALATROBOT_RECORD_HOLD` | 0.8 | 响应后仍算活动的秒数 |
+| `BALATROBOT_RECORD_PRE` | 0.6 | 剪辑版每段活动前保留的秒数 |
+| `BALATROBOT_RECORD_POST` | 0.8 | 剪辑版动画停下后保留的秒数 |
 | `BALATROBOT_RECORD_CODEC` | 自动 | `videotoolbox` 或 `x264`; x264 更省体积, 但占 CPU, 动画多时游戏会掉帧 |
 | `BALATROBOT_FFMPEG` | 自动查找 | ffmpeg 路径 |
 
-JSON 的时间都是秒, `t` 为视频时间, `wall` 为开局起的实际时间:
+JSON 的时间都是秒. `wall` 为开局起的实际时间, 即完整版里的时间; `cut` 为剪辑版里的时间:
 
 ```json
 {
-  "version": 1, "mode": "skip", "fps": 30, "size": [1152, 720], "video": "....mp4",
-  "deck": "Red Deck", "stake": 1, "seed": "AGENTREC", "seeded": true, "resumed": false,
+  "version": 2, "fps": 30, "size": [1280, 720], "audio": true,
+  "videos": {"full": "....-full.mp4", "cut": "....-cut.mp4"},
+  "deck": "Red Deck", "stake": 1, "seed": "AUDIO1", "seeded": true, "resumed": false,
+  "padding": {"pre": 0.6, "post": 0.8, "min_gap": 1.5},
   "result": {"reason": "menu", "won": false, "ante": 1, "round": 1},
-  "duration": {"video": 35.7, "wall": 135.6, "waited": 99.4},
-  "gaps": [{"video_start": 9.567, "video_end": 9.567, "wall_seconds": 43.9}],
+  "duration": {"full": 58.567, "cut": 25.984, "removed": 32.583},
+  "cuts": [{"start": 8.203, "stop": 24.652, "at": 8.203}],
   "events": [
-    {"t": 0, "wall": 0, "kind": "run_start", "resumed": false},
-    {"t": 3.2, "wall": 11.3, "kind": "action", "method": "select", "reason": "选择小盲注", "ok": true, "t_end": 6.9},
-    {"t": 6.9, "wall": 15.1, "kind": "blind", "key": "bl_small", "name": "Small Blind", "round": 1},
-    {"t": 9.6, "wall": 61.8, "kind": "message", "title": "思考", "text": "..."}
+    {"wall": 0, "cut": 0, "kind": "run_start", "resumed": false},
+    {"wall": 2.22, "cut": 2.22, "kind": "action", "method": "select", "reason": "小盲注", "ok": true,
+     "wall_end": 5.202, "cut_end": 5.202},
+    {"wall": 5.192, "cut": 5.192, "kind": "blind", "key": "bl_small", "name": "Small Blind", "round": 1},
+    {"wall": 25.252, "cut": 8.803, "kind": "action", "method": "play", "reason": "出五张", "ok": true,
+     "wall_end": 33.685, "cut_end": 17.236}
   ]
 }
 ```
 
 | 字段 | 含义 |
 | --- | --- |
-| `gaps` | agent 的等待段. skip 模式下 `video_start == video_end`, 是视频里的剪辑点; keep 模式下是视频里的一段 |
-| `duration.waited` | 等待段的实际总时长 |
+| `cuts` | 剪辑版去掉的区间, `start`/`stop` 为完整版里的时间, `at` 为剪辑版里对应的剪辑点 |
+| `duration.removed` | 剪掉的总时长 |
 | `result.reason` | 结束原因: `menu`, `restart` (开了下一局), `quit` |
-| `action` | agent 的操作, `t_end` 为操作完成的时间, 失败时带 `error` |
+| `action` | agent 的操作, `wall_end`/`cut_end` 为操作完成的时间, 失败时带 `error` |
 | `message` | `notify` 发的消息 (`reason` 已记在对应的 `action` 里) |
 | `blind` | 进入盲注 |
 | `state` | 进入选盲注, 结算, 商店, 卡包等状态, 带 `ante`, `round`, `money` |

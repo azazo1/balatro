@@ -42,6 +42,6 @@ Android 的 `versionCode` 由两段版本折算, 保证单调递增, 否则无�
    观众只看得到画面和消息, 具体要求见 `docs/agent-commentary.md`, 开局前先读.
 
 - 不要直接运行 `Balatro-Modded.app` 里的 love, 也不要自己设置 `BALATROBOT_*` 等环境变量.
-- 不要开加速 (`run-agent skip 1`), user 明确要求时才开.
+- 不要开加速 (`run-agent on 1`), user 明确要求时才开.
 - 每次返回都看 `overlay` 字段: `unlock` 时调用 `continue` 关掉解锁通知; `win` 时已经打赢,
   按 user 的要求调用 `endless` 继续或 `menu` 回主菜单.
