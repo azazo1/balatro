@@ -156,11 +156,12 @@ Android 的存档通过 `t.externalstorage` 写入外置存储, 而不是应用�
 | Android | 在官方 embed APK 基础上替换游戏负载, 改写 manifest 后重新签名 |
 | Windows | 把 `.love` 追加到 `love.exe` 末尾形成单文件可执行程序 |
 
-对游戏代码的改动只有两类:
+为平台适配而对游戏代码做的改动集中在以下几处:
 
 - `game/main.lua`: 原版在 macOS 与 Windows 分支中直接 `require 'luasteam'` 并在初始化失败时
   调用 `love.event.quit()`, 而该模块需要随包分发, 缺失时游戏会立即退出. 现在改为尝试加载,
   失败则按无 Steam 模式继续运行.
+- `game/main.lua`: Android 上退出时直接把进程结束掉, 见下文 "Android 的退出处理".
 - `game/conf.lua`: 增加 `t.externalstorage = true`, 让 Android 存档写入外置存储.
 
 无 Steam 模式下的行为: 成就与进度由本地存档记录, 游戏内成就通知照常显示; 通过 Steam 同步的
@@ -174,6 +175,20 @@ Android 的存档通过 `t.externalstorage` 写入外置存储, 而不是应用�
 是 Java 类名, 必须保持原样, 只有 `package` 与 provider 的 `authorities` 需要跟着改.
 
 屏幕方向设为 `sensorLandscape`, 即锁定横屏但允许随手机方向左右翻转.
+
+#### 退出处理
+
+Android 上 Activity 结束并不等于进程结束, 系统会把进程留着以便下次快速启动. 这与 LÖVE 的
+假设冲突: LÖVE 的各模块是进程级单例, `love.filesystem` 底层是 PhysicsFS 的全局状态, 要等
+`liblove.so` 卸载时模块析构才会把状态还回去, 而进程不结束就不会卸载它. 于是退出后残留的进程
+会让下一次启动的 `love.filesystem.init()` 抛 `already initialized`, 线程随即结束, 表现为
+点击图标进不去游戏.
+
+`game/main.lua` 里的 `exit_process()` 在退出前结束进程来规避: 在 Android 上用 LuaJIT 的 FFI
+调 libc 的 `_exit(0)`. 选 `_exit` 而不是 `exit`, 是因为前者只是一次系统调用, 不必运行 atexit
+与动态库析构, 也就不会和音频等后台线程抢锁. 主循环与 `love.errhand` 的退出路径统一调用它,
+这样无论是点退出键, 按返回键, 还是崩溃界面里退出, 下次都能正常启动. 取不到 FFI 时静默退回
+LÖVE 自己的退出流程, 不影响其它平台 (它们本来就随退出结束进程).
 
 ### Windows 的实现细节
 

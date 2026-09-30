@@ -30,6 +30,21 @@ require "challenges"
 
 math.randomseed( G.SEED )
 
+--|Android 上 Activity 结束并不等于进程结束, 残留进程会让下一次启动的 love.filesystem.init()
+--|撞上底层 PhysicsFS 尚未释放的全局状态, 抛 "already initialized" 后直接退出, 表现为点击
+--|图标进不去游戏. LÖVE 的模块是进程级单例, 只有 liblove.so 卸载时才会析构并把那部分状态
+--|还回去, 而 Android 上进程不结束就不会卸载它, 所以在退出前直接把进程结束掉, 让下次启动
+--|拿到一份干净的运行时状态. 其它平台随退出一起结束进程, 不需要这一步.
+local function exit_process()
+	if love.system.getOS() ~= 'Android' then return end
+	--|任何一步失败都退回 LÖVE 自己的退出流程, 不额外制造异常.
+	pcall(function()
+		local ffi = require('ffi')
+		ffi.cdef('int _exit(int status);')
+		ffi.C._exit(0)
+	end)
+end
+
 function love.run()
 	if love.load then love.load(love.arg.parseGameArguments(arg), arg) end
 
@@ -50,6 +65,7 @@ function love.run()
 			for name, a,b,c,d,e,f in love.event.poll() do
 				if name == "quit" then
 					if not love.quit or not love.quit() then
+						exit_process()
 						return a or 0
 					end
 				end
@@ -305,8 +321,10 @@ function love.errhand(msg)
 
 		for e, a, b, c in love.event.poll() do
 			if e == "quit" then
+				exit_process()
 				return
 			elseif e == "keypressed" and a == "escape" then
+				exit_process()
 				return
 			elseif e == "touchpressed" then
 				local name = love.window.getTitle()
@@ -314,6 +332,7 @@ function love.errhand(msg)
 				local buttons = {"OK", "Cancel"}
 				local pressed = love.window.showMessageBox("Quit "..name.."?", "", buttons)
 				if pressed == 1 then
+					exit_process()
 					return
 				end
 			end
