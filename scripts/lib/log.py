@@ -5,6 +5,18 @@
 import subprocess
 import sys
 
+# Windows 上输出被重定向到文件或管道时, Python 默认使用本地代码页 (如 cp1252):
+# stdout 遇到中文会抛 UnicodeEncodeError, stderr 则会退化成 \uXXXX 转义, 两者都不理想.
+# 这里统一改成 UTF-8, 让本机与 CI 的输出保持一致且可读.
+for _stream in (sys.stdout, sys.stderr):
+    reconfigure = getattr(_stream, "reconfigure", None)
+    if reconfigure is not None:
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (ValueError, OSError):
+            # 流已被替换或不支持重配置时保持原样, 不影响功能.
+            pass
+
 _prefix = "balatro"
 
 
