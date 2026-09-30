@@ -1,27 +1,27 @@
+# 跨平台的 python 调用方式: Windows 上是 python, 其余平台是 python3
+python := if os_family() == "windows" { "python" } else { "python3" }
+
 [private]
 default:
     @just --list
 
-alias dist := package-macos
+# 打包 macOS 应用包, 用法: just macos dist
+mod macos
 
-# 跨平台的 python 调用方式: Windows 上是 python, 其余平台是 python3
-python := if os_family() == "windows" { "python" } else { "python3" }
+# 打包 Android 安装包, 用法: just android dist
+mod android
 
-# 把 game/ 中的游戏资源打包为 dist/macos/Balatro.app, 默认使用 assets/icon.png 作为图标.
-package-macos:
+# 根据当前平台生成发布产物, 等价于对应平台模块的 dist.
+# 需要指定平台时用 just macos dist / just android dist.
+[macos]
+dist:
     {{ python }} scripts/package_macos.py
 
-# 用指定 png 作为应用图标打包, 例如: just package-macos-icon icon.png
-package-macos-icon icon:
-    {{ python }} scripts/package_macos.py --icon {{ icon }}
-
-# 打包时不使用自定义图标, 沿用 LÖVE 自带的图标.
-package-macos-default-icon:
-    {{ python }} scripts/package_macos.py --no-icon
-
-# 打包 Android 安装包, 产出 dist/android/Balatro-<版本>.apk.
-package-android:
-    {{ python }} scripts/package_android.py
+[linux]
+dist:
+    @echo "Linux 没有 LÖVE 官方运行时归档, 本仓库不为该平台打包." >&2
+    @echo "想在 Linux 上验证代码, 可自行安装 LÖVE 后运行 game/ 目录." >&2
+    @exit 1
 
 # 用 LuaJIT 校验 game/ 下所有 lua 脚本的语法.
 check-lua:
