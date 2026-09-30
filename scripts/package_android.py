@@ -183,6 +183,9 @@ def main():
 
     log.info("游戏版本 %s, 版本号 %d, 包名 %s" % (version, version_code, package_name))
 
+    # CI 里别名来自 secret, 未配置时会传空字符串, 因此空值需要回退到默认值.
+    key_alias = args.key_alias or KEYSTORE_DEFAULT_ALIAS
+
     runtime_apk = runtime.require("android")
     build_tools = find_build_tools()
     zipalign = tool(build_tools, "zipalign")
@@ -228,16 +231,16 @@ def main():
         aligned = os.path.join(work_dir, "aligned.apk")
         log.run([zipalign, "-f", "-p", "4", out_apk, aligned], quiet=True)
 
-        keystore = args.keystore or os.path.join(out_dir, "%s.keystore" % args.key_alias)
+        keystore = args.keystore or os.path.join(out_dir, "%s.keystore" % key_alias)
         if not os.path.isfile(keystore):
-            generate_keystore(keystore, args.key_alias, store_pass, key_pass, layout.APP_NAME)
+            generate_keystore(keystore, key_alias, store_pass, key_pass, layout.APP_NAME)
 
         apk_out = os.path.join(out_dir, "%s-%s.apk" % (layout.APP_NAME, version))
         log.info("签名")
         log.run([apksigner, "sign", "--ks", keystore,
                  "--ks-pass", "pass:%s" % store_pass,
                  "--key-pass", "pass:%s" % key_pass,
-                 "--ks-key-alias", args.key_alias,
+                 "--ks-key-alias", key_alias,
                  "--v1-signing-enabled", "true",
                  "--v2-signing-enabled", "true",
                  # 关闭 v4 以免额外产生 .idsig 文件, 安装并不需要它.

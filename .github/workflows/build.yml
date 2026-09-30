@@ -153,14 +153,24 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - uses: android-actions/setup-android@v3
-
-      - name: 安装 build-tools
+      - name: 确认 Android SDK
         shell: bash
         run: |
           set -euo pipefail
-          yes | sdkmanager --licenses >/dev/null 2>&1 || true
-          sdkmanager "build-tools;35.0.0"
+          # runner 镜像已预装 Android SDK 与多个版本的 build-tools, 因此不安装任何组件.
+          # 尤其不要用 android-actions/setup-android: 它默认要装 "tools" 包, 而该包已从
+          # SDK 仓库移除, 会让 action 自身以非零退出的方式失败.
+          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          if [ ! -d "$sdk/build-tools" ]; then
+            echo "::error::$sdk 下没有 build-tools"
+            ls -la "$sdk" || true
+            exit 1
+          fi
+          echo "ANDROID_HOME=$sdk" >> "$GITHUB_ENV"
+          bt="$(find "$sdk/build-tools" -maxdepth 1 -mindepth 1 -type d | sort -V | tail -1)"
+          echo "使用 build-tools: $(basename "$bt")"
+          test -x "$bt/apksigner" || { echo "::error::缺少 apksigner"; exit 1; }
+          test -x "$bt/zipalign" || { echo "::error::缺少 zipalign"; exit 1; }
 
       - name: 写入签名密钥
         shell: bash
