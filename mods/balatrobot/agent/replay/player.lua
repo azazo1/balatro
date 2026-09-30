@@ -1,0 +1,529 @@
+--[[
+回放: 用临时存档恢复原局开局时的进度, 以同一个种子开局, 再按顺序重做每一步操作. 游戏照常运行,
+画面, 动画和声音都由游戏自己产生, 录制照常进行. 由 BALATROBOT_REPLAY=<回放文件> 开启,
+用 just macos replay 启动.
+
+节奏 (BALATROBOT_REPLAY_PACING):
+- tight: 上一步完成且动画停下后, 稍等 TIGHT_GAP 秒就做下一步, 去掉原局里 agent 思考的时间.
+  讲解 (notify) 仍按阅读时长等.
+- original: 按原局里两步之间的实际间隔回放, 包括思考的时间; 动画没停时也会等它停下.
+
+弹窗不会一出现就关:
+- 解锁通知: 停留 UNLOCK_HOLD 秒后点继续 (original 节奏下取原局的停留时长, 至少 UNLOCK_HOLD).
+  原局里有 continue 但回放时没弹出, 跳过这一步; 回放时多出的解锁通知同样停留后关掉.
+- 胜利界面: Jimbo 出现后再停 WIN_HOLD 秒, 然后按原局的选择 (endless 或 menu) 继续.
+
+每步完成后比对状态摘要, 不一致时在 VERIFY_WINDOW 秒内反复确认, 仍不一致就停止回放, 录像保留到这里.
+回放期间锁定输入, 按住 Esc 1 秒中止. 回放完成退出码为 0, 跑偏为 1, 中止为 2, 文件无法回放为 3.
+]]
+
+local json = require("json")
+
+local LOGGER = "BB.AGENT.REPLAY"
+
+local M = {
+  active = false,
+  status = "off",
+}
+
+local function env_number(name, default)
+  local value = tonumber(os.getenv(name) or "")
+  return value and value >= 0 and value or default
+end
+
+local cfg = {
+  pacing = "tight",
+  tight_gap = 0.35, -- tight 节奏下动画停下后再等的秒数
+  settle_max = 12, -- 等动画停下的上限
+  unlock_hold = 2.5, -- 解锁通知的停留秒数
+  win_hold = 3, -- 胜利界面 Jimbo 出现后的停留秒数
+  end_hold = 3, -- 最后一步之后的停留秒数
+  continue_grace = 3, -- 原局有 continue 时等解锁通知出现的上限
+  overlay_grace = 8, -- 等胜利界面出现, 或意外弹窗消失的上限
+  verify_window = 2, -- 摘要不一致时反复确认的时长
+}
+
+local deps = {} -- dispatcher, activity, overlay, gamestate, recorder, toast, format, snapshot, input_lock, game_version, mod_version
+local data = nil -- 回放文件内容
+local st = {} -- 回放进度
+
+local function now()
+  return love.timer.getTime()
+end
+
+local function copy(value)
+  if type(value) ~= "table" then
+    return value
+  end
+  local out = {}
+  for k, v in pairs(value) do
+    out[k] = copy(v)
+  end
+  return out
+end
+
+local function set_phase(phase)
+  st.phase = phase
+  st.phase_at = now()
+end
+
+local function toast(title, text, duration)
+  if deps.toast then
+    deps.toast.push(title, text, duration)
+  end
+end
+
+local function quit_later(code, hold)
+  st.exit_code = code
+  st.quit_at = now() + (hold or cfg.end_hold)
+  set_phase("ending")
+end
+
+local function update_status()
+  local total = data and #data.actions or 0
+  if st.phase == "run" or st.phase == "verify" then
+    M.status = string.format("replaying %d/%d (%s)", math.min(st.index, total), total, cfg.pacing)
+  else
+    M.status = "replay " .. tostring(st.phase)
+  end
+end
+
+--- 回放跑偏或无法继续: 停止操作, 停留一会儿后退出, 录像保留到这里.
+---@param detail string
+---@param index integer? 出错的步骤, 默认为当前步骤
+local function diverge(detail, index)
+  index = index or st.index
+  local action = data and data.actions[index]
+  local where = action and string.format("第 %d 步 %s", index, action.method) or "开局"
+  sendErrorMessage(string.format("Replay diverged at step %d (%s): %s", index or 0, action and action.method or "start", detail), LOGGER)
+  toast("回放中止", where .. ": " .. detail, 6)
+  deps.recorder.annotate("replay", {
+    source = data and data.source,
+    pacing = cfg.pacing,
+    ok = false,
+    step = index,
+    method = action and action.method,
+    detail = detail,
+  })
+  quit_later(1, 6)
+end
+
+---@param method string
+---@param params table?
+---@param reason string?
+---@param synthetic boolean?
+local function dispatch(method, params, reason, synthetic)
+  local request_params = copy(params or {})
+  if reason then
+    request_params.reason = reason
+  end
+  st.request_id = (st.request_id or 0) + 1
+  st.waiting = { method = method, sent = now(), synthetic = synthetic }
+  st.result = nil
+  deps.dispatcher.dispatch({ jsonrpc = "2.0", method = method, params = request_params, id = st.request_id })
+end
+
+--- 这一步之前要不要再等: 动画没停, 或者 original 节奏下原局间隔还没到.
+---@param action table
+---@param t number
+---@return boolean ready
+local function gap_ready(action, t)
+  if t - st.prev_done > cfg.settle_max then
+    return true
+  end
+  if deps.recorder.animating() then
+    return false
+  end
+  if cfg.pacing == "original" then
+    return t - st.prev_done >= deps.format.original_gap(action, st.reference)
+  end
+  return t - st.last_busy >= cfg.tight_gap and t - st.prev_done >= cfg.tight_gap
+end
+
+--- 解锁通知已停留够了没有.
+---@param action table? 下一步 (是 continue 时按原局的停留时长)
+---@param t number
+local function unlock_ready(action, t)
+  local hold = cfg.unlock_hold
+  if cfg.pacing == "original" and action and action.method == "continue" then
+    hold = math.max(hold, deps.format.original_gap(action, st.reference))
+  end
+  return t - st.overlay_since >= hold
+end
+
+local function run_action(action)
+  if st.index == #data.actions then
+    -- 最后一步常是 menu, 它会先结束录制; 先记下结果, 这一步跑偏时 diverge 会覆盖.
+    deps.recorder.annotate("replay", { source = data.source, pacing = cfg.pacing, ok = true, steps = #data.actions })
+  end
+  dispatch(action.method, action.params, action.reason, false)
+  st.running = action
+end
+
+--- 最后一步之后: 停留一会儿再退出. 胜利界面停得久一些.
+local function finish_replay()
+  sendInfoMessage(string.format("Replay finished: %d actions", #data.actions), LOGGER)
+  deps.recorder.annotate("replay", { source = data.source, pacing = cfg.pacing, ok = true, steps = #data.actions })
+  -- 已经回到主菜单时录制已结束, 不用再停.
+  local hold = deps.recorder.current() and cfg.end_hold or 0.5
+  if deps.overlay.kind() == "win" or G.STATE == G.STATES.GAME_OVER then
+    hold = hold + cfg.win_hold
+  end
+  quit_later(0, hold)
+end
+
+--- 处理一步的响应.
+local function handle_result(t)
+  local result = st.result
+  local waiting = st.waiting
+  st.result = nil
+  st.waiting = nil
+  st.prev_done = t
+  if waiting.synthetic then
+    return
+  end
+  local action = st.running
+  st.running = nil
+  st.reference = action.wall_end or action.wall or st.reference
+
+  if action.ok == true and not result.ok then
+    diverge("原局成功, 回放失败: " .. tostring(result.error))
+    return
+  end
+  if action.digest and result.ok then
+    local response = result.response
+    local overlay = type(response) == "table" and response.overlay or deps.overlay.kind()
+    if not deps.format.comparable(overlay) then
+      -- 回放时这一步弹出了原局没有的解锁通知: 等通知关掉再比, 关通知不改变状态.
+      st.deferred = { action = action, index = st.index }
+    else
+      local digest = type(response) == "table" and response.state ~= nil and deps.format.digest(response)
+        or deps.format.digest(deps.gamestate.get_gamestate())
+      local diff = deps.format.diff(action.digest, digest)
+      if diff then
+        st.verify = { action = action, index = st.index, since = t, diff = diff, advance = true }
+        set_phase("verify")
+        return
+      end
+    end
+  end
+  st.index = st.index + 1
+end
+
+--- 摘要不一致: 动画中金钱等数值可能晚一帧, 在 verify_window 内反复确认.
+local function verify_tick(t)
+  local v = st.verify
+  local diff = deps.format.diff(v.action.digest, deps.format.digest(deps.gamestate.get_gamestate()))
+  if not diff then
+    st.verify = nil
+    if v.advance then
+      st.index = st.index + 1
+    end
+    set_phase("run")
+    return
+  end
+  v.diff = diff
+  if t - v.since >= cfg.verify_window then
+    st.verify = nil
+    diverge("状态不一致: " .. diff, v.index)
+  end
+end
+
+local function run_tick(t)
+  if st.waiting then
+    if st.result then
+      handle_result(t)
+      return
+    end
+    local limit = st.waiting.synthetic and 30 or deps.format.timeout(st.running or {}, 20, 180)
+    if t - st.waiting.sent > limit then
+      diverge(string.format("等待 %s 的响应超过 %d 秒", st.waiting.method, limit))
+    end
+    return
+  end
+
+  local kind = deps.overlay.kind()
+  if kind ~= st.overlay_kind then
+    st.overlay_kind = kind
+    st.overlay_since = t
+  end
+  local action = data.actions[st.index]
+
+  if kind == "unlock" then
+    if not unlock_ready(action, t) then
+      return
+    end
+    if action and action.method == "continue" then
+      run_action(action)
+    else
+      dispatch("continue", nil, nil, true)
+    end
+    return
+  end
+
+  if kind == "win" then
+    if not deps.overlay.win_settled() then
+      st.overlay_since = t
+      return
+    end
+    if t - st.overlay_since < cfg.win_hold then
+      return
+    end
+    if not action then
+      finish_replay()
+      return
+    end
+    if cfg.pacing == "original" and t - st.prev_done < deps.format.original_gap(action, st.reference) then
+      return
+    end
+    run_action(action)
+    return
+  end
+
+  if kind == "other" then
+    if t - st.overlay_since > cfg.overlay_grace then
+      diverge("出现了原局没有的弹窗")
+    end
+    return
+  end
+
+  -- 被解锁通知推迟的比对, 通知关掉后补上.
+  if st.deferred then
+    local deferred = st.deferred
+    st.deferred = nil
+    st.verify = { action = deferred.action, index = deferred.index, since = t, advance = false }
+    set_phase("verify")
+    return
+  end
+
+  if not action then
+    finish_replay()
+    return
+  end
+
+  -- 原局里失败的操作不重做, 它的耗时算进下一步的间隔.
+  if not deps.format.should_run(action) then
+    st.index = st.index + 1
+    return
+  end
+
+  -- 原局里关解锁通知的 continue, 回放时通知没弹出就跳过.
+  if action.method == "continue" then
+    if t - st.prev_done < cfg.continue_grace then
+      return
+    end
+    st.reference = action.wall_end or action.wall or st.reference
+    st.index = st.index + 1
+    return
+  end
+
+  -- 原局在胜利界面上选的无尽模式, 回放时等胜利界面出现.
+  if action.method == "endless" then
+    if t - st.prev_done > cfg.overlay_grace then
+      diverge("没有出现胜利界面")
+    end
+    return
+  end
+
+  -- 游戏结束界面暂停了游戏, 动画判定一直是停下; 先让观众看一会儿再回主菜单.
+  if G.STATE == G.STATES.GAME_OVER and t - st.prev_done < cfg.win_hold then
+    return
+  end
+
+  if gap_ready(action, t) then
+    run_action(action)
+  end
+end
+
+---@param options table
+function M.init_early(options)
+  deps = options
+  local path = os.getenv("BALATROBOT_REPLAY")
+  if not path or path == "" then
+    return
+  end
+  M.active = true
+  st = { phase = "boot", phase_at = now(), index = 1, prev_done = now(), last_busy = now(), reference = 0 }
+
+  local pacing = os.getenv("BALATROBOT_REPLAY_PACING")
+  if pacing == "tight" or pacing == "original" then
+    cfg.pacing = pacing
+  end
+  cfg.unlock_hold = env_number("BALATROBOT_REPLAY_UNLOCK_HOLD", cfg.unlock_hold)
+  cfg.win_hold = env_number("BALATROBOT_REPLAY_WIN_HOLD", cfg.win_hold)
+  cfg.end_hold = env_number("BALATROBOT_REPLAY_END_HOLD", cfg.end_hold)
+  cfg.tight_gap = env_number("BALATROBOT_REPLAY_GAP", cfg.tight_gap)
+
+  local file = io.open(path, "rb")
+  local text = file and file:read("*a")
+  if file then
+    file:close()
+  end
+  local ok, decoded = pcall(json.decode, text or "")
+  local problem
+  if not text then
+    problem = "读不到回放文件 " .. path
+  elseif not ok or type(decoded) ~= "table" or type(decoded.actions) ~= "table" or type(decoded.run) ~= "table" then
+    problem = "回放文件格式不对"
+  elseif decoded.version ~= deps.format.VERSION then
+    problem = string.format("回放文件版本 %s, 当前只支持 %d", tostring(decoded.version), deps.format.VERSION)
+  elseif decoded.run.challenge then
+    problem = "挑战模式的局不支持回放"
+  elseif not decoded.run.resumed and not (decoded.run.deck and decoded.run.stake and decoded.run.seed) then
+    problem = "只支持原版牌组的局"
+  end
+  if problem then
+    sendErrorMessage("Replay unavailable: " .. problem, LOGGER)
+    st.problem = problem
+    data = nil
+  else
+    data = decoded
+    sendInfoMessage(
+      string.format("Replay loaded: %s, %d actions, pacing %s", path, #data.actions, cfg.pacing),
+      LOGGER
+    )
+  end
+
+  -- 原局没有指定种子时, 回放用同一个种子开局后把 seeded 改回去: 它影响解锁, 发现与界面上的种子框.
+  local start_run = Game.start_run
+  function Game:start_run(args) ---@diagnostic disable-line: duplicate-set-field
+    start_run(self, args)
+    if data and st.phase == "starting" and not data.run.resumed and G.GAME then
+      G.GAME.seeded = data.run.seeded and true or false
+    end
+  end
+
+  deps.activity.on("response", function(method, ok, message, response)
+    if st.waiting and st.waiting.method == method and not st.result then
+      st.result = { ok = ok, error = message, response = response }
+    end
+  end)
+  update_status()
+end
+
+--- 装在其它输入钩子之外, 必须在录制与回放文件初始化之后调用.
+function M.init_late()
+  if M.active then
+    deps.input_lock.install()
+  end
+end
+
+--- 回放开始前的提示 (仅回放模式): 局里有手动操作, 版本不一致等.
+local function warnings()
+  local list = {}
+  local manual = data.manual_inputs or 0
+  if manual > 0 then
+    list[#list + 1] = string.format(
+      "原局里有 %d 次手动操作, 回放只重做 agent 的操作和弹窗上的选择, 结果可能与原局不同",
+      manual
+    )
+  end
+  if data.game_version ~= deps.game_version or data.mod_version ~= deps.mod_version then
+    list[#list + 1] = string.format(
+      "原局版本 %s / %s, 当前 %s / %s, 结果可能不同",
+      tostring(data.game_version),
+      tostring(data.mod_version),
+      tostring(deps.game_version),
+      tostring(deps.mod_version)
+    )
+  end
+  return list
+end
+
+local function start_run_request()
+  local run = data.run
+  -- 先切阶段: start_run 钩子据此判断这次开局是回放发起的.
+  set_phase("starting")
+  if run.resumed then
+    -- 读档开局: 存档写进临时存档目录, 走 load 方法.
+    local name = "replay_resume.jkr"
+    love.filesystem.write(name, run.save)
+    dispatch("load", { path = love.filesystem.getSaveDirectory() .. "/" .. name }, nil, false)
+  else
+    dispatch("start", { deck = run.deck, stake = run.stake, seed = run.seed }, nil, false)
+  end
+end
+
+function M.update()
+  if not M.active then
+    return
+  end
+  local t = now()
+  if deps.input_lock.abort_requested() and st.phase ~= "ending" and st.phase ~= "quit" then
+    sendWarnMessage("Replay aborted by user (Esc)", LOGGER)
+    toast("回放中止", "按住 Esc 中止了回放", 3)
+    deps.recorder.annotate("replay", { source = data and data.source, pacing = cfg.pacing, ok = false, aborted = true, step = st.index })
+    quit_later(2, 1)
+  end
+  if deps.recorder.animating() then
+    st.last_busy = t
+  end
+
+  local phase = st.phase
+  if phase == "boot" then
+    -- 等主菜单. 临时存档里积压的解锁通知直接关掉, 这时还没开始录制.
+    if deps.overlay.kind() == "unlock" then
+      G.FUNCS.continue_unlock()
+      return
+    end
+    if G.STATE == G.STATES.MENU and G.MAIN_MENU_UI and not G.OVERLAY_MENU and t - st.phase_at > 1 then
+      if st.problem then
+        toast("无法回放", st.problem, 6)
+        quit_later(3, 6)
+        return
+      end
+      local ok, result = pcall(deps.snapshot.apply, data.snapshot)
+      if not ok then
+        st.problem = "恢复存档进度失败: " .. tostring(result)
+        sendErrorMessage(st.problem, LOGGER)
+        toast("无法回放", st.problem, 6)
+        quit_later(3, 6)
+        return
+      end
+      local list = warnings()
+      for _, text in ipairs(result or {}) do
+        list[#list + 1] = text
+      end
+      st.warn_until = t
+      for _, text in ipairs(list) do
+        sendWarnMessage("Replay warning: " .. text, LOGGER)
+        toast("回放警告", text)
+        st.warn_until = st.warn_until + deps.toast.duration_for(text) + 0.5
+      end
+      set_phase("warn")
+    end
+  elseif phase == "warn" then
+    if t >= st.warn_until then
+      start_run_request()
+    end
+  elseif phase == "starting" then
+    if st.result then
+      local result = st.result
+      st.result, st.waiting = nil, nil
+      if not result.ok then
+        diverge("开局失败: " .. tostring(result.error))
+        return
+      end
+      deps.recorder.annotate("replay", { source = data.source, pacing = cfg.pacing })
+      -- 第一步的参照点是原局里开局请求完成的时间.
+      st.reference = data.run.start_end or 0
+      st.prev_done = t
+      set_phase("run")
+    elseif t - st.phase_at > 60 then
+      diverge("开局超过 60 秒没有完成")
+    end
+  elseif phase == "run" then
+    run_tick(t)
+  elseif phase == "verify" then
+    verify_tick(t)
+  elseif phase == "ending" then
+    if t >= st.quit_at then
+      set_phase("quit")
+      deps.input_lock.release()
+      love.event.quit(st.exit_code or 0)
+    end
+  end
+  update_status()
+end
+
+return M

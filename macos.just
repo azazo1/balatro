@@ -41,6 +41,33 @@ run-agent record="on" fast="0": dist-modded
     echo "游戏日志: $log"
     dist/macos/Balatro-Modded.app/Contents/MacOS/love 2>&1 | tee "$log"
 
+# just macos replay recordings/<stem>.replay.json [tight|original]
+# 按回放文件重玩一局并录制到 recordings/replay-*, 使用临时存档 Balatro-Replay, 期间锁定输入, 按住 Esc 1 秒中止.
+replay file pacing="tight": dist-modded
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case {{ quote(pacing) }} in
+        tight|original) ;;
+        *) echo "pacing 只能是 tight 或 original, 收到: {{ pacing }}" >&2; exit 2 ;;
+    esac
+    file={{ quote(file) }}
+    case "$file" in
+        /*) ;;
+        *) file={{ quote(invocation_directory()) }}/"$file" ;;
+    esac
+    if [ ! -f "$file" ]; then
+        echo "找不到回放文件: $file" >&2
+        exit 2
+    fi
+    mkdir -p recordings
+    export BALATROBOT_ENABLE=1 BALATRO_SAVE_IDENTITY=Balatro-Replay
+    export BALATROBOT_REPLAY="$file" BALATROBOT_REPLAY_PACING={{ quote(pacing) }}
+    export BALATROBOT_RECORD=on BALATROBOT_RECORD_DIR="$PWD/recordings" BALATROBOT_RECORD_PREFIX=replay-
+    log="recordings/replay-$(date +%Y%m%d-%H%M%S)-game.log"
+    echo "游戏日志: $log"
+    # 退出码: 0 回放完成, 1 跑偏, 2 中止, 3 文件无法回放
+    dist/macos/Balatro-Modded.app/Contents/MacOS/love 2>&1 | tee "$log"
+
 # 用指定 png 作为应用图标打包, 例如: just macos icon 图标.png
 icon path:
     {{ python }} scripts/package_macos.py --icon {{ path }}

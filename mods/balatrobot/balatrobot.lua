@@ -10,6 +10,7 @@ BalatroBot 入口, 由本仓库在 upstream v1.5.2 的基础上改写. 本仓库
 - 弹窗 (解锁通知, 胜利界面等) 打开时拦截操作, 等待中的请求先返回, 见 agent/overlay.lua.
   解锁通知用 continue 关掉, 胜利后用 endless 进入无尽模式.
 - BALATROBOT_RECORD=on 时按局录制完整版与剪辑版视频 (带声音) 和时间线 JSON, 见 agent/record/recorder.lua.
+  同时写回放文件 <stem>.replay.json; BALATROBOT_REPLAY=<回放文件> 时按它重玩一局, 见 agent/replay/.
 ]]
 
 local MOD = SMODS.current_mod
@@ -107,7 +108,48 @@ BB_ACTIVITY.on("message", function(title, text, duration, source)
   end
 end)
 
+-- 回放文件记录的版本: 打包时的构建版本 (含提交哈希) 与 mod 版本, 回放时不一致会提示.
+local manifest_ok, manifest = pcall(require, "lovely_shim.manifest")
+local GAME_VERSION = manifest_ok and type(manifest) == "table" and manifest.build_version or VERSION
+local MOD_VERSION = MOD.version .. " / smods " .. tostring(SMODS.version)
+local REPLAY_FORMAT = assert(SMODS.load_file("agent/replay/format.lua"))()
+local REPLAY_SNAPSHOT = assert(SMODS.load_file("agent/replay/snapshot.lua"))()
+BB_REPLAY = assert(SMODS.load_file("agent/replay/player.lua"))()
+
+-- 顺序: 回放的 start_run 钩子要在录制之内 (先改好 seeded 再开始录制);
+-- 回放文件的钩子在录制之外 (开局前取存档进度); 输入锁在所有输入钩子之外.
+BB_REPLAY.init_early({
+  dispatcher = BB_DISPATCHER,
+  activity = BB_ACTIVITY,
+  overlay = BB_OVERLAY,
+  gamestate = BB_GAMESTATE,
+  recorder = BB_RECORDER,
+  toast = BB_TOAST,
+  format = REPLAY_FORMAT,
+  snapshot = REPLAY_SNAPSHOT,
+  input_lock = assert(SMODS.load_file("agent/replay/input_lock.lua"))(),
+  game_version = GAME_VERSION,
+  mod_version = MOD_VERSION,
+})
 BB_RECORDER.init({ activity = BB_ACTIVITY, toast = BB_TOAST, mod_path = MOD.path })
+-- 回放文件与录像同名, 只在录制时写; 回放本身不再写回放文件.
+if BB_RECORDER.enabled and not BB_REPLAY.active then
+  BB_REPLAY_LOG = assert(SMODS.load_file("agent/replay/log.lua"))()
+  BB_REPLAY_LOG.init({
+    activity = BB_ACTIVITY,
+    recorder = BB_RECORDER,
+    overlay = BB_OVERLAY,
+    format = REPLAY_FORMAT,
+    snapshot = REPLAY_SNAPSHOT,
+    game_version = GAME_VERSION,
+    mod_version = MOD_VERSION,
+  })
+end
+BB_REPLAY.init_late()
+if BB_REPLAY.active then
+  -- 讲解是回放的一部分, 不受 Config 里 "Show Agent Messages" 的影响 (只改内存, 不写回配置).
+  BB_TOAST.enabled = true
+end
 
 BB_AGENT = {
   address = string.format("http://%s:%d", BB_SERVER.host, BB_SERVER.port),
@@ -151,6 +193,10 @@ love.update = function(dt) ---@diagnostic disable-line: duplicate-set-field
   love_update(dt)
   BB_SERVER.update(BB_DISPATCHER)
   BB_OVERLAY.update()
+  BB_REPLAY.update()
+  if BB_REPLAY_LOG then
+    BB_REPLAY_LOG.update()
+  end
   -- fast/headless 模式下传进来的 dt 是固定步长, 通知停留时间按墙钟算.
   BB_TOAST.update(love.timer.getDelta())
   BB_RECORDER.update()
@@ -201,11 +247,16 @@ MOD.config_tab = function()
         end,
       }),
       text_row({ label("Recording: "), live_label(BB_RECORDER, "status") }),
+      text_row({ label("Replay: "), live_label(BB_REPLAY, "status") }),
     },
   }
 end
 
-if env_enabled or MOD.config.enabled then
+-- 回放时不开端口, 只有回放驱动在操作游戏.
+if BB_REPLAY.active then
+  BB_AGENT.status = "off (replaying)"
+  sendInfoMessage("Replay mode: agent API not started", LOGGER)
+elseif env_enabled or MOD.config.enabled then
   BB_AGENT.set_enabled(true)
 end
 

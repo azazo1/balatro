@@ -17,6 +17,7 @@
 - BALATROBOT_RECORD_HEIGHT  默认 720, 宽度按窗口比例, 取偶数
 - BALATROBOT_RECORD_PRE     剪辑版在每次活动前保留的秒数, 默认 0.6
 - BALATROBOT_RECORD_POST    剪辑版在动画停下后保留的秒数, 默认 0.8
+- BALATROBOT_RECORD_PREFIX  输出文件名前缀, 默认为空, 回放时为 replay-
 - BALATROBOT_FFMPEG         ffmpeg 路径, 默认在 PATH, /opt/homebrew/bin, /usr/local/bin 中查找
 - BALATROBOT_RECORD_CODEC   videotoolbox 或 x264, 默认 ffmpeg 支持时用 videotoolbox (macOS 硬件编码)
                             x264 画质体积比更好, 但与游戏争抢 CPU, 动画多时游戏会掉帧
@@ -372,7 +373,7 @@ end
 local function start_session(resumed)
   local game = G.GAME or {}
   local seed = game.pseudorandom and game.pseudorandom.seed or "noseed"
-  local stem = os.date("%Y%m%d-%H%M%S") .. "-" .. tostring(seed):gsub("[^%w%-_]", "")
+  local stem = cfg.prefix .. os.date("%Y%m%d-%H%M%S") .. "-" .. tostring(seed):gsub("[^%w%-_]", "")
   local base = cfg.dir .. "/" .. stem
 
   local sw, sh = love.graphics.getPixelDimensions()
@@ -582,6 +583,25 @@ end
 
 local ENABLE_VALUES = { on = true, ["1"] = true, ["true"] = true, yes = true }
 
+--- 画面是否还在动, 回放的 tight 节奏据此等动画停下.
+M.animating = animating
+
+--- 正在录制的一局: stem, base (不含扩展名的输出路径), started (love.timer 时间). 没有时为 nil.
+---@return {stem: string, base: string, started: number}?
+function M.current()
+  local s = session
+  return s and { stem = s.stem, base = s.base, started = s.started } or nil
+end
+
+--- 给正在录制的一局的时间线加一个顶层字段.
+---@param key string
+---@param value any
+function M.annotate(key, value)
+  if session then
+    session.timeline:set(key, value)
+  end
+end
+
 ---@param options {activity: table, toast: table, mod_path: string}
 function M.init(options)
   deps = options
@@ -605,6 +625,8 @@ function M.init(options)
   cfg.height = math.floor(env_number("BALATROBOT_RECORD_HEIGHT", 720))
   cfg.pre = env_number("BALATROBOT_RECORD_PRE", 0.6)
   cfg.post = env_number("BALATROBOT_RECORD_POST", 0.8)
+  -- 文件名前缀, 回放时为 "replay-", 与原局的录像区分.
+  cfg.prefix = (os.getenv("BALATROBOT_RECORD_PREFIX") or ""):gsub("[^%w%-_]", "")
   local dir = os.getenv("BALATROBOT_RECORD_DIR")
   cfg.dir = (dir and dir ~= "") and dir:gsub("/+$", "") or (love.filesystem.getSaveDirectory() .. "/recordings")
   local created, err = SMODS.NFS.createDirectory(cfg.dir)

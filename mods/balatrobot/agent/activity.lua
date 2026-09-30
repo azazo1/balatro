@@ -6,7 +6,7 @@ agent 请求的活动追踪. 包装 upstream 的 dispatch 与 send_response, 不
 
 事件 (M.on 订阅):
 - request(method, params, reason)
-- response(method, ok, error_message)
+- response(method, ok, error_message, response): response 为端点返回的原表
 - message(title, text, duration, source): source 为 "reason" (请求附带) 或 "notify"
 ]]
 
@@ -89,7 +89,7 @@ function M.install(dispatcher, server)
       M.inflight = nil
       M.last_response = love.timer.getTime()
       local is_error = type(response) == "table" and response.message ~= nil
-      M.emit("response", inflight.method, not is_error, is_error and response.message or nil)
+      M.emit("response", inflight.method, not is_error, is_error and response.message or nil, response)
     end
     return sent
   end

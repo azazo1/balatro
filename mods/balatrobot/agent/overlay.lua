@@ -89,6 +89,7 @@ local function win_settled()
   local jimbo = spot and spot.config.object
   return jimbo ~= nil and type(jimbo.is) == "function" and jimbo:is(Card_Character)
 end
+M.win_settled = win_settled
 
 --- 让请求以当前状态先返回, 原请求留在后台.
 ---@param request table

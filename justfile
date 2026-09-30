@@ -54,9 +54,10 @@ check-scripts:
 test-scripts:
     {{ python }} -m unittest discover -s scripts/tests -t scripts
 
-# 用 LuaJIT 运行 agent mod 的纯逻辑单元测试 (录制剪辑点, 消息截断与阅读时长).
+# 用 LuaJIT 运行 agent mod 的纯逻辑单元测试 (录制剪辑点, 消息截断与阅读时长, 回放摘要与节奏).
 test-agent:
     luajit scripts/tests/lua/agent_record_test.lua
+    luajit scripts/tests/lua/agent_replay_test.lua
 
 # just mods-check [mod 目录]
 # 检查 mod 补丁在当前游戏版本上的命中情况, 不产出文件.
