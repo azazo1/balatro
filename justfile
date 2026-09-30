@@ -50,6 +50,14 @@ check-lua:
 check-scripts:
     {{ python }} -m compileall -q scripts
 
+# 从游戏源码生成静态卡牌目录, 不运行游戏或访问存档.
+game-docs:
+    luajit scripts/gen-card-docs.lua
+
+# 校验游戏手册的覆盖率, 原型定位与本地链接.
+check-game-docs:
+    {{ python }} scripts/check-game-docs.py
+
 # 删除打包产物 dist/.
 clean:
     {{ python }} -c "import shutil; shutil.rmtree('dist', ignore_errors=True)"
