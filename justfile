@@ -16,6 +16,19 @@ package-macos-icon icon:
 package-macos-default-icon:
     scripts/package-macos.sh
 
+# 把 game/ 装进官方 LÖVE Android 运行时并签名, 产出 dist/Balatro-<版本>.apk.
+# 不需要 NDK 与 gradle, 也无需编译原生库.
+package-android:
+    scripts/package-android.sh
+
+# 覆盖包名打包, 例如: just package-android-package com.foo.bar
+package-android-package name:
+    scripts/package-android.sh --package {{ name }}
+
+# 用指定密钥打包, 例如: just package-android-keystore 我的.jks
+package-android-keystore keystore:
+    scripts/package-android.sh --keystore {{ keystore }}
+
 # 用 LuaJIT 校验 game/ 下所有 lua 脚本的语法.
 check-lua:
     #!/usr/bin/env bash

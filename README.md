@@ -31,6 +31,20 @@ just package-macos
 just package-macos-icon icon.png
 ```
 
+打包 Android 安装包:
+
+```shell
+just package-android
+```
+
+产物为 `dist/Balatro-1.0.1n.apk`, 用 `adb install -r <apk>` 安装. 该流程不编译原生代码,
+详见下文的 Android 一节. 覆盖包名或指定密钥:
+
+```shell
+just package-android-package com.foo.bar
+just package-android-keystore 我的.jks
+```
+
 其它 recipe:
 
 ```shell
@@ -131,10 +145,49 @@ PROD_PC_Console
 
 末项用于设置的版本比对, 读取时会与游戏版本比较, 以便在不兼容时迁移.
 
-本仓库未改动以上任何一层, 仅 `game/main.lua` 因移植需要做过修改. 打包参数位于
-`scripts/package-macos.sh` 顶部的常量, 包括应用名, 版本号与运行时校验值.
+本仓库未改动以上任何一层, 仅 `main.lua` 等文件因移植需要做过修改. 打包参数位于
+`scripts/package-macos.sh` 与 `scripts/package-android.sh` 顶部的常量, 包括应用名, 版本号
+与运行时校验值.
+
+## Android 适配说明
+
+Android 版不重新编译原生代码. `vendor/love-11.5-android-embed.apk` 是官方 LÖVE 11.5 的
+embed 模板, 其中已编译好 `liblove.so` (arm64-v8a 与 armeabi-v7a 两套), 打包只需:
+
+1. 把 `game/` 压成 `game.love` 放进 `assets/`;
+2. 改写 `AndroidManifest.xml` 的包名, 应用名, 版本号与屏幕方向;
+3. 替换各密度图标;
+4. 用本地密钥签名.
+
+因此不需要 NDK, 不需要 gradle, 也不需要下载 SDK platform 或 NDK 组件. 只要 Android SDK 里
+有 `build-tools` (提供 `apksigner` 与 `zipalign`) 即可, 脚本会自动定位, 也可用 `ANDROID_HOME`
+指定 SDK 路径.
+
+`AndroidManifest.xml` 是二进制 XML, 其中字符串以 UTF-16 存储, 无法直接文本替换.
+`scripts/patch-manifest.py` 会解析字符串池并按索引替换, 再重建池与内部偏移, 所以新包名与
+原包名长度不同也没问题. 其中 `android:name` 指向的 `org.love2d.android.GameActivity` 是
+Java 类名, 必须保持原样, 只有 `package` 与 provider 的 `authorities` 需要跟着改.
+
+屏幕方向设为 `sensorLandscape`, 即锁定横屏但允许随手机方向左右翻转.
+
+签名密钥默认生成在 `dist/balatro-local.keystore`, 该目录不纳入版本控制. 同一个应用要覆盖
+安装必须用同一个密钥, 换密钥只能先卸载. 注意不要把私钥提交进仓库.
+
+### 与官方移动版的差异
+
+官方 Android 版是另一套构建, 本次打包直接使用 PC 版资源, 因此:
+
+- 触摸操控可用. 相关逻辑本来就在 `engine/controller.lua` 中, 与移动版逐行一致, 包括用
+  长按 (`MIN_HOVER_TIME`) 替代鼠标悬停.
+- 界面按 PC 版布局缩放, 没有移动版专门调整过的默认分辨率与旋转处理.
+- 无 Steam 集成, 成就由本地存档记录.
+
+移植时另有一处必要修改: 在 arm 系列平台关闭 LuaJIT. LÖVE 自身的注释说明, ARM64 上
+LuaJIT 的编译内存范围有限, 被 SDL 等库占用后 JIT 编译会失败且耗时很长, 官方移动版正是
+为此在 Android 上调用 `jit.off()`. 本仓库把这处判断扩展到 `OS X` 与 `Android` 两个平台.
 
 ## 已知情况
 
 - 应用包为 ad-hoc 签名, 已清除隔离属性, 首次打开无需放行操作.
-- 启动验证需要在图形界面中进行, 已在目标机器上人工确认可以正常进入游戏.
+- 启动验证需要在图形界面中进行, macOS 版已在目标机器上人工确认可以正常进入游戏.
+- Android 版尚未在真机上验证.

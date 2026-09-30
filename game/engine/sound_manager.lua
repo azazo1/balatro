@@ -2,7 +2,7 @@ require "love.audio"
 require "love.sound"
 require "love.system"
 
-if (love.system.getOS() == 'OS X' )and (jit.arch == 'arm64' or jit.arch == 'arm') then jit.off() end
+if (love.system.getOS() == 'OS X' or love.system.getOS() == 'Android')and (jit.arch == 'arm64' or jit.arch == 'arm') then jit.off() end
 
 --vars needed for sound manager thread
 CHANNEL = love.thread.getChannel("sound_request")
