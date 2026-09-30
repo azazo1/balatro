@@ -9,6 +9,9 @@
 # 打包输出
 dist/
 
+# agent 录制输出 (just macos record-agent)
+/recordings/
+
 # 本机私密文件, 如 Android 签名密钥, 绝不应入库
 /secrets/
 

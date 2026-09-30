@@ -8,14 +8,31 @@ JSON-RPC 2.0 over HTTP 接口, 外部程序 (agent, 脚本) 可以读取完整�
 
 | 方式 | 做法 | 存档 | 游戏设置 |
 | --- | --- | --- | --- |
-| 终端启动 | `just macos run-agent`, 加速运行用 `just macos run-agent 1` | 独立的 `Balatro-Agent` 目录 | 按 upstream 静音, 加速, 关 CRT, 跳过教程 |
+| 终端启动 | `just macos run-agent`, 加速运行用 `just macos run-agent 1` | 独立的 `Balatro-Agent` 目录 | 跳过教程, 其余沿用存档 |
 | 游戏内开关 | Mods > BalatroBot > Config, 打开 Enable Agent API | 当前存档 | 不改 |
 
 - 游戏内开关可以随时切换, 状态保存在存档目录的 `config/balatrobot.jkr`, 下次启动沿用.
-- 配置页会显示监听地址和状态 (`listening` / `off` / `bind failed`).
+- 配置页会显示监听地址和状态 (`listening` / `off` / `bind failed`), 还有决策消息的开关和录制状态.
 - 终端启动时, 开关界面仍显示存档里保存的值, 实际状态以 Status 为准.
-- 终端启动还支持 upstream 的其他环境变量, 例如 `BALATROBOT_PORT`, `BALATROBOT_HEADLESS`,
-  `BALATROBOT_RENDER_ON_API`, 完整列表见 `mods/balatrobot/src/lua/settings.lua` 文件头.
+- 终端启动时画面, 开场动画, 声音, 游戏速度都沿用存档, 与正常游玩一样. 下面的环境变量只在本次运行
+  生效, 不会写回存档:
+
+| 环境变量 | 作用 |
+| --- | --- |
+| `BALATROBOT_FAST=1` | 10 倍速, 动画 60fps, 不限帧率, 关 vsync (`run-agent 1` 即此项) |
+| `BALATROBOT_HEADLESS=1` | 不显示窗口, 跳过开场动画 |
+| `BALATROBOT_AUDIO=1` | 强制开声音, 不设时沿用存档音量 |
+| `BALATROBOT_GAMESPEED`, `BALATROBOT_FPS_CAP`, `BALATROBOT_ANIMATION_FPS` | 显式设置时覆盖 |
+| `BALATROBOT_PORT`, `BALATROBOT_HOST`, `BALATROBOT_RENDER_ON_API`, `BALATROBOT_NO_SHADERS` | 与 upstream 相同, 见 `mods/balatrobot/src/lua/settings.lua` 文件头 |
+
+启动后游戏先播开场动画, 这时 `gamestate` 返回 `SPLASH`. 开局前等它进入主菜单:
+
+```shell
+just agent-wait          # 默认等 MENU, 最多 60 秒, 超时返回非 0
+just agent-wait MENU 20
+```
+
+自己写 agent 时轮询 `gamestate` 直到 `state` 为 `MENU` 即可.
 
 地址默认是 `http://127.0.0.1:12346`, 只监听本机.
 
@@ -78,8 +95,81 @@ MENU -> BLIND_SELECT -> SELECTING_HAND -> ROUND_EVAL -> SHOP -+
 
 完整的参数和返回结构:
 
-- 调用 `rpc.discover` 取得 OpenRPC 描述, 内容与 `mods/balatrobot/src/lua/utils/openrpc.json` 相同.
+- 调用 `rpc.discover` 取得 OpenRPC 描述, 基于 `mods/balatrobot/src/lua/utils/openrpc.json`, 加上本仓库新增的 `notify` 与 `reason`.
 - upstream 文档: <https://coder.github.io/balatrobot/api/>
+
+## 决策消息
+
+agent 的决策可以以原版成就通知的样式显示在游戏右侧: 黑底灰边, 从屏幕外滑入, 停留几秒后滑出.
+最多同时显示 3 条, 新的在上面. 中文会自动换用带中文字形的字体. 录制时也会录进视频.
+
+- 任意方法的 `params` 里加 `reason` 字符串, 标题显示为方法名, 交给方法前会去掉, 不影响原有参数.
+- `notify {"message", "title"?, "duration"?}` 单独发一条消息, 任何状态都能用. `title` 默认 `Agent`,
+  `duration` 为停留秒数, 默认按长度取 3~8 秒.
+
+```shell
+just agent-call play '{"cards":[0,1,2,3,4],"reason":"凑成顺子, 先出掉"}'
+just agent-call notify '{"message":"商店没有合适的小丑, 直接下一轮","title":"商店"}'
+```
+
+消息最长 200 字符, 超出截断. 不想看消息时在 Config 页关掉 Show Agent Messages.
+
+## 录制
+
+按局录制 mp4 和标记关键时间点的 JSON:
+
+```shell
+just macos record-agent          # skip: 剪掉 agent 思考的等待时间
+just macos record-agent keep     # keep: 保留等待时间, 视频时长等于实际时长
+just macos record-agent skip 1   # 同时 10 倍速
+```
+
+- 一局从开局 (或读档) 开始, 到回主菜单, 开下一局或退出为止. 游戏结束后停留在结算界面的部分也会录.
+- 输出在仓库根目录的 `recordings/`, 文件名为 `<开始时间>-<种子>.mp4/.json`, ffmpeg 的报错在同名 `.ffmpeg.txt`.
+- 等待的判定: agent 没有请求在处理, 上次响应后超过 0.8 秒, 屏幕上也没有决策消息. 只查询状态和截图的
+  请求 (`gamestate`, `health`, `screenshot`, `rpc.discover`) 不算活动.
+- skip 模式只看 agent 的请求, 人手动玩时会被当成等待剪掉, 手动玩请用 keep.
+- 画面与屏幕一致, 包括 CRT 效果和决策消息. 不录声音. fast 模式录到的就是加速后的画面.
+- 需要 ffmpeg, 找不到时只写 JSON. macOS 上默认用 videotoolbox 硬件编码, 对游戏帧率影响很小.
+
+| 环境变量 | 默认 | 作用 |
+| --- | --- | --- |
+| `BALATROBOT_RECORD` | 关闭 | `skip` 或 `keep` |
+| `BALATROBOT_RECORD_DIR` | `<存档目录>/recordings` | 输出目录, `record-agent` 设为 `recordings/` |
+| `BALATROBOT_RECORD_FPS` | 30 | 视频帧率 |
+| `BALATROBOT_RECORD_HEIGHT` | 720 | 视频高度, 宽度按窗口比例 |
+| `BALATROBOT_RECORD_HOLD` | 0.8 | 响应后仍算活动的秒数 |
+| `BALATROBOT_RECORD_CODEC` | 自动 | `videotoolbox` 或 `x264`; x264 更省体积, 但占 CPU, 动画多时游戏会掉帧 |
+| `BALATROBOT_FFMPEG` | 自动查找 | ffmpeg 路径 |
+
+JSON 的时间都是秒, `t` 为视频时间, `wall` 为开局起的实际时间:
+
+```json
+{
+  "version": 1, "mode": "skip", "fps": 30, "size": [1152, 720], "video": "....mp4",
+  "deck": "Red Deck", "stake": 1, "seed": "AGENTREC", "seeded": true, "resumed": false,
+  "result": {"reason": "menu", "won": false, "ante": 1, "round": 1},
+  "duration": {"video": 35.7, "wall": 135.6, "waited": 99.4},
+  "gaps": [{"video_start": 9.567, "video_end": 9.567, "wall_seconds": 43.9}],
+  "events": [
+    {"t": 0, "wall": 0, "kind": "run_start", "resumed": false},
+    {"t": 3.2, "wall": 11.3, "kind": "action", "method": "select", "reason": "选择小盲注", "ok": true, "t_end": 6.9},
+    {"t": 6.9, "wall": 15.1, "kind": "blind", "key": "bl_small", "name": "Small Blind", "round": 1},
+    {"t": 9.6, "wall": 61.8, "kind": "message", "title": "思考", "text": "..."}
+  ]
+}
+```
+
+| 字段 | 含义 |
+| --- | --- |
+| `gaps` | agent 的等待段. skip 模式下 `video_start == video_end`, 是视频里的剪辑点; keep 模式下是视频里的一段 |
+| `duration.waited` | 等待段的实际总时长 |
+| `result.reason` | 结束原因: `menu`, `restart` (开了下一局), `quit` |
+| `action` | agent 的操作, `t_end` 为操作完成的时间, 失败时带 `error` |
+| `message` | `notify` 发的消息 (`reason` 已记在对应的 `action` 里) |
+| `blind` | 进入盲注 |
+| `state` | 进入选盲注, 结算, 商店, 卡包等状态, 带 `ante`, `round`, `money` |
+| `game_over`, `won`, `run_end` | 游戏结束, 打过第 8 底注, 录制结束 |
 
 ## 错误
 
@@ -96,12 +186,17 @@ MENU -> BLIND_SELECT -> SELECTING_HAND -> ROUND_EVAL -> SHOP -+
 
 ## 与 upstream 的区别
 
-改写了入口 `mods/balatrobot/balatrobot.lua`, 新增了 `config.lua`, 另有兼容性修复, 其余文件保持 v1.5.2 原样:
+改写了入口 `mods/balatrobot/balatrobot.lua`, 新增了 `config.lua` 和 `agent/` 目录 (设置, 存档迁移,
+决策消息, 录制), 另有兼容性修复, 其余文件保持 v1.5.2 原样:
 
 - upstream 一加载就开端口并修改游戏设置. 这里改为默认关闭, 由开关或环境变量启用.
 - 游戏内开关只启停 HTTP 服务, 不执行 upstream 的设置调整.
-- 环境变量方式会跳过开场动画. 全新存档此时还没有教程进度, 1.0.1n 进入主菜单会崩溃,
-  入口里提前把教程标记为完成.
+- upstream 的设置调整会跳过开场动画, 关 CRT/bloom/阴影, 静音, 4 倍速, 并写进存档. 这里不再调用它,
+  见上方环境变量表. 存档里 `skip_splash` 为 `Yes` 时 (1.0.1n 没有这个选项, 只可能是早期版本写的),
+  启动时把这些设置恢复为原版默认值.
+- 跳过教程保留: 全新存档里教程进度要等第一帧才创建, 入口里提前把教程标记为完成.
+- `src/lua/settings.lua` 末尾导出了 headless 等函数供 `agent/settings.lua` 调用.
+- 新增 `notify` 方法和各方法的 `reason` 参数, `rpc.discover` 返回的描述里也有.
 - `endpoints/start.lua`: smods 26.x 默认的开局界面不创建 `G.GAME.viewed_back`, upstream
   直接调用它会报错, 改为缺失时创建.
 - upstream 用 lovely 注入并通过自带的 `balatrobot serve` 启动游戏. 本仓库不需要这个 python 包,
@@ -109,7 +204,8 @@ MENU -> BLIND_SELECT -> SELECTING_HAND -> ROUND_EVAL -> SHOP -+
 
 ## 其他平台
 
-Windows 与 Android 的 mod 版也带着这个 mod, 默认关闭, 不影响正常游玩. 这两个平台尚未验证:
+Windows 与 Android 的 mod 版也带着这个 mod, 默认关闭, 不影响正常游玩. 这两个平台尚未验证,
+录制只在 macOS 上实现与验证过:
 
 - Windows: 在游戏内打开开关, 或者设置环境变量 `BALATROBOT_ENABLE=1` 后运行 `Balatro.exe`.
 - Android: 在游戏内打开开关, 再用 `adb forward tcp:12346 tcp:12346` 把端口转发到电脑.

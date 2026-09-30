@@ -54,6 +54,10 @@ check-scripts:
 test-scripts:
     {{ python }} -m unittest discover -s scripts/tests -t scripts
 
+# 用 LuaJIT 运行 agent mod 的纯逻辑单元测试 (录制时钟, 消息截断).
+test-agent:
+    luajit scripts/tests/lua/agent_clock_test.lua
+
 # just mods-check [mod 目录]
 # 检查 mod 补丁在当前游戏版本上的命中情况, 不产出文件.
 mods-check mods="mods":
@@ -68,6 +72,30 @@ mods-tree mods="mods":
 # 调用 mod 版内置的 agent 接口 (需先开启), 输出 JSON-RPC 响应, 见 docs/agent-api.md.
 agent-call method params="{}" port="12346":
     @curl -sS -X POST http://127.0.0.1:{{ port }} -H "Content-Type: application/json" -d {{ quote('{"jsonrpc":"2.0","method":"' + method + '","params":' + params + ',"id":1}') }}
+
+# just agent-wait [状态] [超时秒数] [端口]
+# 轮询 agent 接口直到游戏进入指定状态 (默认 MENU), 用于等开场动画播完; 超时返回非 0.
+agent-wait state="MENU" timeout="60" port="12346":
+    #!/usr/bin/env bash
+    set -uo pipefail
+    body='{"jsonrpc":"2.0","method":"gamestate","params":{},"id":1}'
+    deadline=$((SECONDS + {{ timeout }}))
+    last=""
+    while [ "$SECONDS" -lt "$deadline" ]; do
+        resp=$(curl -sS -m 5 -X POST "http://127.0.0.1:{{ port }}" -H "Content-Type: application/json" -d "$body" 2>/dev/null || true)
+        current=$(printf '%s' "$resp" | sed -n 's/.*"state":"\([A-Z_]*\)".*/\1/p')
+        if [ "$current" = {{ quote(state) }} ]; then
+            echo "游戏已进入 {{ state }}"
+            exit 0
+        fi
+        if [ -n "$current" ] && [ "$current" != "$last" ]; then
+            echo "当前状态: $current"
+            last="$current"
+        fi
+        sleep 0.5
+    done
+    echo "等待 {{ state }} 超时 ({{ timeout }}s), 最后状态: ${last:-无响应}" >&2
+    exit 1
 
 # 从游戏源码生成静态卡牌目录, 不运行游戏或访问存档.
 game-docs:

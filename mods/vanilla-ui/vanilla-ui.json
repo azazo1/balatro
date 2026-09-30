@@ -1,0 +1,14 @@
+{
+  "id": "vanilla_ui",
+  "name": "Vanilla UI",
+  "display_name": "Vanilla UI",
+  "author": ["azazo1"],
+  "description": "Keeps the vanilla run select screen and stake display while Steamodded is loaded.",
+  "prefix": "vui",
+  "main_file": "main.lua",
+  "priority": -100,
+  "version": "0.1.0",
+  "badge_colour": "666666",
+  "badge_text_colour": "FFFFFF",
+  "dependencies": []
+}

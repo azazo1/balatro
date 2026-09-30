@@ -56,6 +56,13 @@ just windows dist-modded     # 打包 dist/windows/Balatro-Modded-<版本>-win64
 | Steamodded | [26.829.0](https://github.com/Steamodded/smods/releases/tag/26.829.0) | mod 加载器与 API |
 | balatrobot | [v1.5.2](https://github.com/coder/balatrobot/releases/tag/v1.5.2) | 供 agent 游玩的 HTTP 接口, 默认关闭, 见 [agent-api.md](agent-api.md) |
 | compat-1.0.1n | 本仓库 | Steamodded 在 1.0.1n 上的兼容补丁, 不改玩法 |
+| vanilla-ui | 本仓库 | 沿用原版的选牌组开局界面和 Run Info 的 Stake 页 |
+
+Steamodded 默认把 "开始游戏" 的选牌组界面换成分页式, 把 Run Info 的 Stake 页换成自己的样式.
+vanilla-ui 在运行时打开 Steamodded 自带的 `vanilla_run_select` 与 `vanilla_stake` 开关, 恢复原版界面,
+不写入 Steamodded 的配置, 在 Steamodded 设置里关掉只对当次运行有效. 想要 Steamodded 的界面时,
+从 `mods/` 删掉这个目录再打包. 装了新增开局页的 mod 时, Steamodded 会忽略这个开关.
+主菜单的 Steamodded 版本号, MODS 按钮等小改动保留.
 
 Steamodded 按较新的游戏版本编写, 在 1.0.1n 上有 3 个补丁未命中, `just mods-check` 会列出:
 

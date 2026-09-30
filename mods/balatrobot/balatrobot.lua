@@ -1,11 +1,13 @@
 --[[
-BalatroBot 入口, 由本仓库在 upstream v1.5.2 的基础上改写, src/lua 下的文件保持原样.
+BalatroBot 入口, 由本仓库在 upstream v1.5.2 的基础上改写. 本仓库新增的代码在 agent/ 下.
 
 与 upstream 的区别:
 - 默认不开端口. 游戏内 Mods > BalatroBot > Config 的开关, 或启动时设 BALATROBOT_ENABLE=1, 才监听.
-- 游戏内开关只启停 HTTP 服务, 不改游戏设置; BALATROBOT_ENABLE=1 时与 upstream 相同,
-  按 BALATROBOT_* 环境变量调整设置 (静音, 加速, headless 等).
+- 游戏内开关只启停 HTTP 服务, 不改游戏设置. BALATROBOT_ENABLE=1 时由 agent/settings.lua
+  处理 BALATROBOT_* 环境变量: 画面, 开场动画, 声音默认沿用存档, 显式要求的改动不写回存档.
 - 开关可在运行中切换, 状态保存在存档目录的 config/balatrobot.jkr.
+- 请求可带 reason, 另有 notify 方法, 在游戏内以原版通知的样式显示 agent 的决策消息.
+- BALATROBOT_RECORD=skip|keep 时按局录制 mp4 与时间线 JSON, 见 agent/record/recorder.lua.
 ]]
 
 local MOD = SMODS.current_mod
@@ -13,16 +15,12 @@ local LOGGER = "BB.BALATROBOT"
 
 assert(SMODS.load_file("src/lua/settings.lua"))() -- define BB_SETTINGS
 
+-- 修复早期版本写坏的存档设置, 迁移 mod 配置. 两种开启方式都执行.
+assert(SMODS.load_file("agent/migrate.lua"))().run(MOD)
+
 local env_enabled = os.getenv("BALATROBOT_ENABLE") == "1"
 if env_enabled then
-  BB_SETTINGS.setup()
-  -- setup 打开了 skip_splash 与 F_SKIP_TUTORIAL. 全新存档里 tutorial_progress 要等第一帧的
-  -- tutorial_controller 才创建, 跳过开场时 main_menu 先于它执行, 会在 game.lua 的
-  -- tutorial_progress.completed_parts 处因 nil 崩溃. 这里提前做 tutorial_controller 跳过教程时的处理.
-  if G.F_SKIP_TUTORIAL then
-    G.SETTINGS.tutorial_complete = true
-    G.SETTINGS.tutorial_progress = nil
-  end
+  assert(SMODS.load_file("agent/settings.lua"))().setup()
 end
 
 -- Endpoints for the BalatroBot API
@@ -48,6 +46,7 @@ BB_ENDPOINTS = {
   "src/lua/endpoints/rearrange.lua",
   "src/lua/endpoints/sell.lua",
   "src/lua/endpoints/use.lua",
+  "agent/endpoints/notify.lua",
   -- If debug mode is enabled, debugger.lua will load test endpoints
 }
 
@@ -62,11 +61,24 @@ assert(SMODS.load_file("src/lua/core/dispatcher.lua"))() -- define BB_DISPATCHER
 BB_GAMESTATE = assert(SMODS.load_file("src/lua/utils/gamestate.lua"))()
 assert(SMODS.load_file("src/lua/utils/errors.lua"))()
 
+BB_ACTIVITY = assert(SMODS.load_file("agent/activity.lua"))()
+local OPENRPC = assert(SMODS.load_file("agent/openrpc.lua"))()
+BB_TOAST = assert(SMODS.load_file("agent/toast.lua"))()
+BB_RECORDER = assert(SMODS.load_file("agent/record/recorder.lua"))()
+
 -- 端点只能注册一次, 与服务的启停无关.
 if not BB_DISPATCHER.init(BB_SERVER, BB_ENDPOINTS) then
   sendErrorMessage("Dispatcher init failed, agent API unavailable", LOGGER)
   return
 end
+BB_ACTIVITY.install(BB_DISPATCHER, BB_SERVER)
+
+BB_TOAST.enabled = MOD.config.show_messages ~= false
+BB_ACTIVITY.on("message", function(title, text, duration)
+  BB_TOAST.push(title, text, duration)
+end)
+
+BB_RECORDER.init({ activity = BB_ACTIVITY, toast = BB_TOAST, mod_path = MOD.path })
 
 BB_AGENT = {
   address = string.format("http://%s:%d", BB_SERVER.host, BB_SERVER.port),
@@ -87,6 +99,7 @@ function BB_AGENT.set_enabled(on)
     local ok, started = pcall(BB_SERVER.init)
     SMODS.current_mod = previous
     if ok and started then
+      BB_SERVER.openrpc_spec = OPENRPC.extend(BB_SERVER.openrpc_spec, BB_ACTIVITY.PASSIVE)
       BB_AGENT.status = "listening"
       sendInfoMessage("Agent API listening on " .. BB_AGENT.address, LOGGER)
       return true
@@ -108,6 +121,27 @@ love.update = function(dt) ---@diagnostic disable-line: duplicate-set-field
   BB_GAMESTATE.check_game_over()
   love_update(dt)
   BB_SERVER.update(BB_DISPATCHER)
+  -- fast/headless 模式下传进来的 dt 是固定步长, 通知停留时间按墙钟算.
+  BB_TOAST.update(love.timer.getDelta())
+  BB_RECORDER.update()
+end
+
+-- 录制关闭时 BB_RECORDER.draw 直接调用原函数.
+local love_draw = love.draw
+love.draw = function() ---@diagnostic disable-line: duplicate-set-field
+  BB_RECORDER.draw(love_draw)
+end
+
+local function text_row(nodes)
+  return { n = G.UIT.R, config = { align = "cm", padding = 0.05 }, nodes = nodes }
+end
+
+local function label(text)
+  return { n = G.UIT.T, config = { text = text, scale = 0.35, colour = G.C.UI.TEXT_LIGHT } }
+end
+
+local function live_label(ref_table, ref_value)
+  return { n = G.UIT.T, config = { ref_table = ref_table, ref_value = ref_value, scale = 0.35, colour = G.C.UI.TEXT_LIGHT } }
 end
 
 MOD.config_tab = function()
@@ -122,21 +156,21 @@ MOD.config_tab = function()
         w = 4,
         callback = BB_AGENT.set_enabled,
       }),
-      {
-        n = G.UIT.R,
-        config = { align = "cm", padding = 0.05 },
-        nodes = {
-          { n = G.UIT.T, config = { text = BB_AGENT.address, scale = 0.35, colour = G.C.UI.TEXT_LIGHT } },
-        },
-      },
-      {
-        n = G.UIT.R,
-        config = { align = "cm", padding = 0.05 },
-        nodes = {
-          { n = G.UIT.T, config = { text = "Status: ", scale = 0.35, colour = G.C.UI.TEXT_LIGHT } },
-          { n = G.UIT.T, config = { ref_table = BB_AGENT, ref_value = "status", scale = 0.35, colour = G.C.UI.TEXT_LIGHT } },
-        },
-      },
+      text_row({ label(BB_AGENT.address) }),
+      text_row({ label("Status: "), live_label(BB_AGENT, "status") }),
+      create_toggle({
+        label = "Show Agent Messages",
+        ref_table = MOD.config,
+        ref_value = "show_messages",
+        w = 4,
+        callback = function(value)
+          BB_TOAST.enabled = value
+          if not value then
+            BB_TOAST.clear()
+          end
+        end,
+      }),
+      text_row({ label("Recording: "), live_label(BB_RECORDER, "status") }),
     },
   }
 end

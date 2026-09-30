@@ -286,3 +286,12 @@ BB_SETTINGS.setup = function()
     configure_audio()
   end
 end
+
+-- 本仓库修改: 导出不涉及画面与声音设置的部分, 供 agent/settings.lua 按需调用.
+-- 本仓库不再调用 BB_SETTINGS.setup, 它会把开场动画, CRT, 声音等改动写进存档.
+BB_SETTINGS.configure = {
+  love_update = configure_love_update,
+  headless = configure_headless,
+  render_on_api = configure_render_on_api,
+  no_shaders = configure_no_shaders,
+}

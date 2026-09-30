@@ -23,6 +23,12 @@ run-modded: dist-modded
 run-agent fast="0": dist-modded
     BALATROBOT_ENABLE=1 BALATROBOT_FAST={{ fast }} BALATRO_SAVE_IDENTITY=Balatro-Agent dist/macos/Balatro-Modded.app/Contents/MacOS/love
 
+# just macos record-agent [skip|keep] [fast]
+# 同 run-agent, 并按局录制 mp4 与时间线 json 到 recordings/; skip 剪掉 agent 的等待时间, keep 保留.
+record-agent mode="skip" fast="0": dist-modded
+    mkdir -p recordings
+    BALATROBOT_ENABLE=1 BALATROBOT_FAST={{ fast }} BALATRO_SAVE_IDENTITY=Balatro-Agent BALATROBOT_RECORD={{ mode }} BALATROBOT_RECORD_DIR="$PWD/recordings" dist/macos/Balatro-Modded.app/Contents/MacOS/love
+
 # 用指定 png 作为应用图标打包, 例如: just macos icon 图标.png
 icon path:
     {{ python }} scripts/package_macos.py --icon {{ path }}
