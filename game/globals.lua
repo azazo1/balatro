@@ -154,7 +154,7 @@ function Game:set_globals()
         ACHIEVEMENTS_EARNED = {},
         crashreports = false,
         colourblind_option = false,
-        language = 'en-us',
+        language = 'zh_CN',
         screenshake = true,
         run_stake_stickers = false,
         rumble = self.F_RUMBLE,

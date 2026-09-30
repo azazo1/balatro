@@ -72,7 +72,7 @@ function Game:start_up()
         end
     end
 
-    self.SETTINGS.language = self.SETTINGS.language or 'en-us'
+    self.SETTINGS.language = self.SETTINGS.language or 'zh_CN'
     boot_timer('settings', 'window init', 0.2)
     self:init_window()
 
