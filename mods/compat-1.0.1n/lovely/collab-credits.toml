@@ -1,0 +1,18 @@
+# Steamodded 按 1.0.1o 编写的联名皮肤代码默认 G.collab_credits 存在, 它在 1.0.1o 的
+# Collabs 制作人员页里生成, 1.0.1n 没有这一页, 始终是 nil. 后果:
+# - smods 的 Game:prep_stage 钩子每次切换阶段都打开再关闭一次制作人员界面, 顺带写一次设置文件.
+# - Customize Deck 预览联名皮肤时, has_ds_card_ui 对 nil 调用 pairs 会报错.
+# 这里在 set_globals 里提前放一个空表. 1.0.1n 没有联名画师署名, 空表不丢失任何信息.
+[manifest]
+version = "1.0.0"
+dump_lua = true
+priority = 0
+
+[[patches]]
+[patches.pattern]
+target = "globals.lua"
+pattern = "self.COLLABS = {"
+position = "before"
+payload = "self.collab_credits = self.collab_credits or {}"
+match_indent = true
+times = 1

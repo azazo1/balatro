@@ -55,6 +55,14 @@ just windows dist-modded     # 打包 dist/windows/Balatro-Modded-<版本>-win64
 | --- | --- | --- |
 | Steamodded | [26.829.0](https://github.com/Steamodded/smods/releases/tag/26.829.0) | mod 加载器与 API |
 | balatrobot | [v1.5.2](https://github.com/coder/balatrobot/releases/tag/v1.5.2) | 供 agent 游玩的 HTTP 接口, 默认关闭, 见 [agent-api.md](agent-api.md) |
+| compat-1.0.1n | 本仓库 | Steamodded 在 1.0.1n 上的兼容补丁, 不改玩法 |
+
+Steamodded 按较新的游戏版本编写, 在 1.0.1n 上有 3 个补丁未命中, `just mods-check` 会列出:
+
+- `fixes.toml` 的 luasteam 补丁: 仓库移植 macOS 时已经做了同样的修改, 无需处理.
+- `deck_skins.toml` 的 Production / Collabs 两条: 1.0.1n 的制作人员界面没有 Collabs 页.
+  配套代码依赖该页生成的 `G.collab_credits`. 缺少它时, 每次切换阶段都会打开再关闭一次
+  制作人员界面, Customize Deck 预览联名皮肤时也会报错. compat-1.0.1n 提前放一个空表规避.
 
 ## 实现
 

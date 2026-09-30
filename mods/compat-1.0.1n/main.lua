@@ -1,0 +1,2 @@
+-- 本仓库的兼容 mod: 修复 Steamodded 在 Balatro 1.0.1n 上的问题, 修复都在 lovely/ 下的补丁里.
+-- smods 要求 main_file 存在, 这里不需要执行任何代码.
