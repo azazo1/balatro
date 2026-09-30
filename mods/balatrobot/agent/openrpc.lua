@@ -31,6 +31,43 @@ local NOTIFY = {
   errors = {},
 }
 
+local ENDLESS = {
+  name = "endless",
+  summary = "Continue in endless mode from the win screen",
+  description = "After beating the ante 8 boss the win screen opens and other actions are rejected. "
+    .. "Closes it like the Endless Mode button, then returns once round evaluation shows cash_out.",
+  params = {},
+  result = {
+    name = "gamestate",
+    description = "Game state in ROUND_EVAL, ready for cash_out",
+    schema = { ["$ref"] = "#/components/schemas/GameState" },
+  },
+  errors = { { ["$ref"] = "#/components/errors/InvalidState" } },
+}
+
+local CONTINUE = {
+  name = "continue",
+  summary = "Close the unlock notification",
+  description = "Closes the unlock notification like its Continue button. If an earlier request returned early "
+    .. "because the notification opened, waits for that request and returns its result; otherwise returns the current state.",
+  params = {},
+  result = {
+    name = "gamestate",
+    description = "Result of the interrupted request, or the current game state",
+    schema = { ["$ref"] = "#/components/schemas/GameState" },
+  },
+  errors = { { ["$ref"] = "#/components/errors/InvalidState" } },
+}
+
+-- 没有弹窗时字段不出现 (Lua 的 nil 不会被编码).
+local OVERLAY = {
+  type = "string",
+  enum = { "unlock", "win", "other" },
+  description = "Overlay menu that is open, absent when none. 'unlock': unlock notification, call continue. "
+    .. "'win': win screen, call endless or menu. 'other': a menu opened in game. "
+    .. "Most actions are rejected while it is set, and a waiting request returns early when one opens",
+}
+
 ---@param spec_text string
 ---@param passive table<string, boolean>
 ---@return string
@@ -45,6 +82,12 @@ function M.extend(spec_text, passive)
     end
   end
   table.insert(spec.methods, NOTIFY)
+  table.insert(spec.methods, ENDLESS)
+  table.insert(spec.methods, CONTINUE)
+  local schemas = spec.components and spec.components.schemas
+  if schemas and schemas.GameState and schemas.GameState.properties then
+    schemas.GameState.properties.overlay = OVERLAY
+  end
   local encoded_ok, encoded = pcall(json.encode, spec)
   return encoded_ok and encoded or spec_text
 end

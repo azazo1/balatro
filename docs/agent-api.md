@@ -8,7 +8,7 @@ JSON-RPC 2.0 over HTTP 接口, 外部程序 (agent, 脚本) 可以读取完整�
 
 | 方式 | 做法 | 存档 | 游戏设置 |
 | --- | --- | --- | --- |
-| 终端启动 | `just macos run-agent`, 加速运行用 `just macos run-agent 1` | 独立的 `Balatro-Agent` 目录 | 跳过教程, 其余沿用存档 |
+| 终端启动 | `just macos run-agent`, 默认正常速度并录像, 见下方 "录制" | 独立的 `Balatro-Agent` 目录 | 跳过教程, 其余沿用存档 |
 | 游戏内开关 | Mods > BalatroBot > Config, 打开 Enable Agent API | 当前存档 | 不改 |
 
 - 游戏内开关可以随时切换, 状态保存在存档目录的 `config/balatrobot.jkr`, 下次启动沿用.
@@ -19,7 +19,7 @@ JSON-RPC 2.0 over HTTP 接口, 外部程序 (agent, 脚本) 可以读取完整�
 
 | 环境变量 | 作用 |
 | --- | --- |
-| `BALATROBOT_FAST=1` | 10 倍速, 动画 60fps, 不限帧率, 关 vsync (`run-agent 1` 即此项) |
+| `BALATROBOT_FAST=1` | 10 倍速, 动画 60fps, 不限帧率, 关 vsync (`run-agent skip 1` 即此项) |
 | `BALATROBOT_HEADLESS=1` | 不显示窗口, 跳过开场动画 |
 | `BALATROBOT_AUDIO=1` | 强制开声音, 不设时沿用存档音量 |
 | `BALATROBOT_GAMESPEED`, `BALATROBOT_FPS_CAP`, `BALATROBOT_ANIMATION_FPS` | 显式设置时覆盖 |
@@ -91,6 +91,18 @@ MENU -> BLIND_SELECT -> SELECTING_HAND -> ROUND_EVAL -> SHOP -+
 | 任意 | `gamestate`, `health`, `use {"consumable","cards"?}`, `rearrange`, `menu`, `save`/`load {"path"}`, `screenshot {"path"}` |
 
 `set` 和 `add` 可以直接改金钱, 盲注分数, 添加卡牌, 用于调试, 正常游玩不要用.
+
+弹窗打开时, 返回里带 `overlay` 字段. 此时除查询类方法, `menu`, `save`/`load`, `notify`, `endless`,
+`continue` 外都返回 `INVALID_STATE`, 与人点不到弹窗底下的按钮一致. 请求在等游戏推进时弹窗出现,
+会以当前状态先返回:
+
+- `overlay` 为 `unlock`: 解锁了新牌组, 小丑等, 常在开局或回主菜单时出现. 调用 `continue` 关掉
+  (等同点 "继续"). 被它打断的请求 (例如 `start`) 会在 `continue` 的返回里给出结果.
+  连续解锁多项时, `continue` 的返回仍带 `unlock`, 继续调用即可.
+- `overlay` 为 `win`: 打过第 8 底注的 Boss, 胜利界面打开. `play` 会等界面完全弹出 (约 3 秒) 后返回 `won: true` 与此值.
+  调用 `endless` 进入无尽模式 (等同点 "无尽模式" 按钮, 返回时已在 `ROUND_EVAL`, 可以 `cash_out`),
+  或 `menu` 回主菜单.
+- `overlay` 为 `other`: 人在游戏里打开了设置等菜单, 等人关掉后用 `gamestate` 确认状态.
 `save`, `load`, `screenshot` 的 `path` 是本机的绝对路径.
 
 完整的参数和返回结构:
@@ -116,26 +128,30 @@ just agent-call notify '{"message":"商店没有合适的小丑, 直接下一轮
 
 ## 录制
 
-按局录制 mp4 和标记关键时间点的 JSON:
+`just macos run-agent` 默认就按局录制 mp4 和标记关键时间点的 JSON, 不需要另外设置:
 
 ```shell
-just macos record-agent          # skip: 剪掉 agent 思考的等待时间
-just macos record-agent keep     # keep: 保留等待时间, 视频时长等于实际时长
-just macos record-agent skip 1   # 同时 10 倍速
+just macos run-agent          # 默认 skip: 剪掉 agent 思考的等待时间, 正常速度
+just macos run-agent keep     # keep: 保留等待时间, 视频时长等于实际时长
+just macos run-agent off      # 不录制
+just macos run-agent skip 1   # 10 倍速, 仅在需要时使用
 ```
 
 - 一局从开局 (或读档) 开始, 到回主菜单, 开下一局或退出为止. 游戏结束后停留在结算界面的部分也会录.
 - 输出在仓库根目录的 `recordings/`, 文件名为 `<开始时间>-<种子>.mp4/.json`, ffmpeg 的报错在同名 `.ffmpeg.txt`.
+  每次启动的游戏日志 (含崩溃信息) 在 `recordings/<启动时间>-game.log`.
 - 等待的判定: agent 没有请求在处理, 上次响应后超过 0.8 秒, 屏幕上也没有决策消息. 只查询状态和截图的
   请求 (`gamestate`, `health`, `screenshot`, `rpc.discover`) 不算活动.
 - skip 模式只看 agent 的请求, 人手动玩时会被当成等待剪掉, 手动玩请用 keep.
 - 画面与屏幕一致, 包括 CRT 效果和决策消息. 不录声音. fast 模式录到的就是加速后的画面.
 - 需要 ffmpeg, 找不到时只写 JSON. macOS 上默认用 videotoolbox 硬件编码, 对游戏帧率影响很小.
 
+`run-agent` 已经设好下面的变量. 表格供直接启动应用或调参时参考:
+
 | 环境变量 | 默认 | 作用 |
 | --- | --- | --- |
 | `BALATROBOT_RECORD` | 关闭 | `skip` 或 `keep` |
-| `BALATROBOT_RECORD_DIR` | `<存档目录>/recordings` | 输出目录, `record-agent` 设为 `recordings/` |
+| `BALATROBOT_RECORD_DIR` | `<存档目录>/recordings` | 输出目录, `run-agent` 设为 `recordings/` |
 | `BALATROBOT_RECORD_FPS` | 30 | 视频帧率 |
 | `BALATROBOT_RECORD_HEIGHT` | 720 | 视频高度, 宽度按窗口比例 |
 | `BALATROBOT_RECORD_HOLD` | 0.8 | 响应后仍算活动的秒数 |
@@ -197,6 +213,10 @@ JSON 的时间都是秒, `t` 为视频时间, `wall` 为开局起的实际时间
 - 跳过教程保留: 全新存档里教程进度要等第一帧才创建, 入口里提前把教程标记为完成.
 - `src/lua/settings.lua` 末尾导出了 headless 等函数供 `agent/settings.lua` 调用.
 - 新增 `notify` 方法和各方法的 `reason` 参数, `rpc.discover` 返回的描述里也有.
+- upstream 在弹窗打开时仍然执行操作. 胜利界面下直接 `cash_out` 进商店后, 再点 "无尽模式" 会让停着的
+  结算事件访问已移除的 `G.round_eval` 而崩溃. 现在弹窗打开时拦截操作, 并新增 `endless` 方法和 `overlay` 字段.
+- upstream 的服务端一次只处理一个请求, 请求等待中弹出解锁通知时会一直占着连接. 现在这种情况先返回,
+  并新增 `continue` 方法. 连接断开后才完成的请求, 结果不会再发到下一个连接上.
 - `endpoints/start.lua`: smods 26.x 默认的开局界面不创建 `G.GAME.viewed_back`, upstream
   直接调用它会报错, 改为缺失时创建.
 - upstream 用 lovely 注入并通过自带的 `balatrobot serve` 启动游戏. 本仓库不需要这个 python 包,

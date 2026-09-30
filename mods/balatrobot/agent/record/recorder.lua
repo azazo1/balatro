@@ -399,7 +399,9 @@ local function end_session(reason)
   staged = {}
   s.clock:finish()
   local info = run_info()
-  local result = { reason = reason, won = (G.GAME and G.GAME.won) or false, ante = info.ante, round = info.round }
+  -- 回主菜单时 G.GAME 可能已重置, 以本局记录到的 won 事件为准.
+  local won = s.won or (G.GAME and G.GAME.won) or false
+  local result = { reason = reason, won = won, ante = info.ante, round = info.round }
   s.timeline:event(s.clock:video_time(), s.clock.wall, "run_end", result)
   s.timeline:set("result", result)
   s.timeline:sync_clock(s.clock)

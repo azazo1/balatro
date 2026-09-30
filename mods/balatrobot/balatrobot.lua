@@ -7,6 +7,8 @@ BalatroBot 入口, 由本仓库在 upstream v1.5.2 的基础上改写. 本仓库
   处理 BALATROBOT_* 环境变量: 画面, 开场动画, 声音默认沿用存档, 显式要求的改动不写回存档.
 - 开关可在运行中切换, 状态保存在存档目录的 config/balatrobot.jkr.
 - 请求可带 reason, 另有 notify 方法, 在游戏内以原版通知的样式显示 agent 的决策消息.
+- 弹窗 (解锁通知, 胜利界面等) 打开时拦截操作, 等待中的请求先返回, 见 agent/overlay.lua.
+  解锁通知用 continue 关掉, 胜利后用 endless 进入无尽模式.
 - BALATROBOT_RECORD=skip|keep 时按局录制 mp4 与时间线 JSON, 见 agent/record/recorder.lua.
 ]]
 
@@ -47,6 +49,8 @@ BB_ENDPOINTS = {
   "src/lua/endpoints/sell.lua",
   "src/lua/endpoints/use.lua",
   "agent/endpoints/notify.lua",
+  "agent/endpoints/endless.lua",
+  "agent/endpoints/continue.lua",
   -- If debug mode is enabled, debugger.lua will load test endpoints
 }
 
@@ -61,6 +65,7 @@ assert(SMODS.load_file("src/lua/core/dispatcher.lua"))() -- define BB_DISPATCHER
 BB_GAMESTATE = assert(SMODS.load_file("src/lua/utils/gamestate.lua"))()
 assert(SMODS.load_file("src/lua/utils/errors.lua"))()
 
+BB_OVERLAY = assert(SMODS.load_file("agent/overlay.lua"))()
 BB_ACTIVITY = assert(SMODS.load_file("agent/activity.lua"))()
 local OPENRPC = assert(SMODS.load_file("agent/openrpc.lua"))()
 BB_TOAST = assert(SMODS.load_file("agent/toast.lua"))()
@@ -71,6 +76,8 @@ if not BB_DISPATCHER.init(BB_SERVER, BB_ENDPOINTS) then
   sendErrorMessage("Dispatcher init failed, agent API unavailable", LOGGER)
   return
 end
+-- 先装弹窗拦截, 再装活动追踪: 被拦下的请求也会作为失败的操作记进时间线.
+BB_OVERLAY.install(BB_DISPATCHER, BB_GAMESTATE)
 BB_ACTIVITY.install(BB_DISPATCHER, BB_SERVER)
 
 BB_TOAST.enabled = MOD.config.show_messages ~= false
@@ -121,6 +128,7 @@ love.update = function(dt) ---@diagnostic disable-line: duplicate-set-field
   BB_GAMESTATE.check_game_over()
   love_update(dt)
   BB_SERVER.update(BB_DISPATCHER)
+  BB_OVERLAY.update()
   -- fast/headless 模式下传进来的 dt 是固定步长, 通知停留时间按墙钟算.
   BB_TOAST.update(love.timer.getDelta())
   BB_RECORDER.update()

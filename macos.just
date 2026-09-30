@@ -18,16 +18,28 @@ dist-modded mods="mods":
 run-modded: dist-modded
     dist/macos/Balatro-Modded.app/Contents/MacOS/love
 
-# just macos run-agent [fast]
-# 打包带 mod 的应用并开启 agent 接口运行, 使用独立存档目录 Balatro-Agent, fast=1 时 10 倍速.
-run-agent fast="0": dist-modded
-    BALATROBOT_ENABLE=1 BALATROBOT_FAST={{ fast }} BALATRO_SAVE_IDENTITY=Balatro-Agent dist/macos/Balatro-Modded.app/Contents/MacOS/love
-
-# just macos record-agent [skip|keep] [fast]
-# 同 run-agent, 并按局录制 mp4 与时间线 json 到 recordings/; skip 剪掉 agent 的等待时间, keep 保留.
-record-agent mode="skip" fast="0": dist-modded
+# just macos run-agent [skip|keep|off] [fast]
+# 打包带 mod 的应用并开启 agent 接口运行, 使用独立存档 Balatro-Agent, 默认正常速度并按局录像到 recordings/.
+run-agent record="skip" fast="0": dist-modded
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case {{ quote(record) }} in
+        skip|keep|off) ;;
+        *) echo "record 只能是 skip, keep 或 off, 收到: {{ record }}" >&2; exit 2 ;;
+    esac
+    case {{ quote(fast) }} in
+        0|1) ;;
+        *) echo "fast 只能是 0 或 1, 收到: {{ fast }}" >&2; exit 2 ;;
+    esac
     mkdir -p recordings
-    BALATROBOT_ENABLE=1 BALATROBOT_FAST={{ fast }} BALATRO_SAVE_IDENTITY=Balatro-Agent BALATROBOT_RECORD={{ mode }} BALATROBOT_RECORD_DIR="$PWD/recordings" dist/macos/Balatro-Modded.app/Contents/MacOS/love
+    export BALATROBOT_ENABLE=1 BALATROBOT_FAST={{ quote(fast) }} BALATRO_SAVE_IDENTITY=Balatro-Agent
+    if [ {{ quote(record) }} != off ]; then
+        export BALATROBOT_RECORD={{ quote(record) }} BALATROBOT_RECORD_DIR="$PWD/recordings"
+    fi
+    # 游戏日志同时写进 recordings/, 崩溃后可以查.
+    log="recordings/$(date +%Y%m%d-%H%M%S)-game.log"
+    echo "游戏日志: $log"
+    dist/macos/Balatro-Modded.app/Contents/MacOS/love 2>&1 | tee "$log"
 
 # 用指定 png 作为应用图标打包, 例如: just macos icon 图标.png
 icon path:

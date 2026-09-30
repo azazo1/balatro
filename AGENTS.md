@@ -30,3 +30,16 @@ Android 的 `versionCode` 由两段版本折算, 保证单调递增, 否则无�
 - 不要改 `game/version.jkr`, 它属于上游资源.
 - 不要用裸上游版本作 tag, `v1.0.1n` 会被 CI 拒绝.
 - 不要绕过版本校验.
+
+## agent 游玩
+
+被要求玩游戏时, 启动和调用一律用 just, 接口说明见 `docs/agent-api.md`:
+
+1. 后台运行 `just macos run-agent` 启动游戏. 默认正常速度, 并按局录像到 `recordings/`, 游戏日志也在那里.
+2. `just agent-wait` 等开场动画播完进入主菜单.
+3. 每一步操作用 `just agent-call <方法> '<参数 JSON>'`, 并在参数里带简短的 `reason` 说明决策.
+
+- 不要直接运行 `Balatro-Modded.app` 里的 love, 也不要自己设置 `BALATROBOT_*` 等环境变量.
+- 不要开加速 (`run-agent skip 1`), user 明确要求时才开.
+- 每次返回都看 `overlay` 字段: `unlock` 时调用 `continue` 关掉解锁通知; `win` 时已经打赢,
+  按 user 的要求调用 `endless` 继续或 `menu` 回主菜单.
