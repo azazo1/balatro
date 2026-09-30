@@ -4,30 +4,24 @@ default:
 
 alias dist := package-macos
 
-# 把 game/ 中的游戏资源打包为 dist/Balatro.app, 使用 assets/icon.png 作为应用图标.
+# 跨平台的 python 调用方式: Windows 上是 python, 其余平台是 python3
+python := if os_family() == "windows" { "python" } else { "python3" }
+
+# 把 game/ 中的游戏资源打包为 dist/macos/Balatro.app, 默认使用 assets/icon.png 作为图标.
 package-macos:
-    scripts/package-macos.sh --icon assets/icon.png
+    {{ python }} scripts/package_macos.py
 
 # 用指定 png 作为应用图标打包, 例如: just package-macos-icon icon.png
 package-macos-icon icon:
-    scripts/package-macos.sh --icon {{ icon }}
+    {{ python }} scripts/package_macos.py --icon {{ icon }}
 
 # 打包时不使用自定义图标, 沿用 LÖVE 自带的图标.
 package-macos-default-icon:
-    scripts/package-macos.sh
+    {{ python }} scripts/package_macos.py --no-icon
 
-# 把 game/ 装进官方 LÖVE Android 运行时并签名, 产出 dist/Balatro-<版本>.apk.
-# 不需要 NDK 与 gradle, 也无需编译原生库.
+# 打包 Android 安装包, 产出 dist/android/Balatro-<版本>.apk.
 package-android:
-    scripts/package-android.sh
-
-# 覆盖包名打包, 例如: just package-android-package com.foo.bar
-package-android-package name:
-    scripts/package-android.sh --package {{ name }}
-
-# 用指定密钥打包, 例如: just package-android-keystore 我的.jks
-package-android-keystore keystore:
-    scripts/package-android.sh --keystore {{ keystore }}
+    {{ python }} scripts/package_android.py
 
 # 用 LuaJIT 校验 game/ 下所有 lua 脚本的语法.
 check-lua:
@@ -45,6 +39,10 @@ check-lua:
     fi
     exit "$failed"
 
+# 校验打包脚本的 python 语法.
+check-scripts:
+    {{ python }} -m compileall -q scripts
+
 # 删除打包产物 dist/.
 clean:
-    rm -rf dist
+    {{ python }} -c "import shutil; shutil.rmtree('dist', ignore_errors=True)"
