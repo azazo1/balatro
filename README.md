@@ -277,7 +277,7 @@ unzip -q vendor/love-11.5-macos.zip -d .tmp/love-run
 
 ## 已知情况
 
-- Windows 与 Android 产物未在真机验证, macOS 产物已在目标机器上人工确认可以正常进入游戏.
+- Windows 产物未在真机验证, macOS 和 Android 产物已在目标机器上人工确认可以正常进入游戏.
 - 游戏资源取自 PC 版, 因此触摸操控可用但界面按 PC 版布局缩放, 没有官方移动版专门调整过的
   默认分辨率与旋转处理.
 - 三个平台均无 Steam 集成.
