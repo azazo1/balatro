@@ -11,11 +11,18 @@ mod macos
 # 打包 Android 安装包, 用法: just android dist
 mod android
 
+# 打包 Windows 免安装版, 用法: just windows dist
+mod windows
+
 # 根据当前平台生成发布产物, 等价于对应平台模块的 dist.
-# 需要指定平台时用 just macos dist / just android dist.
+# 需要指定平台时用 just macos dist / just android dist / just windows dist.
 [macos]
 dist:
     {{ python }} scripts/package_macos.py
+
+[windows]
+dist:
+    {{ python }} scripts/package_windows.py
 
 [linux]
 dist:
