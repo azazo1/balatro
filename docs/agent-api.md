@@ -41,6 +41,8 @@ curl -s -X POST http://127.0.0.1:12346 -H 'Content-Type: application/json' \
 `result` 是操作完成后的完整游戏状态, 一般不用另外再查 `gamestate`.
 
 - 同一时间只服务一个连接, 请求要一个一个发.
+- 操作类方法要等游戏内的条件满足才返回. 偶尔会一直不返回 (实测 `load` 出现过一次), 这时操作通常
+  已经生效. 请求要设超时, 超时后用 `gamestate` 确认当前状态再继续.
 - 所有下标都从 0 开始, 对应 `gamestate` 里各区域 `cards` 数组的顺序.
 - `gamestate` 返回的内容很多 (包括整副牌), 可以用 `jq` 只取需要的字段:
 
@@ -94,10 +96,14 @@ MENU -> BLIND_SELECT -> SELECTING_HAND -> ROUND_EVAL -> SHOP -+
 
 ## 与 upstream 的区别
 
-只改写了入口 `mods/balatrobot/balatrobot.lua`, 新增了 `config.lua`, 其余文件保持 v1.5.2 原样:
+改写了入口 `mods/balatrobot/balatrobot.lua`, 新增了 `config.lua`, 另有兼容性修复, 其余文件保持 v1.5.2 原样:
 
 - upstream 一加载就开端口并修改游戏设置. 这里改为默认关闭, 由开关或环境变量启用.
 - 游戏内开关只启停 HTTP 服务, 不执行 upstream 的设置调整.
+- 环境变量方式会跳过开场动画. 全新存档此时还没有教程进度, 1.0.1n 进入主菜单会崩溃,
+  入口里提前把教程标记为完成.
+- `endpoints/start.lua`: smods 26.x 默认的开局界面不创建 `G.GAME.viewed_back`, upstream
+  直接调用它会报错, 改为缺失时创建.
 - upstream 用 lovely 注入并通过自带的 `balatrobot serve` 启动游戏. 本仓库不需要这个 python 包,
   直接启动 mod 版应用即可.
 

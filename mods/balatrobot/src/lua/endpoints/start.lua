@@ -113,7 +113,13 @@ return {
         if deck_data.name == deck_name then
           sendDebugMessage("Setting deck to: " .. deck_data.name .. " (from enum: " .. args.deck .. ")", "BB.ENDPOINTS")
           G.GAME.selected_back:change_to(deck_data)
-          G.GAME.viewed_back:change_to(deck_data)
+          -- 本仓库修改: smods 26.x 默认的开局界面 (run_select_galdur) 不创建 viewed_back,
+          -- 而 start_run 优先按 viewed_back 选牌组, 缺失时直接创建.
+          if G.GAME.viewed_back then
+            G.GAME.viewed_back:change_to(deck_data)
+          else
+            G.GAME.viewed_back = Back(deck_data)
+          end
           deck_found = true
           break
         end

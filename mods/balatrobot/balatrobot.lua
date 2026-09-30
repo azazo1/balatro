@@ -16,6 +16,13 @@ assert(SMODS.load_file("src/lua/settings.lua"))() -- define BB_SETTINGS
 local env_enabled = os.getenv("BALATROBOT_ENABLE") == "1"
 if env_enabled then
   BB_SETTINGS.setup()
+  -- setup 打开了 skip_splash 与 F_SKIP_TUTORIAL. 全新存档里 tutorial_progress 要等第一帧的
+  -- tutorial_controller 才创建, 跳过开场时 main_menu 先于它执行, 会在 game.lua 的
+  -- tutorial_progress.completed_parts 处因 nil 崩溃. 这里提前做 tutorial_controller 跳过教程时的处理.
+  if G.F_SKIP_TUTORIAL then
+    G.SETTINGS.tutorial_complete = true
+    G.SETTINGS.tutorial_progress = nil
+  end
 end
 
 -- Endpoints for the BalatroBot API
