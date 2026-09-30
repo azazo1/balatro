@@ -28,8 +28,10 @@ return {
         if G.STATE ~= G.STATES.ROUND_EVAL or not G.round_eval or G.CONTROLLER.locked then
           return false
         end
+        -- 只认挂在本次结算界面上的按钮: 之前的结算留下的按钮盒子可能还在 G.I.UIBOX 里,
+        -- 认错会在结算行还没加完时返回, 紧接着的 cash_out 删掉 round_eval, 剩下的结算行事件就会崩溃.
         for _, box in ipairs(G.I.UIBOX) do
-          if box:get_UIE_by_ID("cash_out_button") then
+          if box.config and box.config.major == G.round_eval and box:get_UIE_by_ID("cash_out_button") then
             send_response(BB_GAMESTATE.get_gamestate())
             return true
           end
