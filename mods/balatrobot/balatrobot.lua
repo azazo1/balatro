@@ -81,8 +81,30 @@ BB_OVERLAY.install(BB_DISPATCHER, BB_GAMESTATE)
 BB_ACTIVITY.install(BB_DISPATCHER, BB_SERVER)
 
 BB_TOAST.enabled = MOD.config.show_messages ~= false
-BB_ACTIVITY.on("message", function(title, text, duration)
-  BB_TOAST.push(title, text, duration)
+-- 请求附带 reason 时, 通知标题用操作的中文名, 观众不用看懂方法名.
+local ACTION_TITLES = {
+  start = "开局",
+  menu = "回主菜单",
+  select = "选择盲注",
+  skip = "跳过盲注",
+  play = "出牌",
+  discard = "弃牌",
+  cash_out = "结算",
+  next_round = "离开商店",
+  reroll = "刷新商店",
+  buy = "购买",
+  sell = "出售",
+  pack = "补充包",
+  use = "使用",
+  rearrange = "调整顺序",
+  endless = "无尽模式",
+  continue = "继续",
+}
+BB_ACTIVITY.on("message", function(title, text, duration, source)
+  -- notify 自己负责显示, 这样它能等消息读完再返回.
+  if source == "reason" then
+    BB_TOAST.push(ACTION_TITLES[title] or title, text, duration)
+  end
 end)
 
 BB_RECORDER.init({ activity = BB_ACTIVITY, toast = BB_TOAST, mod_path = MOD.path })

@@ -14,11 +14,23 @@ local REASON = {
 local NOTIFY = {
   name = "notify",
   summary = "Show an agent message in game",
-  description = "Shows a short message in the vanilla notification style. Works in any game state.",
+  description = "Shows a short message in the vanilla notification style. Works in any game state. "
+    .. "By default returns after the estimated reading time, so consecutive calls show messages one by one.",
   params = {
     { name = "message", required = true, schema = { type = "string", minLength = 1, maxLength = 200 } },
     { name = "title", required = false, schema = { type = "string", maxLength = 40 } },
-    { name = "duration", required = false, schema = { type = "number", exclusiveMinimum = 0, maximum = 30 } },
+    {
+      name = "duration",
+      required = false,
+      description = "Reading time in seconds, estimated from the text length when omitted",
+      schema = { type = "number", exclusiveMinimum = 0, maximum = 30 },
+    },
+    {
+      name = "wait",
+      required = false,
+      description = "Return after the reading time, defaults to true",
+      schema = { type = "boolean" },
+    },
   },
   result = {
     name = "notify",

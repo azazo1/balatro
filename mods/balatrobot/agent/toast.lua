@@ -4,6 +4,8 @@ agent 决策消息, 仿原版成就解锁通知 (functions/common_events.lua 的
 
 - 消息画在游戏自己的 UI 层 (G.I.POPUP, 在覆盖菜单之上), 经过 CRT 等屏幕效果, 录像里也一样.
 - 停留时长按墙钟计; 通知仍在屏幕上时录制把这段视为活动期, 不会被剪掉.
+- 每条通知有阅读时长 (按字数估算) 和额外停留 (LINGER): 阅读时长过后 on_read 回调触发,
+  notify 据此返回, 下一条接着弹出时上一条还在, 观众能对照着看.
 - 阶段切换 (回主菜单, 开新局) 会重建 G.ROOM_ATTACH, 已有的通知随之清空.
 ]]
 
@@ -21,6 +23,13 @@ local GAP = 0.12
 local ENTER_DELAY = 0.1 -- 等 UIBox 算出尺寸再滑入, 与原版一致
 local LEAVE_TIME = 0.6 -- 滑出后再移除
 local MAX_WALL = 30
+local LINGER = 2 -- 读完后再停留的秒数
+-- 阅读速度: 中文约每秒 5~6 字, 英文与数字按每秒约 15 字符.
+local READ_BASE = 1.2
+local READ_WIDE = 0.18
+local READ_NARROW = 0.06
+local READ_MIN = 2.5
+local READ_MAX = 12
 
 ---@type table[]
 local items = {}
@@ -69,26 +78,51 @@ local function text_width(lang, text, scale)
   return font.FONT:getWidth(text) * font.squish * scale * font.FONTSCALE / G.TILESIZE
 end
 
---- 按宽度折行, 优先在空格处断开; 超过 MAX_LINES 行时截断并加省略号.
+-- 其后的空格是好的断行点
+local BREAK_AFTER = { [","] = true, ["."] = true, [":"] = true, [";"] = true, ["!"] = true, ["?"] = true }
+
+--- 按宽度折行; 超过 MAX_LINES 行时截断并加省略号.
+--- 断行点优先取标点后的空格. 中文里的空格是数字与汉字间的间隔, 在那里断会把 "9 张" 拆开,
+--- 所以含中文的行没有标点可断时按字断, 纯英文行才在空格处断.
 local function wrap(lang, text, scale)
-  local lines, current, last_space = {}, {}, nil
+  local lines, current, last_space, last_punct, wide = {}, {}, nil, nil, false
   for _, ch in ipairs(utf8_chars(text)) do
     if ch == "\n" then
       lines[#lines + 1] = table.concat(current)
-      current, last_space = {}, nil
+      current, last_space, last_punct, wide = {}, nil, nil, false
     else
       current[#current + 1] = ch
+      if #ch > 1 then
+        wide = true
+      end
       if ch == " " then
         last_space = #current
+        if BREAK_AFTER[current[#current - 1] or ""] then
+          last_punct = #current
+        end
       end
       if text_width(lang, table.concat(current), scale) > LINE_WIDTH and #current > 1 then
-        local cut = (last_space and last_space > 1) and last_space or (#current - 1)
+        local cut
+        -- 标点离行首太近时不用, 免得留下很短的一行.
+        if last_punct and last_punct >= #current * 0.4 then
+          cut = last_punct
+        elseif not wide and last_space and last_space > 1 then
+          cut = last_space
+        else
+          cut = #current - 1
+        end
         lines[#lines + 1] = table.concat(current, "", 1, cut)
         local rest = {}
         for i = cut + 1, #current do
           rest[#rest + 1] = current[i]
         end
-        current, last_space = rest, nil
+        current, last_space, last_punct = rest, nil, nil
+        wide = false
+        for _, rest_ch in ipairs(rest) do
+          if #rest_ch > 1 then
+            wide = true
+          end
+        end
       end
     end
   end
@@ -146,7 +180,8 @@ local function build_definition(title, text)
   }
 end
 
---- 显示时长: 基础 2.5s, 每字符 0.06s, 限制在 3~8s.
+--- 阅读时长: 中日韩等多字节字符按 READ_WIDE 计, ASCII 按 READ_NARROW 计, 限制在 READ_MIN~READ_MAX.
+--- 显式给出 duration 时以它为准.
 ---@param text string
 ---@param duration number?
 ---@return number
@@ -154,7 +189,20 @@ function M.duration_for(text, duration)
   if type(duration) == "number" and duration > 0 then
     return math.min(duration, MAX_WALL)
   end
-  return math.max(3, math.min(8, 2.5 + 0.06 * #utf8_chars(text)))
+  local seconds = READ_BASE
+  for _, ch in ipairs(utf8_chars(text)) do
+    seconds = seconds + (#ch > 1 and READ_WIDE or READ_NARROW)
+  end
+  return math.max(READ_MIN, math.min(READ_MAX, seconds))
+end
+
+---@param item table
+local function fire_read(item)
+  local callback = item.on_read
+  if callback then
+    item.on_read = nil
+    callback()
+  end
 end
 
 local function content_width(item)
@@ -164,19 +212,23 @@ local function content_width(item)
 end
 
 local function remove_item(item)
+  fire_read(item)
   if item.box and not item.box.REMOVED then
     item.box:remove()
   end
   item.box = nil
 end
 
---- 显示一条消息.
+--- 显示一条消息. on_read 在阅读时长过后 (或通知提前被移除时) 调用一次.
+--- 没有显示 (消息关闭, 不在游戏界面) 时返回 false, on_read 不会被调用.
 ---@param title string?
 ---@param text string
 ---@param duration number?
-function M.push(title, text, duration)
+---@param on_read fun()?
+---@return boolean shown
+function M.push(title, text, duration, on_read)
   if not M.enabled or not G.ROOM_ATTACH or type(text) ~= "string" or text == "" then
-    return
+    return false
   end
   title = M.truncate(title and title ~= "" and title or "Agent", 40)
   text = M.truncate(text, MAX_CHARS)
@@ -194,18 +246,23 @@ function M.push(title, text, duration)
   })
   box.bb_toast = true
 
+  local read = M.duration_for(text, duration)
   table.insert(items, 1, {
     box = box,
     attach = G.ROOM_ATTACH,
     age = 0,
-    life = M.duration_for(text, duration),
+    read = read,
+    life = math.min(read + LINGER, MAX_WALL),
     leave_at = nil,
+    on_read = on_read,
   })
   -- 超出数量时最旧的一条立即滑出.
   for i = MAX_ITEMS + 1, #items do
     local old = items[i]
     old.leave_at = old.leave_at or old.age
+    fire_read(old)
   end
+  return true
 end
 
 --- 是否还有通知显示在屏幕上 (含滑出过程), 录制据此判断活动期.
@@ -227,6 +284,9 @@ function M.update(dt)
     local alive = box and not box.REMOVED and item.attach == G.ROOM_ATTACH
     if alive then
       item.age = item.age + dt
+      if item.on_read and item.age >= item.read + ENTER_DELAY then
+        fire_read(item)
+      end
       if not item.leave_at and (item.age >= item.life + ENTER_DELAY or item.age >= MAX_WALL) then
         item.leave_at = item.age
       end

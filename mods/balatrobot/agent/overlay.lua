@@ -237,7 +237,8 @@ function M.update()
     end
     return
   end
-  if kind and kind ~= request.opened_with then
+  -- notify 只在等消息读完, 不受弹窗影响.
+  if kind and kind ~= request.opened_with and request.method ~= "notify" then
     M.pending = nil
     -- 只有解锁通知关掉后原请求会接着完成, 其它弹窗下原请求的结果直接丢弃.
     if kind == "unlock" then

@@ -37,7 +37,9 @@ Android 的 `versionCode` 由两段版本折算, 保证单调递增, 否则无�
 
 1. 后台运行 `just macos run-agent` 启动游戏. 默认正常速度, 并按局录像到 `recordings/`, 游戏日志也在那里.
 2. `just agent-wait` 等开场动画播完进入主菜单.
-3. 每一步操作用 `just agent-call <方法> '<参数 JSON>'`, 并在参数里带简短的 `reason` 说明决策.
+3. 每一步操作用 `just agent-call <方法> '<参数 JSON>'`.
+4. 边玩边解说: 操作前用 `notify` 讲观察, 对比和估分, 操作参数带简短的 `reason`.
+   观众只看得到画面和消息, 具体要求见 `docs/agent-commentary.md`, 开局前先读.
 
 - 不要直接运行 `Balatro-Modded.app` 里的 love, 也不要自己设置 `BALATROBOT_*` 等环境变量.
 - 不要开加速 (`run-agent skip 1`), user 明确要求时才开.

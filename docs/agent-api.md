@@ -115,14 +115,18 @@ MENU -> BLIND_SELECT -> SELECTING_HAND -> ROUND_EVAL -> SHOP -+
 agent 的决策可以以原版成就通知的样式显示在游戏右侧: 黑底灰边, 从屏幕外滑入, 停留几秒后滑出.
 最多同时显示 3 条, 新的在上面. 中文会自动换用带中文字形的字体. 录制时也会录进视频.
 
-- 任意方法的 `params` 里加 `reason` 字符串, 标题显示为方法名, 交给方法前会去掉, 不影响原有参数.
-- `notify {"message", "title"?, "duration"?}` 单独发一条消息, 任何状态都能用. `title` 默认 `Agent`,
-  `duration` 为停留秒数, 默认按长度取 3~8 秒.
+- 任意方法的 `params` 里加 `reason` 字符串, 标题显示为操作的中文名 (出牌, 购买等), 交给方法前会去掉,
+  不影响原有参数.
+- `notify {"message", "title"?, "duration"?, "wait"?}` 单独发一条消息, 任何状态都能用. `title` 默认 `Agent`.
+  `duration` 为阅读秒数, 默认按字数估算 (中文每字约 0.18 秒, 2.5~12 秒), 读完后再停留 2 秒才滑出.
+  `wait` 默认 `true`: 等阅读时长过去才返回, 连续调用时消息一条接一条出现. 关掉消息显示时立即返回.
 
 ```shell
-just agent-call play '{"cards":[0,1,2,3,4],"reason":"凑成顺子, 先出掉"}'
-just agent-call notify '{"message":"商店没有合适的小丑, 直接下一轮","title":"商店"}'
+just agent-call notify '{"message":"手里 4 张红桃, 牌堆还剩 9 张红桃, 弃 3 张追同花","title":"弃牌"}'
+just agent-call discard '{"cards":[0,3,5],"reason":"弃 3 张杂牌追同花"}'
 ```
+
+解说的内容与节奏见 [agent-commentary.md](agent-commentary.md).
 
 消息最长 200 字符, 超出截断. 不想看消息时在 Config 页关掉 Show Agent Messages.
 
