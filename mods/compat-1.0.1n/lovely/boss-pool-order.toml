@@ -1,0 +1,17 @@
+# Steamodded 的 SMODS.create_blind_pool 按 pairs 的哈希顺序把候选 Boss 放进数组, pseudorandom_element
+# 对字符串元素按数组下标排序, 于是抽到哪个 Boss 取决于哈希顺序: 同一个种子每次启动游戏都可能不同.
+# 原版的候选表以 Boss key 为键, pseudorandom_element 按 key 排序, 结果只由种子决定.
+# 这里在返回前按 key 排序, 与原版的抽取顺序一致, 种子复现与回放因此可靠.
+[manifest]
+version = "1.0.0"
+dump_lua = true
+priority = 0
+
+[[patches]]
+[patches.pattern]
+target = '=[SMODS _ "src/utils/weights.lua"]'
+pattern = "return output"
+position = "before"
+payload = "table.sort(output)"
+match_indent = true
+times = 1

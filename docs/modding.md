@@ -71,6 +71,9 @@ Steamodded 按较新的游戏版本编写, 在 1.0.1n 上有 3 个补丁未命�
   配套代码依赖该页生成的 `G.collab_credits`. 缺少它时, 每次切换阶段都会打开再关闭一次
   制作人员界面, Customize Deck 预览联名皮肤时也会报错. compat-1.0.1n 提前放一个空表规避.
 
+compat-1.0.1n 还修正了 Steamodded 的 Boss 抽取顺序: `SMODS.create_blind_pool` 按哈希顺序排列候选,
+同一个种子每次启动游戏都可能抽到不同的 Boss. 补丁在返回前按 key 排序, 与原版一致, 结果只由种子决定.
+
 ## 实现
 
 代码在 `scripts/lib/modding/`:
