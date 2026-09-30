@@ -9,7 +9,8 @@ import zipfile
 from . import log
 
 # 不进入归档的文件与目录.
-SKIP_NAMES = {".DS_Store", ".git", ".gitignore", "__MACOSX", ".tmp"}
+# .lovely-shim-tree 是补丁后源码树的生成标记, 见 lib/modding/build.py.
+SKIP_NAMES = {".DS_Store", ".git", ".gitignore", "__MACOSX", ".tmp", ".lovely-shim-tree"}
 # 固定时间戳, 让同样的输入产生同样的归档.
 FIXED_DATE = (1980, 1, 1, 0, 0, 0)
 

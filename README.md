@@ -16,6 +16,8 @@
 | `vendor/` | 各平台官方 LÖVE 11.5 运行时, 打包时校验 sha256 |
 | `scripts/lib/` | 打包用的可复用模块 (PNG 与 icns, 二进制 manifest, zip 等) |
 | `scripts/package_*.py` | 各平台的打包入口 |
+| `scripts/lib/modding/` | 打包时应用 lovely 补丁, 见 [docs/modding.md](docs/modding.md) |
+| `mods/` | 打包进带 mod 版本的 mod |
 | `dist/` | 构建输出, 不纳入版本控制 |
 | `docs/changelog/` | 各版本的发布说明 |
 
@@ -33,11 +35,14 @@ just android dist    # 打包 Android 安装包
 just windows dist    # 打包 Windows 免安装版
 ```
 
-产物都在 `dist/` 下按平台分目录. 其它 recipe:
+产物都在 `dist/` 下按平台分目录. 每个平台另有 `dist-modded`, 打包内置 `mods/` 中 mod 的版本,
+它与原版可同时安装, 存档互不影响, 详见 [docs/modding.md](docs/modding.md). 其它 recipe:
 
 ```shell
 just check-lua       # 用 LuaJIT 校验 game/ 下的 lua 语法
 just check-scripts   # 校验打包脚本的 python 语法
+just test-scripts    # 运行打包脚本的单元测试
+just mods-check      # 检查 mod 补丁的命中情况
 just clean           # 删除 dist/
 ```
 
@@ -224,6 +229,8 @@ Android 的 `versionCode` 由两段版本折算而来, 保证单调递增, 否�
 ## 持续集成
 
 `.github/workflows/build.yml` 在三种情况下运行:
+
+每个平台的 job 按 `flavor` 矩阵并行构建原版与带 mod 的版本, 后者产物名以 `balatro-modded-` 开头.
 
 - 推送到任意分支或提交 PR: 构建三个平台的产物并上传 Actions artifact, 不创建 release.
 - 推送 `v*` 形式的 tag: 校验版本后构建, 汇总产物生成 `SHA256SUMS`, 创建或更新 GitHub Release.

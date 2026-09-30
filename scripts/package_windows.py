@@ -12,6 +12,7 @@ Windows 版的做法是把 .love 追加到 love.exe 末尾: LÖVE 内部用 Phys
 用法:
     python3 scripts/package_windows.py
     python3 scripts/package_windows.py --console   # 同时产出带控制台的版本, 便于看日志
+    python3 scripts/package_windows.py --mods      # 带 mod 的版本, mod 取自 mods/
 """
 import argparse
 import os
@@ -21,7 +22,7 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from lib import archive, gamezip, layout, log, runtime, version as versionlib
+from lib import archive, gamezip, layout, log, modding, runtime, version as versionlib
 
 log.set_prefix("windows")
 
@@ -37,18 +38,21 @@ def parse_args():
     parser.add_argument("--console", action="store_true",
                         help="额外产出带控制台窗口的 exe, 便于查看 print 输出")
     parser.add_argument("--keep-work", action="store_true", help="保留临时目录")
+    modding.add_arguments(parser)
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
+    flavor = modding.flavor(args)
     version = versionlib.build_version()
-    log.info("游戏版本: %s" % version)
+    log.info("游戏版本: %s, 变体: %s" % (version, flavor.key))
 
     runtime_zip = runtime.require("windows")
 
     out_dir = layout.ensure_dir(layout.WINDOWS_DIST)
-    bundle_name = "%s-%s-win64" % (layout.APP_NAME, version)
+    # exe 名固定为 Balatro.exe, 变体只体现在目录名上.
+    bundle_name = "%s-%s-win64" % (flavor.file_stem, version)
     bundle_dir = os.path.join(out_dir, bundle_name)
     zip_out = os.path.join(out_dir, "%s.zip" % bundle_name)
 
@@ -66,7 +70,7 @@ def main():
         os.makedirs(bundle_dir)
 
         love_payload = os.path.join(work_dir, "%s.love" % layout.APP_NAME)
-        gamezip.build(layout.GAME_DIR, love_payload)
+        gamezip.build(modding.game_source(args, work_dir, version), love_payload)
 
         exe_name = "%s.exe" % layout.APP_NAME
 

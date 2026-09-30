@@ -9,6 +9,7 @@ Contents/Resources. LÖVE 会在此目录查找 .love 并进入伪融合模式, 
     python3 scripts/package_macos.py
     python3 scripts/package_macos.py --icon 自定义图标.png
     python3 scripts/package_macos.py --no-icon
+    python3 scripts/package_macos.py --mods          # 带 mod 的版本, mod 取自 mods/
 """
 import argparse
 import os
@@ -18,7 +19,7 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from lib import archive, gamezip, icns, info_plist, layout, log, runtime, version as versionlib
+from lib import archive, gamezip, icns, info_plist, layout, log, modding, runtime, version as versionlib
 
 log.set_prefix("macos")
 
@@ -33,10 +34,12 @@ def parse_args():
                         help="图标源图, 默认使用 assets/icon.png")
     parser.add_argument("--no-icon", action="store_true",
                         help="不替换图标, 沿用 LÖVE 自带图标")
-    parser.add_argument("--bundle-id", default=layout.BUNDLE_ID,
-                        help="应用标识, 默认 %s" % layout.BUNDLE_ID)
+    parser.add_argument("--bundle-id", default=None,
+                        help="应用标识, 默认 %s, 带 mod 时为 %s"
+                        % (layout.VANILLA.bundle_id, layout.MODDED.bundle_id))
     parser.add_argument("--keep-work", action="store_true",
                         help="保留临时工作目录便于排查")
+    modding.add_arguments(parser)
     return parser.parse_args()
 
 
@@ -47,7 +50,9 @@ def main():
         log.die("macOS 应用包只能在 macOS 上生成 (需要 codesign 与 xattr)")
 
     version = versionlib.build_version()
-    log.info("游戏版本: %s" % version)
+    flavor = modding.flavor(args)
+    bundle_id = args.bundle_id or flavor.bundle_id
+    log.info("游戏版本: %s, 变体: %s" % (version, flavor.key))
 
     runtime_zip = runtime.require("macos")
     icon_src = None if args.no_icon else args.icon
@@ -55,7 +60,7 @@ def main():
         log.die("找不到图标源图: %s" % icon_src)
 
     out_dir = layout.ensure_dir(layout.MACOS_DIST)
-    app_dir = os.path.join(out_dir, "%s.app" % layout.APP_NAME)
+    app_dir = os.path.join(out_dir, "%s.app" % flavor.file_stem)
 
     work_dir = tempfile.mkdtemp(prefix=".macos-", dir=out_dir)
     try:
@@ -73,16 +78,18 @@ def main():
         contents = os.path.join(app_dir, "Contents")
         resources = os.path.join(contents, "Resources")
 
+        # .love 的文件名决定默认存档目录, 保持 Balatro; 带 mod 的版本在 conf 里另行覆盖存档标识.
         love_name = "%s.love" % layout.APP_NAME
-        gamezip.build(layout.GAME_DIR, os.path.join(resources, love_name))
+        game_src = modding.game_source(args, work_dir, version)
+        gamezip.build(game_src, os.path.join(resources, love_name))
 
         values = {
-            "CFBundleName": layout.APP_NAME,
-            "CFBundleDisplayName": layout.APP_NAME,
-            "CFBundleIdentifier": args.bundle_id,
+            "CFBundleName": flavor.app_name,
+            "CFBundleDisplayName": flavor.app_name,
+            "CFBundleIdentifier": bundle_id,
             "CFBundleShortVersionString": version,
             "CFBundleVersion": version,
-            "CFBundleGetInfoString": "%s %s (LÖVE 11.5)" % (layout.APP_NAME, version),
+            "CFBundleGetInfoString": "%s %s (LÖVE 11.5)" % (flavor.app_name, version),
         }
         remove = []
         if icon_src:

@@ -124,50 +124,71 @@ jobs:
     # (macOS 14 的 Intel 规格已被移除). 若 arm64 排队过久, 换成 macos-15-intel 即可.
     # 注意 macos-15-large 与 macos-15-xlarge 属于付费的大规格 runner, 不要误用.
     runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        flavor: [vanilla, modded]
+    env:
+      # 原版与带 mod 的版本并行构建, 产物名以前缀区分.
+      MODS_FLAG: ${{ matrix.flavor == 'modded' && '--mods mods' || '' }}
+      APP_STEM: ${{ matrix.flavor == 'modded' && 'Balatro-Modded' || 'Balatro' }}
+      ARTIFACT_PREFIX: ${{ matrix.flavor == 'modded' && 'balatro-modded' || 'balatro' }}
     steps:
       - uses: actions/checkout@v5
         with:
           ref: ${{ needs.version.outputs.source_ref }}
 
       - name: 打包
+        shell: bash
         env:
           PROJECT_BUILD_VERSION: ${{ needs.version.outputs.build_version }}
-        run: python3 scripts/package_macos.py
+        run: python3 scripts/package_macos.py $MODS_FLAG
 
       - name: 校验产物
         shell: bash
         run: |
           set -euo pipefail
-          app="dist/macos/Balatro.app"
+          app="dist/macos/${APP_STEM}.app"
           test -d "$app/Contents/MacOS"
           test -x "$app/Contents/MacOS/love"
           test -f "$app/Contents/Resources/Balatro.love"
           test -f "$app/Contents/Resources/AppIcon.icns"
           codesign --verify --deep --strict "$app"
+          if [ -n "$MODS_FLAG" ]; then
+            unzip -l "$app/Contents/Resources/Balatro.love" | grep -q "lovely_shim/manifest.lua"
+          fi
           # 产物名去掉 v 前缀, 与其它平台保持一致.
           version="${{ needs.version.outputs.build_version }}"
-          echo "ARTIFACT_NAME=balatro-${version}-macos-universal" >> "$GITHUB_ENV"
+          echo "ARTIFACT_NAME=${ARTIFACT_PREFIX}-${version}-macos-universal" >> "$GITHUB_ENV"
 
       - name: 归档
         shell: bash
         run: |
           set -euo pipefail
-          version="${{ needs.version.outputs.build_version }}"
           # 用 ditto 打包可以保留 .app 内的符号链接与扩展属性.
           ditto -c -k --sequesterRsrc --keepParent \
-            dist/macos/Balatro.app "dist/balatro-${version}-macos-universal.zip"
-          shasum -a 256 "dist/balatro-${version}-macos-universal.zip"
+            "dist/macos/${APP_STEM}.app" "dist/${ARTIFACT_NAME}.zip"
+          shasum -a 256 "dist/${ARTIFACT_NAME}.zip"
 
       - uses: actions/upload-artifact@v6
         with:
           name: ${{ env.ARTIFACT_NAME }}
-          path: dist/balatro-*-macos-universal.zip
+          path: dist/${{ env.ARTIFACT_NAME }}.zip
           if-no-files-found: error
           retention-days: 14
 
   android:
     needs: version
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        flavor: [vanilla, modded]
+    env:
+      # 带 mod 的版本使用独立包名, 与原版可同时安装; 签名密钥两者共用.
+      MODS_FLAG: ${{ matrix.flavor == 'modded' && '--mods mods' || '' }}
+      APP_STEM: ${{ matrix.flavor == 'modded' && 'Balatro-Modded' || 'Balatro' }}
+      ARTIFACT_PREFIX: ${{ matrix.flavor == 'modded' && 'balatro-modded' || 'balatro' }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -217,7 +238,7 @@ jobs:
           BALATRO_KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASS }}
         run: |
           set -euo pipefail
-          python3 scripts/package_android.py \
+          python3 scripts/package_android.py $MODS_FLAG \
             --keystore dist/android/balatro.keystore \
             --key-alias "${{ secrets.ANDROID_KEY_ALIAS }}"
 
@@ -225,26 +246,40 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          apk="$(ls dist/android/Balatro-*.apk)"
           version="${{ needs.version.outputs.build_version }}"
+          apk="dist/android/${APP_STEM}-${version}.apk"
+          test -f "$apk"
           build_tools="$(find "$ANDROID_HOME/build-tools" -maxdepth 1 -mindepth 1 -type d | sort -V | tail -1)"
           "$build_tools/apksigner" verify "$apk"
           "$build_tools/zipalign" -c 4 "$apk"
           # 确认游戏负载确实在归档里, 而不是只打出一个空壳.
           unzip -l "$apk" | grep -q "assets/game.love"
-          cp "$apk" "dist/balatro-${version}-android-arm64.apk"
-          echo "ARTIFACT_NAME=balatro-${version}-android-arm64" >> "$GITHUB_ENV"
+          if [ -n "$MODS_FLAG" ]; then
+            unzip -p "$apk" assets/game.love > /tmp/game.love
+            unzip -l /tmp/game.love | grep -q "lovely_shim/manifest.lua"
+          fi
+          name="${ARTIFACT_PREFIX}-${version}-android-arm64"
+          cp "$apk" "dist/${name}.apk"
+          echo "ARTIFACT_NAME=${name}" >> "$GITHUB_ENV"
 
       - uses: actions/upload-artifact@v6
         with:
           name: ${{ env.ARTIFACT_NAME }}
-          path: dist/balatro-*-android-arm64.apk
+          path: dist/${{ env.ARTIFACT_NAME }}.apk
           if-no-files-found: error
           retention-days: 14
 
   windows:
     needs: version
     runs-on: windows-2025
+    strategy:
+      fail-fast: false
+      matrix:
+        flavor: [vanilla, modded]
+    env:
+      MODDED: ${{ matrix.flavor == 'modded' && '1' || '' }}
+      APP_STEM: ${{ matrix.flavor == 'modded' && 'Balatro-Modded' || 'Balatro' }}
+      ARTIFACT_PREFIX: ${{ matrix.flavor == 'modded' && 'balatro-modded' || 'balatro' }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -252,7 +287,14 @@ jobs:
 
       - name: 打包
         shell: pwsh
-        run: python scripts/package_windows.py
+        env:
+          PROJECT_BUILD_VERSION: ${{ needs.version.outputs.build_version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $extra = @()
+          if ($env:MODDED) { $extra = @('--mods', 'mods') }
+          python scripts/package_windows.py @extra
+          if ($LASTEXITCODE) { throw '打包失败' }
 
       - name: 校验并重命名产物
         shell: pwsh
@@ -260,25 +302,30 @@ jobs:
           BUILD_VERSION: ${{ needs.version.outputs.build_version }}
         run: |
           $ErrorActionPreference = 'Stop'
-          # 产物目录名由游戏版本推导, 这里用 glob 查找, 不写死版本号.
+          # 产物目录名由版本推导, 这里用 glob 查找, 不写死版本号.
+          # 原版目录形如 Balatro-<版本>-win64, 需排除 Balatro-Modded-* 以免误选.
           $dir = Get-ChildItem -LiteralPath 'dist/windows' -Directory |
-            Where-Object { $_.Name -like 'Balatro-*-win64' } | Select-Object -First 1
+            Where-Object { $_.Name -like "${env:APP_STEM}-*-win64" -and
+                           ($env:MODDED -or $_.Name -notlike 'Balatro-Modded-*') } |
+            Select-Object -First 1
           if (-not $dir) { throw '未找到 Windows 产物目录' }
 
           # 校验逻辑放在仓库脚本里, 本机与 CI 共用同一份实现.
-          python scripts/verify_windows_bundle.py $dir.FullName
+          $verify = @($dir.FullName)
+          if ($env:MODDED) { $verify = @('--modded') + $verify }
+          python scripts/verify_windows_bundle.py @verify
           if ($LASTEXITCODE) { throw '产物校验失败' }
 
           $src = Join-Path 'dist/windows' "$($dir.Name).zip"
           if (-not (Test-Path -LiteralPath $src)) { throw "缺少 $src" }
-          Move-Item -LiteralPath $src -Destination "dist/balatro-$env:BUILD_VERSION-windows-x86_64.zip" -Force
-          "ARTIFACT_NAME=balatro-$env:BUILD_VERSION-windows-x86_64" |
-            Out-File -FilePath $env:GITHUB_ENV -Append
+          $name = "${env:ARTIFACT_PREFIX}-${env:BUILD_VERSION}-windows-x86_64"
+          Move-Item -LiteralPath $src -Destination "dist/${name}.zip" -Force
+          "ARTIFACT_NAME=${name}" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - uses: actions/upload-artifact@v6
         with:
           name: ${{ env.ARTIFACT_NAME }}
-          path: dist/balatro-*-windows-x86_64.zip
+          path: dist/${{ env.ARTIFACT_NAME }}.zip
           if-no-files-found: error
           retention-days: 14
 
@@ -340,9 +387,9 @@ jobs:
               *) echo "::error::意外的产物: $f"; exit 1 ;;
             esac
           done
-          # 三个平台各一个产物, 数量不对说明有 job 静默漏传.
-          if [ "$count" -ne 3 ]; then
-            echo "::error::产物数量为 $count, 期望 3"
+          # 三个平台各有原版与带 mod 两个产物, 数量不对说明有 job 静默漏传.
+          if [ "$count" -ne 6 ]; then
+            echo "::error::产物数量为 $count, 期望 6"
             ls -la artifacts || true
             exit 1
           fi

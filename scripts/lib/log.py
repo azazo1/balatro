@@ -18,12 +18,24 @@ for _stream in (sys.stdout, sys.stderr):
             pass
 
 _prefix = "balatro"
+_verbose = False
 
 
 def set_prefix(name):
     """设置日志前缀, 通常是平台名."""
     global _prefix
     _prefix = name
+
+
+def set_verbose(enabled):
+    """开启后输出 debug 级别的细节日志."""
+    global _verbose
+    _verbose = bool(enabled)
+
+
+def debug(message):
+    if _verbose:
+        print("[%s] 调试: %s" % (_prefix, message), file=sys.stderr, flush=True)
 
 
 def info(message):

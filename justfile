@@ -50,6 +50,20 @@ check-lua:
 check-scripts:
     {{ python }} -m compileall -q scripts
 
+# 运行打包脚本的单元测试.
+test-scripts:
+    {{ python }} -m unittest discover -s scripts/tests -t scripts
+
+# just mods-check [mod 目录]
+# 检查 mod 补丁在当前游戏版本上的命中情况, 不产出文件.
+mods-check mods="mods":
+    {{ python }} scripts/patch_mods.py --mods {{ mods }} --check
+
+# just mods-tree [mod 目录]
+# 生成补丁后的游戏源码树 dist/modded-tree, 便于查看补丁结果.
+mods-tree mods="mods":
+    {{ python }} scripts/patch_mods.py --mods {{ mods }}
+
 # 从游戏源码生成静态卡牌目录, 不运行游戏或访问存档.
 game-docs:
     luajit scripts/gen-card-docs.lua

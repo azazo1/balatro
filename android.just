@@ -9,6 +9,16 @@ dist:
 install:
     {{ python }} scripts/package_android.py --install
 
+# just android dist-modded [mod 目录]
+# 打包带 mod 的安装包, 包名与原版不同, 可同时安装.
+dist-modded mods="mods":
+    {{ python }} scripts/package_android.py --mods {{ mods }}
+
+# just android install-modded [mod 目录]
+# 打包带 mod 的安装包并安装到已连接的设备.
+install-modded mods="mods":
+    {{ python }} scripts/package_android.py --mods {{ mods }} --install
+
 # 用自定义包名打包, 例如: just android package com.foo.bar
 package name:
     {{ python }} scripts/package_android.py --package {{ name }}

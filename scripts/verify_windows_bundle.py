@@ -6,6 +6,7 @@ workflow 的 YAML 块标量里造成缩进问题.
 
 用法:
     python3 scripts/verify_windows_bundle.py dist/windows/Balatro-1.0.1n-win64
+    python3 scripts/verify_windows_bundle.py --modded dist/windows/Balatro-Modded-1.0.1n-win64
 """
 import io
 import os
@@ -21,13 +22,18 @@ log.set_prefix("verify-windows")
 # love.exe 在官方 win64 发行包中的大小. 融合产物跳过这么多字节后应当是游戏 zip 的起点.
 LOVE_EXE_SIZE = 387072
 REQUIRED_DEPS = ("love.dll", "SDL2.dll", "OpenAL32.dll", "lua51.dll", "mpg123.dll")
+# 带 mod 的载荷里必有的运行时清单, 见 lib/modding/build.py.
+MODDED_MARKER = "lovely_shim/manifest.lua"
 
 
 def main():
-    if len(sys.argv) != 2:
+    args = sys.argv[1:]
+    modded = "--modded" in args
+    args = [a for a in args if a != "--modded"]
+    if len(args) != 1:
         print(__doc__.strip(), file=sys.stderr)
         return 2
-    bundle = sys.argv[1]
+    bundle = args[0]
     exe = os.path.join(bundle, "Balatro.exe")
     if not os.path.isfile(exe):
         log.die("缺少 %s" % exe)
@@ -55,7 +61,10 @@ def main():
     except (zipfile.BadZipFile, KeyError) as exc:
         log.die("尾部 zip 无法读取: %s" % exc)
 
-    for need in ("main.lua", "conf.lua"):
+    required = ["main.lua", "conf.lua"]
+    if modded:
+        required.append(MODDED_MARKER)
+    for need in required:
         if need not in names:
             log.die("载荷缺少 %s" % need)
 

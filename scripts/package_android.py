@@ -8,6 +8,7 @@
     python3 scripts/package_android.py
     python3 scripts/package_android.py --package com.foo.bar
     python3 scripts/package_android.py --keystore 我的.jks --keystore-pass 密码
+    python3 scripts/package_android.py --mods   # 带 mod 的版本, 包名与原版不同, 可同时安装
 """
 import argparse
 import os
@@ -18,7 +19,8 @@ import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from lib import android_manifest, archive, gamezip, layout, log, pngutil, runtime, version as versionlib
+from lib import (android_manifest, archive, gamezip, layout, log, modding, pngutil, runtime,
+                 version as versionlib)
 
 log.set_prefix("android")
 
@@ -37,8 +39,9 @@ KEYSTORE_DEFAULT_ALIAS = "balatro"
 
 def parse_args():
     parser = argparse.ArgumentParser(description="打包 Android 安装包")
-    parser.add_argument("--package", default=layout.ANDROID_PACKAGE,
-                        help="应用包名, 默认 %s" % layout.ANDROID_PACKAGE)
+    parser.add_argument("--package", default=None,
+                        help="应用包名, 默认 %s, 带 mod 时为 %s"
+                        % (layout.VANILLA.android_package, layout.MODDED.android_package))
     parser.add_argument("--keystore", default=None,
                         help="签名密钥, 默认 dist/android/%s.keystore" % KEYSTORE_DEFAULT_ALIAS)
     parser.add_argument("--keystore-pass", default=None,
@@ -53,6 +56,7 @@ def parse_args():
     parser.add_argument("--install", action="store_true",
                         help="打包完成后安装到已连接的设备")
     parser.add_argument("--keep-work", action="store_true", help="保留临时目录")
+    modding.add_arguments(parser)
     return parser.parse_args()
 
 
@@ -168,8 +172,9 @@ def assemble_apk(base_apk, out_apk, replacements):
 
 def main():
     args = parse_args()
+    flavor = modding.flavor(args)
 
-    package_name = args.package
+    package_name = args.package or flavor.android_package
     if not all(ch.isalnum() or ch in "._" for ch in package_name) or "." not in package_name:
         log.die("包名不合法: %s" % package_name)
 
@@ -181,7 +186,8 @@ def main():
     if not os.path.isfile(icon_src):
         log.die("找不到图标源图: %s" % icon_src)
 
-    log.info("游戏版本 %s, 版本号 %d, 包名 %s" % (version, version_code, package_name))
+    log.info("游戏版本 %s, 版本号 %d, 包名 %s, 变体 %s"
+             % (version, version_code, package_name, flavor.key))
 
     # CI 里别名来自 secret, 未配置时会传空字符串, 因此空值需要回退到默认值.
     key_alias = args.key_alias or KEYSTORE_DEFAULT_ALIAS
@@ -195,14 +201,14 @@ def main():
     work_dir = tempfile.mkdtemp(prefix=".android-", dir=out_dir)
     try:
         love_path = os.path.join(work_dir, ASSET_NAME)
-        gamezip.build(layout.GAME_DIR, love_path)
+        gamezip.build(modding.game_source(args, work_dir, version), love_path)
 
         log.info("改写 AndroidManifest")
         base_apk = os.path.join(work_dir, "base.apk")
         strings = {
             "org.love2d.android": package_name,
             "org.love2d.android.androidx-startup": "%s.androidx-startup" % package_name,
-            "LÖVE for Android": layout.APP_NAME,
+            "LÖVE for Android": flavor.app_name,
             "11.5a": version,
         }
         # sensorLandscape: 锁定横屏, 但允许随手机方向左右翻转.
@@ -235,7 +241,7 @@ def main():
         if not os.path.isfile(keystore):
             generate_keystore(keystore, key_alias, store_pass, key_pass, layout.APP_NAME)
 
-        apk_out = os.path.join(out_dir, "%s-%s.apk" % (layout.APP_NAME, version))
+        apk_out = os.path.join(out_dir, "%s-%s.apk" % (flavor.file_stem, version))
         log.info("签名")
         log.run([apksigner, "sign", "--ks", keystore,
                  "--ks-pass", "pass:%s" % store_pass,

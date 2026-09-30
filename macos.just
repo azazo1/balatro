@@ -9,6 +9,15 @@ dist:
 run: dist
     open dist/macos/Balatro.app
 
+# just macos dist-modded [mod 目录]
+# 打包带 mod 的应用, 产出 dist/macos/Balatro-Modded.app, 与原版可同时安装.
+dist-modded mods="mods":
+    {{ python }} scripts/package_macos.py --mods {{ mods }}
+
+# 在终端里运行带 mod 的应用, 便于直接看到日志.
+run-modded: dist-modded
+    dist/macos/Balatro-Modded.app/Contents/MacOS/love
+
 # 用指定 png 作为应用图标打包, 例如: just macos icon 图标.png
 icon path:
     {{ python }} scripts/package_macos.py --icon {{ path }}
