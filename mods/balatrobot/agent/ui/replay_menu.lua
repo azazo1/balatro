@@ -18,6 +18,9 @@ local W
 
 local LOGGER = "BB.AGENT.REPLAY.MENU"
 local PER_PAGE = 6
+-- 面板内容宽度 (UI 单位). 行文字按它减去按钮内边距裁断, 这样每行宽度固定, 布局与内容无关.
+local PANEL_W = 9
+local ROW_TEXT_W = PANEL_W - 0.9
 
 local M = {}
 
@@ -129,6 +132,8 @@ G.FUNCS.bb_replay_refresh = function(_e)
   end
 end
 
+--- 翻页: 只换 view 里的内容, 菜单不重建. 行文字由 label_fn 每帧读出, 宽度已固定, 布局不受影响.
+---@param delta integer
 local function page_by(delta)
   view.page = math.max(1, view.page + delta)
   refresh()
@@ -143,16 +148,20 @@ G.FUNCS.bb_replay_next = function(_e)
 end
 
 --- 一行按钮: 点了进确认页.
+---
+--- 文字先裁到 ROW_TEXT_W (小于按钮的 minw) 再交给 label_fn: 按钮宽度因此恒等于 minw, 翻页换文字
+--- 也不改变布局. 不裁的话文本节点量出的宽度会撑开面板, 后面的行跟着错位
+--- (game/engine/ui.lua 的 update_text 在文本长度变化时会 recalculate 整个 overlay).
 ---@param index integer
 ---@return table
 local function entry_row(index)
+  local function fitted()
+    return W.fit_text(view.lines[index] or "", ROW_TEXT_W, 0.3)
+  end
   return W.button({
-    label = "",
-    -- 翻页只换 view 里的内容, 菜单不重建: 这些函数每帧被调用, 新的文字直接反映出来.
-    label_fn = function()
-      return view.lines[index] or ""
-    end,
-    minw = 9,
+    label = fitted(),
+    label_fn = fitted,
+    minw = PANEL_W,
     minh = 0.5,
     scale = 0.3,
     enabled = function()
@@ -168,20 +177,21 @@ local function entry_row(index)
 end
 
 --- 列表页.
-local function list_definition()
+function list_definition()
   refresh()
-  local rows = {}
-  for i = 1, PER_PAGE do
-    if view.lines[i] then
-      rows[#rows + 1] = entry_row(i)
-    end
-  end
   local nodes = {
     W.row({ W.text("回放", 0.5, G.C.FILTER) }, { align = "cm", padding = 0.05 }),
     W.row({ W.live(view, "header", 0.32) }, { align = "cm" }),
     W.row({ W.live(view, "notice", 0.3, G.C.UI.TEXT_INACTIVE) }, { align = "cm" }),
-    W.col(rows, { align = "cm" }),
-    W.row({
+  }
+  -- 每行直接作为兄弟展开 (每个都是 R 型). 不用 W.col 包: C 型节点会把横向游标推走,
+  -- 后面的分页按钮就跟着右移, 跑出面板外面.
+  for i = 1, PER_PAGE do
+    if view.lines[i] then
+      nodes[#nodes + 1] = entry_row(i)
+    end
+  end
+  nodes[#nodes + 1] = W.row({
       W.col({
         W.button({
           label = "上一页",
@@ -210,14 +220,13 @@ local function list_definition()
           end,
         }),
       }, { align = "cm" }),
-    }, { align = "cm", padding = 0.1 }),
-  }
+    }, { align = "cm", padding = 0.1 })
   return create_UIBox_generic_options({
     back_func = "options",
     contents = {
       {
         n = G.UIT.R,
-        config = { align = "cm", padding = 0.1, minw = 9 },
+        config = { align = "cm", padding = 0.1, minw = PANEL_W },
         nodes = { W.col(nodes, { align = "cm", padding = 0.05 }) },
       },
     },
@@ -254,71 +263,71 @@ local function confirm_definition()
   end
   confirm.lines = lines
 
-  local rows = {}
-  for i = 1, #confirm.lines do
-    rows[#rows + 1] = W.row({ W.live(confirm.lines, tostring(i), 0.3) }, { align = "cm" })
-  end
-
   local nodes = {
     W.row({ W.text("回放这一局", 0.5, G.C.FILTER) }, { align = "cm", padding = 0.05 }),
-    W.col(rows, { align = "cm" }),
-    W.row({
-      W.text("节奏", 0.32),
-      W.radio({
-        { "tight", "紧凑" },
-        { "original", "原速" },
-      }, function()
-        return confirm.pacing
-      end, function(value)
-        confirm.pacing = value
-      end),
-    }, { align = "cm", padding = 0.06 }),
-    W.row({
-      W.text("录像", 0.32),
-      W.radio({
-        { false, "不录" },
-        { true, "录" },
-      }, function()
-        return confirm.record
-      end, function(value)
-        confirm.record = value
-      end),
-    }, { align = "cm", padding = 0.06 }),
-    W.row({
-      W.col({
-        W.button({
-          label = "开始回放",
-          col = true,
-          minw = 2.5,
-          minh = 0.6,
-          scale = 0.4,
-          colour = G.C.GREEN,
-          enabled = function()
-            return not deps.runner.is_busy()
-          end,
-          on_click = function()
-            M.start_selected()
-          end,
-        }),
-        W.button({
-          label = "返回列表",
-          col = true,
-          minw = 2.5,
-          minh = 0.6,
-          scale = 0.4,
-          on_click = function()
-            G.FUNCS.bb_replay_list()
-          end,
-        }),
-      }, { align = "cm" }),
-    }, { align = "cm", padding = 0.1 }),
   }
+  -- 这些文字建立后不再变, 用静态文本节点即可.
+  -- (早先用 W.live + tostring(i) 取值: 数组的键是整数, "1" 取不到, 界面上就显示成 nil.)
+  -- 每行直接作为兄弟展开, 不要用 W.col 包 (见改列表页那里的说明).
+  for i = 1, #confirm.lines do
+    nodes[#nodes + 1] = W.row({ W.text(W.fit_text(confirm.lines[i], ROW_TEXT_W, 0.3), 0.3) }, { align = "cm" })
+  end
+  nodes[#nodes + 1] = W.row({
+    W.text("节奏", 0.32),
+    W.radio({
+      { "tight", "紧凑" },
+      { "original", "原速" },
+    }, function()
+      return confirm.pacing
+    end, function(value)
+      confirm.pacing = value
+    end),
+  }, { align = "cm", padding = 0.06 })
+  nodes[#nodes + 1] = W.row({
+    W.text("录像", 0.32),
+    W.radio({
+      { false, "不录" },
+      { true, "录" },
+    }, function()
+      return confirm.record
+    end, function(value)
+      confirm.record = value
+    end),
+  }, { align = "cm", padding = 0.06 })
+  nodes[#nodes + 1] = W.row({
+    W.col({
+      W.button({
+        label = "开始回放",
+        col = true,
+        minw = 2.5,
+        minh = 0.6,
+        scale = 0.4,
+        colour = G.C.GREEN,
+        enabled = function()
+          return not deps.runner.is_busy()
+        end,
+        on_click = function()
+          M.start_selected()
+        end,
+      }),
+      W.button({
+        label = "返回列表",
+        col = true,
+        minw = 2.5,
+        minh = 0.6,
+        scale = 0.4,
+        on_click = function()
+          G.FUNCS.bb_replay_list()
+        end,
+      }),
+    }, { align = "cm" }),
+  }, { align = "cm", padding = 0.1 })
   return create_UIBox_generic_options({
     back_func = "bb_replay_list",
     contents = {
       {
         n = G.UIT.R,
-        config = { align = "cm", padding = 0.1, minw = 9 },
+        config = { align = "cm", padding = 0.1, minw = PANEL_W },
         nodes = { W.col(nodes, { align = "cm", padding = 0.05 }) },
       },
     },

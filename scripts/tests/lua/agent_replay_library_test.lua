@@ -183,6 +183,168 @@ do
   check("行文字: 不可回放带原因", bad_line:find("不可回放", 1, true) ~= nil and bad_line:find("文件损坏", 1, true) ~= nil, bad_line)
 end
 
+do -- 回放菜单的布局: 竖直列表里不能出现"C 型节点后面还有兄弟"
+  -- 布局引擎 (game/engine/ui.lua) 遍历子节点时, C 型子节点把横向游标往右推, 而 R 型子节点只推进
+  -- 纵向且不重置横向游标. 所以 C 后面再有兄弟, 那些兄弟就会右移, 可能整行跑到面板外面.
+  -- 这个错误在开发机上肉眼看不到 (要真机截图), 只能靠结构检查兜住.
+  local UIT = { T = 1, B = 2, C = 3, R = 4, O = 5, ROOT = 7, S = 8, I = 9 }
+  local C, R = UIT.C, UIT.R
+
+  -- 假 G/SMODS/love, 只为让 replay_menu 能加载并生成定义.
+  love = {
+    filesystem = { getSaveDirectory = function() return "/tmp/bb" end, remove = function() return true end },
+    timer = { getTime = function() return os.clock() end },
+  }
+  G = {
+    UIT = UIT,
+    ROOM = { T = { w = 10, h = 10 } },
+    TILESIZE = 20,
+    TILESCALE = 1,
+    C = {
+      FILTER = { 1, 1, 1, 1 },
+      BLUE = { 0, 0, 1, 1 },
+      RED = { 1, 0, 0, 1 },
+      GREEN = { 0, 1, 0, 1 },
+      L_BLACK = { 0, 0, 0, 1 },
+      UI = { TEXT_LIGHT = { 1, 1, 1, 1 }, TEXT_INACTIVE = { 0.5, 0.5, 0.5, 1 } },
+    },
+    FUNCS = {},
+    STAGES = { MAIN_MENU = 1, RUN = 2, SANDBOX = 3 },
+    STAGE = 1,
+    SETTINGS = { paused = false, profile = 1 },
+  }
+  local fake_replay = json.encode(replay_data())
+  SMODS = {
+    NFS = {
+      getDirectoryItemsInfo = function()
+        return { { name = "20240501-123456-ABCD.replay.json", size = #fake_replay, modtime = 1000 } }
+      end,
+      read = function()
+        return fake_replay
+      end,
+    },
+  }
+  create_UIBox_generic_options = function(args) return { args = args } end
+  sendDebugMessage, sendInfoMessage, sendWarnMessage, sendErrorMessage = function() end, function() end, function() end, function() end
+
+  -- widgets.init 需要 toast.pick_lang
+  local Widgets = dofile("mods/balatrobot/agent/ui/widgets.lua")
+  Widgets.init({
+    toast = {
+      pick_lang = function() return { font = { FONT = { getWidth = function(_, t) return #t * 10 end, getHeight = function() return 10 end }, squish = 1, FONTSCALE = 0.1, TEXT_HEIGHT_SCALE = 1 } } end,
+    },
+  })
+
+  local ReplayMenu = dofile("mods/balatrobot/agent/ui/replay_menu.lua")
+  local pages = {}
+  ReplayMenu.init({
+    mod = { id = "balatrobot" },
+    agent_menu = { menu_entries = {} },
+    runner = { is_busy = function() return false end },
+    mode = { apply = function() end },
+    recorder = { enabled = false, get_prefix = function() return "" end, set_enabled = function() end, set_prefix = function() end },
+    replay = { active = false, start = function() return true end },
+    session = { begin = function() return true end, finish = function() end },
+    library = Library,
+    snapshot = {},
+    format = Format,
+    toast = { push = function() end },
+    stream = { show_status = function() end },
+    widgets = Widgets,
+  })
+  -- 列表页与确认页都生成一次: 用一个假条目走确认页.
+  pages.list = function()
+    G.FUNCS.bb_replay_list()
+  end
+
+  -- 收集 definition: overlay_menu 被调用时把定义留下
+  local captured = nil
+  G.FUNCS.overlay_menu = function(args)
+    captured = args and args.definition
+  end
+  G.FUNCS.bb_replay_list()
+  local list_def = captured
+
+  --- 找出"竖直列表里 C 型节点后面还有兄弟"的地方.
+  --- 参数既可以是节点, 也可以是节点数组 (定义树的顶层就是数组).
+  ---@param node table
+  ---@param path string
+  ---@param found string[]
+  local function scan(node, path, found)
+    if type(node) ~= "table" then
+      return
+    end
+    if not node.n then
+      -- 数组: 逐个当节点处理, 这个层级本身没有容器语义
+      for i, child in ipairs(node) do
+        scan(child, string.format("%s<%d>", path, i), found)
+      end
+      return
+    end
+    local nodes = node.nodes
+    if type(nodes) ~= "table" then
+      return
+    end
+    for i, child in ipairs(nodes) do
+      -- C 型子节点会把横向游标推出去, 而它后面的 R 型子节点只推进纵向、不重置横向游标,
+      -- 于是那些 R 会整体右移. 纯 C 的容器 (例如横向排的按钮组) 不受影响, 不报.
+      if type(child) == "table" and child.n == C then
+        for j = i + 1, #nodes do
+          local later = nodes[j]
+          if type(later) == "table" and later.n == R then
+            found[#found + 1] = string.format("%s: [%d] 是 C 型, 后面的 [%d] 是 R 型", path, i, j)
+            break
+          end
+        end
+      end
+      scan(child, string.format("%s[%d]", path, i), found)
+    end
+  end
+
+  local found = {}
+  if list_def then
+    scan(list_def.args and list_def.args.contents or list_def, "list", found)
+  end
+  check("列表页生成成功", list_def ~= nil)
+  check("列表页没有 C 后面带 R 的布局", #found == 0, table.concat(found, "; "))
+
+  -- 确认页: 找到列表里那行按钮的点击回调并触发它, 这样确认页的定义会真的被构建出来再受检查.
+  ---@param node table
+  ---@return fun()?
+  local function find_on_click(node)
+    if type(node) ~= "table" then
+      return nil
+    end
+    local ref = node.config and node.config.ref_table
+    if ref and type(ref.on_click) == "function" then
+      return ref.on_click
+    end
+    -- 节点数组 (定义顶层) 与子节点都按顺序找, 第一个按钮就是第一行回放
+    for _, child in ipairs(node.n and (node.nodes or {}) or node) do
+      local found_fn = find_on_click(child)
+      if found_fn then
+        return found_fn
+      end
+    end
+    return nil
+  end
+
+  local clicked = list_def and find_on_click(list_def.args and list_def.args.contents or list_def)
+  check("列表行有点击回调", clicked ~= nil)
+  local confirm_def = nil
+  if clicked then
+    clicked()
+    confirm_def = captured
+  end
+  check("确认页生成成功", confirm_def ~= nil and confirm_def ~= list_def)
+
+  local confirm_found = {}
+  if confirm_def then
+    scan(confirm_def.args and confirm_def.args.contents or confirm_def, "confirm", confirm_found)
+  end
+  check("确认页没有 C 后面带 R 的布局", #confirm_found == 0, table.concat(confirm_found, "; "))
+end
+
 if failures > 0 then
   print(string.format("%d 项失败", failures))
   os.exit(1)

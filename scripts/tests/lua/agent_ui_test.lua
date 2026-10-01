@@ -192,6 +192,46 @@ do -- runner: 没有 driver 时不启动; 停止与出错各通知一次录像; 
   check("超过 token 上限自动暂停", Runner.state == "paused" and Runner.stats.last_error ~= "")
 end
 
+do -- 文字裁断: 行文字必须能收进固定宽度, 否则会把面板撑开并让后面的行错位
+  -- widgets.lua 在加载时就往 G.FUNCS 注册回调, 所以要先给 G 桩.
+  G = G or { FUNCS = {}, C = { UI = {} }, UIT = {}, ROOM = { T = {} } }
+  local Widgets = dofile("mods/balatrobot/agent/ui/widgets.lua")
+  -- 每个字符宽度相同, 便于核对边界; 中文按 2 宽, ASCII 按 1 宽.
+  local function fake_measure(text)
+    local width = 0
+    for _, ch in ipairs((function()
+      local chars = {}
+      for c in text:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
+        chars[#chars + 1] = c
+      end
+      return chars
+    end)()) do
+      width = width + (#ch > 1 and 2 or 1)
+    end
+    return width
+  end
+
+  check("放得下就不裁", Widgets.fit_text("abc", 10, 1, fake_measure) == "abc")
+  check("恰好放下不裁", Widgets.fit_text("abcde", 5, 1, fake_measure) == "abcde")
+  -- 省略号按 2 宽算, 预算 5 只剩 3 给字符, 于是正好用满预算
+  local cut = Widgets.fit_text("abcdefghij", 5, 1, fake_measure)
+  check("超长时裁断并加省略号", cut == "abc…", cut)
+  check("裁断后不超过预算", fake_measure(cut) <= 5, tostring(fake_measure(cut)))
+
+  -- 中文按 2 宽: 预算 5 减去省略号 2 只剩 3, 放不下 2 个中文 (4)
+  local cjk = Widgets.fit_text("中文字符测试", 5, 1, fake_measure)
+  check("中文按显示宽度裁", cjk == "中…", cjk)
+
+  -- 不能把多字节字符切一半: 结果必须仍是完整的 UTF-8
+  local bytes = 0
+  for _ in cjk:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
+    bytes = bytes + 1
+  end
+  check("裁断处在字符边界", bytes == 2, tostring(bytes))
+  check("极窄时只留省略号", Widgets.fit_text("中文字符", 1, 1, fake_measure) == "…")
+  check("没有宽度限制时原样返回", Widgets.fit_text("中文字符", nil, 1, fake_measure) == "中文字符")
+end
+
 do -- 回放入口的显示条件: 常量写错时按钮会静默消失, 这里按真实游戏的 G.STAGES 取值核对
   -- 与 game/globals.lua 一致: 只有 MAIN_MENU / RUN / SANDBOX
   package.path = "mods/Steamodded/libs/json/?.lua;" .. package.path

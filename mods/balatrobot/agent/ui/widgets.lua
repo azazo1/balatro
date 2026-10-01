@@ -81,6 +81,12 @@ function M.row(nodes, config)
   return { n = G.UIT.R, config = config, nodes = nodes }
 end
 
+--- 一个横向排列的容器 (G.UIT.C).
+---
+--- 注意别把它当成"竖直列表"直接塞进兄弟节点里: 布局引擎 (game/engine/ui.lua) 遍历子节点时,
+--- C 型子节点会把横向游标往右推, 而 R 型子节点只推进纵向,**不会重置横向游标**. 于是 C 后面的
+--- 兄弟节点全部右移, 严重时整行跑到面板外面 (回放菜单踩过: 分页按钮与确认页的按钮行都偏到右边).
+--- 竖直列表就写成一个个 M.row, 直接作为兄弟展开.
 ---@param nodes table[]
 ---@param config table?
 ---@return table
@@ -111,6 +117,67 @@ end
 ---@field col boolean? 作为列排列 (横排按钮)
 ---@field padding number? 按钮内边距, 默认 0.06
 ---@field outer_padding number? 按钮外边距, 默认 0.04
+
+--- 按 UTF-8 字符切分 (LuaJIT 没有 utf8 库; 截断时不能把多字节字符切一半).
+---@param text string
+---@return string[]
+local function utf8_chars(text)
+  local chars = {}
+  for ch in text:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
+    chars[#chars + 1] = ch
+  end
+  return chars
+end
+
+--- 文本在 UI 单位下的宽度, 与 game/engine/ui.lua 量文本的方式一致 (屏宽 = G.ROOM.T.w 个单位).
+---@param text string
+---@param scale number
+---@return number
+function M.measure_text(text, scale)
+  local lang = M.cjk_lang()
+  local font = lang.font
+  local width = font.FONT:getWidth(text) * font.squish * scale * G.TILESCALE * font.FONTSCALE
+  return width / (G.TILESIZE * G.TILESCALE)
+end
+
+--- 把文字裁到 max_units 宽 (超出部分换成省略号).
+---
+--- 为什么要主动裁: 文本节点的宽度是真量出来的, 面板宽度会被它撑开, 甚至让后面的行错位
+--- (game/engine/ui.lua 的 update_text 只在文本长度变化时 recalculate, 所以先空后长的标签会让
+--- 整个 overlay 重新布局). 行文字固定在一个宽度以内, 布局就跟文字内容无关了.
+---
+--- measure 只为单测注入 (开发机上没有游戏字体).
+---@param text string
+---@param max_units number
+---@param scale number
+---@param measure (fun(text: string, scale: number): number)?
+---@return string
+function M.fit_text(text, max_units, scale, measure)
+  measure = measure or M.measure_text
+  if max_units == nil or measure(text, scale) <= max_units then
+    return text
+  end
+  local ellipsis = "…"
+  local budget = max_units - measure(ellipsis, scale)
+  if budget <= 0 then
+    return ellipsis
+  end
+  local chars = utf8_chars(text)
+  -- 二分找能放下的字符数: 逐字符试在长文案上是 O(n) 次测量, 没必要.
+  local lo, hi = 0, #chars
+  while lo < hi do
+    local mid = math.floor((lo + hi + 1) / 2)
+    if measure(table.concat(chars, "", 1, mid), scale) <= budget then
+      lo = mid
+    else
+      hi = mid - 1
+    end
+  end
+  if lo == 0 then
+    return ellipsis
+  end
+  return table.concat(chars, "", 1, lo) .. ellipsis
+end
 
 --- 按钮, 外观与 UIBox_button 一致 (圆角, 阴影, 悬停).
 ---@param args BBButtonArgs
