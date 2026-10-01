@@ -1,8 +1,9 @@
 --[[
 mod 设置页 (模组 -> BalatroBot -> 配置), 即 MOD.config_tab.
 
-左列: agent 模式与内置 agent 的配置 (endpoint, 模型名, 鉴权方式, key, 单局 token 上限, 赢后处理, 策略).
-右列: 显示, 开发开关, 状态行. 录像与回放的设置在 bbreplay 自己的设置页.
+左列: agent 模式, 内置 agent 的连接 (endpoint, 模型名, key, 鉴权方式) 与状态行.
+右列: 内置 agent 的对局设置 (单局 token 上限, 最大上下文, 赢后处理, 种子, 策略) 与显示开关.
+底部整行: 粘贴, 清除等操作的结果. 录像与回放的设置在 bbreplay 自己的设置页.
 
 - 原版文本框的字符表没有 '/', 还会把 '0' 改成 'o', 所以 endpoint, 模型名, key, 策略都用 "从剪贴板粘贴" 输入.
   策略还能复制回剪贴板, 改完再粘回来.
@@ -285,23 +286,16 @@ local function toggle(label, ref_value, callback)
   }))
 end
 
-local function mode_column()
+--- 左列: agent 模式, 内置 agent 的连接 (endpoint, 模型名, key, 鉴权) 与状态.
+local function connection_column()
   local mode = deps.mode
   local mode_options = {}
   for i, key in ipairs(deps.modes.MODES) do
     mode_options[i] = { key, deps.modes.LABELS[key] }
   end
   local auth_options = { { "bearer", "Bearer" }, { "x-api-key", "x-api-key" } }
-  local limit_options = {}
-  for i, v in ipairs(Fields.TOKEN_LIMITS) do
-    limit_options[i] = { v, Fields.TOKEN_LIMIT_LABELS[i] }
-  end
-  local context_options = {}
-  for i, v in ipairs(Fields.CONTEXT_LIMITS) do
-    context_options[i] = { v, Fields.CONTEXT_LIMIT_LABELS[i] }
-  end
 
-  return W.col({
+  local nodes = {
     W.title("agent 模式"),
     W.row({
       W.radio(mode_options, function()
@@ -319,7 +313,7 @@ local function mode_column()
       }),
     }),
     W.row({ W.live(view, "mode_note", 0.27, G.C.UI.TEXT_INACTIVE) }),
-    W.title("内置 agent"),
+    W.title("内置 agent 连接"),
     value_row("endpoint", "endpoint", "endpoint"),
     value_row("模型名", "model", "model"),
     value_row("key", "key", "api_key", W.button({
@@ -347,6 +341,39 @@ local function mode_column()
         save()
       end, { minw = 1.3, scale = SCALE }),
     }),
+    W.row({ W.text("endpoint 填 chat completions 的完整地址, 从剪贴板粘贴.", 0.26, G.C.UI.TEXT_INACTIVE) }),
+    W.row({ W.text("key 以明文保存在本机存档目录 (config/balatrobot.jkr).", 0.26, G.C.UI.TEXT_INACTIVE) }),
+    W.row({
+      W.text(
+        love._os == "Android"
+            and "Android: 该文件权限为 0600, 靠组权限的文件管理器读不到; Android 10 及以前有存储权限的应用仍可能读到."
+          or "配置文件权限为 0600, 只允许本应用读写.",
+        0.26,
+        G.C.UI.TEXT_INACTIVE
+      ),
+    }),
+    W.title("状态"),
+  }
+  for _, key in ipairs({ "agent_line", "runner_line" }) do
+    nodes[#nodes + 1] = W.row({ W.live(view, key, 0.28) })
+  end
+  nodes[#nodes + 1] = W.row({ W.live(view, "error_line", 0.28, G.C.RED) })
+  return W.col(nodes, { minw = COL_W, padding = 0.05 })
+end
+
+--- 右列: 内置 agent 怎么打 (用量上限, 上下文, 赢后处理, 种子, 策略) 与显示开关.
+local function play_column()
+  local limit_options = {}
+  for i, v in ipairs(Fields.TOKEN_LIMITS) do
+    limit_options[i] = { v, Fields.TOKEN_LIMIT_LABELS[i] }
+  end
+  local context_options = {}
+  for i, v in ipairs(Fields.CONTEXT_LIMITS) do
+    context_options[i] = { v, Fields.CONTEXT_LIMIT_LABELS[i] }
+  end
+
+  local nodes = {
+    W.title("内置 agent 对局"),
     W.row({ W.text("单局 token 上限", SCALE) }, { padding = 0.04 }),
     W.row({
       W.radio(limit_options, function()
@@ -376,25 +403,10 @@ local function mode_column()
     }),
     seed_row(),
     strategy_row(),
-    W.row({ W.live(view, "action_note", 0.27, G.C.UI.TEXT_INACTIVE) }),
-    W.row({ W.text("endpoint 填 chat completions 的完整地址, 从剪贴板粘贴.", 0.26, G.C.UI.TEXT_INACTIVE) }),
-    W.row({ W.text("策略: 自己写的打法要求, 粘贴后下一次开始时生效.", 0.26, G.C.UI.TEXT_INACTIVE) }),
     W.row({ W.text("种子: 最多 8 位字母和数字, 空为随机; 固定种子的局按原版规则不计解锁和统计.", 0.26, G.C.UI.TEXT_INACTIVE) }),
-    W.row({ W.text("key 以明文保存在本机存档目录 (config/balatrobot.jkr).", 0.26, G.C.UI.TEXT_INACTIVE) }),
-    W.row({
-      W.text(
-        love._os == "Android"
-            and "Android: 该文件权限为 0600, 靠组权限的文件管理器读不到; Android 10 及以前有存储权限的应用仍可能读到."
-          or "配置文件权限为 0600, 只允许本应用读写.",
-        0.26,
-        G.C.UI.TEXT_INACTIVE
-      ),
-    }),
-  }, { minw = COL_W, padding = 0.05 })
-end
-
-local function side_column()
-  local nodes = { W.title("显示") }
+    W.row({ W.text("策略: 自己写的打法要求, 粘贴后下一次开始时生效.", 0.26, G.C.UI.TEXT_INACTIVE) }),
+    W.title("显示"),
+  }
   nodes[#nodes + 1] = toggle("显示 agent 消息", "show_messages", function(value)
     deps.toast.enabled = value
     if not value then
@@ -402,11 +414,6 @@ local function side_column()
     end
   end)
   nodes[#nodes + 1] = toggle("演示流式条 (开发用)", "demo_stream")
-  nodes[#nodes + 1] = W.title("状态")
-  for _, key in ipairs({ "agent_line", "runner_line" }) do
-    nodes[#nodes + 1] = W.row({ W.live(view, key, 0.28) })
-  end
-  nodes[#nodes + 1] = W.row({ W.live(view, "error_line", 0.28, G.C.RED) })
   return W.col(nodes, { minw = COL_W, padding = 0.05 })
 end
 
@@ -421,10 +428,12 @@ function M.build()
     config = { align = "cm", padding = 0.15, r = 0.1, colour = G.C.BLACK, func = "bb_settings_refresh" },
     nodes = {
       W.row({
-        mode_column(),
+        connection_column(),
         W.col({}, { minw = 0.2 }),
-        side_column(),
+        play_column(),
       }, { align = "tm", padding = 0 }),
+      -- 粘贴, 清除, 切换模式的结果: 两列的按钮共用, 放在底部整行.
+      W.row({ W.live(view, "action_note", 0.27, G.C.UI.TEXT_INACTIVE) }, { align = "cm" }),
     },
   }
 end
