@@ -229,6 +229,38 @@ function M.list(fs, options)
   return entries, fresh
 end
 
+-- 一局在录像目录里的文件: <stem> 加这些后缀. 与 record/recorder.lua, record/post.lua 和
+-- balatrobot 的转录 (<stem>-agent.jsonl) 的命名一致. 中间文件只在崩溃或合成失败时才会留下.
+local RUN_SUFFIXES = {
+  ".replay.json",
+  "-full.mp4",
+  "-cut.mp4",
+  ".json", -- 时间轴
+  "-agent.jsonl",
+  ".video.mp4",
+  ".pcm",
+  ".ffmpeg.txt",
+  ".post.sh",
+  ".post.cmd",
+}
+
+--- 删除一个回放时要删掉的文件名 (不含目录): 这一局的回放文件, 两份视频, 时间轴, agent 转录与残留的中间文件.
+--- 只按固定后缀拼出完整文件名, 不做通配, 同一局的其它段 (<stem>-2 等) 不会被带上.
+--- name 不是 <stem>.replay.json, 或者带路径分隔符时返回 nil.
+---@param name string 回放文件名
+---@return string[]?
+function M.run_files(name)
+  local stem = type(name) == "string" and name:match("^(.+)%.replay%.json$")
+  if not stem or stem:find("[/\\]") or stem == "." or stem == ".." then
+    return nil
+  end
+  local files = {}
+  for i, suffix in ipairs(RUN_SUFFIXES) do
+    files[i] = stem .. suffix
+  end
+  return files
+end
+
 --- 分页. 页码从 1 起, 越界时收敛到有效范围.
 ---@param entries table[]
 ---@param page integer

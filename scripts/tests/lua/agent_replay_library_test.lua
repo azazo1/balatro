@@ -142,6 +142,30 @@ do
   check("分页: 页码下界收敛到第一页", low == 1, tostring(low))
 end
 
+do -- 删除回放的范围: 只拼出这一局的固定文件名, 不带路径, 不碰同一局的其它段
+  local files = Library.run_files("20261001-162556-SPLIT01.replay.json")
+  local set = {}
+  for _, name in ipairs(files or {}) do
+    set[name] = true
+  end
+  check(
+    "删除这一局的回放, 视频, 时间轴与转录",
+    set["20261001-162556-SPLIT01.replay.json"] and set["20261001-162556-SPLIT01-full.mp4"]
+      and set["20261001-162556-SPLIT01-cut.mp4"] and set["20261001-162556-SPLIT01.json"]
+      and set["20261001-162556-SPLIT01-agent.jsonl"] and set["20261001-162556-SPLIT01.video.mp4"] or false
+  )
+  local escaped = false
+  for _, name in ipairs(files or {}) do
+    escaped = escaped or name:find("[/\\]") ~= nil or not name:find("^20261001%-162556%-SPLIT01[%.%-]")
+  end
+  check("删除的文件名都不带路径, 都属于这一局", not escaped)
+  check(
+    "不是回放文件或带路径时不删",
+    Library.run_files("a.json") == nil and Library.run_files("../x.replay.json") == nil
+      and Library.run_files("sub\\x.replay.json") == nil and Library.run_files(".replay.json") == nil
+  )
+end
+
 do -- 回放菜单的布局: 竖直列表里不能出现"C 型节点后面还有兄弟"
   -- 布局引擎 (game/engine/ui.lua) 遍历子节点时, C 型子节点把横向游标往右推, 而 R 型子节点只推进
   -- 纵向且不重置横向游标. 所以 C 后面再有兄弟, 那些兄弟就会右移, 可能整行跑到面板外面.

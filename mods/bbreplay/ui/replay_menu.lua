@@ -157,7 +157,7 @@ local function button_bar(buttons)
   return W.row({ W.col(buttons, { align = "cm" }) }, { align = "cm", padding = 0.1 })
 end
 
-local open_confirm
+local open_confirm, delete_armed, delete_selected
 
 --- 一行按钮: 点了进确认页.
 ---
@@ -314,6 +314,78 @@ local function can_start()
   return deps.control.owner() == nil and deps.control.busy() == nil
 end
 
+-- 删除要点两次: 第一次只是把按钮改成 "再点一次删除", DELETE_ARM 秒内再点才删.
+local DELETE_ARM = 3
+-- 局末的合成在后台进行, 中间文件这么多秒内还在变化时不删, 免得删到正在合成的文件.
+local BUSY_WINDOW = 10
+
+---@return boolean
+function delete_armed()
+  return confirm.armed_at ~= nil and love.timer.getTime() - confirm.armed_at < DELETE_ARM
+end
+
+--- 这一局还在后台合成: 中间文件或合成脚本在 BUSY_WINDOW 秒内改过.
+---@param dir string
+---@param files string[]
+---@return boolean
+local function still_building(dir, files)
+  local now = os.time()
+  for _, name in ipairs(files) do
+    if name:match("%.video%.mp4$") or name:match("%.post%.%a+$") or name:match("%.pcm$") then
+      local info = SMODS.NFS.getInfo(dir .. "/" .. name, "file")
+      if info and info.modtime and now - info.modtime < BUSY_WINDOW then
+        return true
+      end
+    end
+  end
+  return false
+end
+
+--- 确认页上点 "删除": 第一次只改按钮文字, 再点一次删掉这一局的全部文件, 回到列表.
+function delete_selected()
+  local entry = confirm.entry
+  if not delete_armed() then
+    confirm.armed_at = love.timer.getTime()
+    return
+  end
+  confirm.armed_at = nil
+  local files = deps.library.run_files(entry.name)
+  if not files then
+    deps.toast.push("回放", "文件名不对, 没有删除: " .. tostring(entry.name), 4)
+    return
+  end
+  local dir = recordings_dir()
+  if still_building(dir, files) then
+    deps.toast.push("回放", "这一局的视频还在合成, 稍后再删", 4)
+    return
+  end
+  local removed, failed = 0, {}
+  for _, name in ipairs(files) do
+    local path = dir .. "/" .. name
+    if SMODS.NFS.getInfo(path, "file") then
+      local ok, err = SMODS.NFS.remove(path)
+      if ok then
+        removed = removed + 1
+      else
+        failed[#failed + 1] = name
+        sendWarnMessage("删除回放文件失败: " .. tostring(err), LOGGER)
+      end
+    end
+  end
+  sendInfoMessage(string.format("回放已删除: %s, 删掉 %d 个文件", entry.name, removed), LOGGER)
+  if #failed > 0 then
+    deps.toast.push("回放", string.format("删掉 %d 个文件, %d 个删不掉: %s", removed, #failed, failed[1]), 5)
+  else
+    deps.toast.push("回放", string.format("已删除这一局 (%d 个文件)", removed), 3)
+  end
+  local page = view.page
+  G.FUNCS.bb_replay_list()
+  -- 留在原来那一页 (删掉最后一页的最后一项时 refresh 会收敛到前一页).
+  if page > 1 then
+    page_by(page - 1)
+  end
+end
+
 local function confirm_definition()
   local entry = confirm.entry
   local lines = {
@@ -368,15 +440,18 @@ local function confirm_definition()
       enabled = can_start,
       on_click = start_selected,
     }),
+    -- 返回列表由面板底部原版的 "返回" 负责, 这里放删除.
     W.button({
-      label = "返回列表",
+      label = "删除",
+      label_fn = function()
+        return delete_armed() and "再点一次删除" or "删除"
+      end,
       col = true,
       minw = 2.5,
       minh = 0.6,
       scale = 0.4,
-      on_click = function()
-        G.FUNCS.bb_replay_list()
-      end,
+      colour = G.C.RED,
+      on_click = delete_selected,
     }),
   })
   return panel("bb_replay_list", nodes)
@@ -385,6 +460,7 @@ end
 ---@param entry BBReplayEntry
 function open_confirm(entry)
   confirm.entry = entry
+  confirm.armed_at = nil
   G.SETTINGS.paused = true
   G.FUNCS.overlay_menu({ definition = confirm_definition() })
 end
