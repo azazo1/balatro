@@ -2,7 +2,7 @@
 mod 设置页 (模组 -> BalatroBot -> 配置), 即 MOD.config_tab.
 
 左列: agent 模式, 内置 agent 的连接 (endpoint, 模型名, key, 鉴权方式) 与状态行.
-右列: 内置 agent 的对局设置 (单局 token 上限, 最大上下文, 思考强度, 赢后处理, 种子, 策略) 与显示开关.
+右列: 内置 agent 的对局设置 (单局 token 上限, 最大上下文, 思考强度, 赢后处理, 打完一局之后, 种子, 策略) 与显示开关.
 底部整行: 粘贴, 清除等操作的结果. 录像与回放的设置在 bbreplay 自己的设置页.
 
 - 原版文本框的字符表没有 '/', 还会把 '0' 改成 'o', 所以 endpoint, 模型名, key, 策略都用 "从剪贴板粘贴" 输入.
@@ -361,7 +361,7 @@ local function connection_column()
   return W.col(nodes, { minw = COL_W, padding = 0.05 })
 end
 
---- 右列: 内置 agent 怎么打 (用量上限, 上下文, 赢后处理, 种子, 策略) 与显示开关.
+--- 右列: 内置 agent 怎么打 (用量上限, 上下文, 赢后处理, 打完一局之后, 种子, 策略) 与显示开关.
 local function play_column()
   local limit_options = {}
   for i, v in ipairs(Fields.TOKEN_LIMITS) do
@@ -407,16 +407,26 @@ local function play_column()
     }),
     W.row({ W.text("赢下一局之后", SCALE) }, { padding = 0.04 }),
     W.row({
-      W.radio({ { "menu", "回主菜单并停止" }, { "endless", "继续无尽模式" } }, function()
+      W.radio({ { "menu", "回主菜单" }, { "endless", "继续无尽模式" } }, function()
         return config().after_win
       end, function(value)
         config().after_win = value
         save()
       end, { minw = 2.2, scale = 0.28 }),
     }),
+    W.row({ W.text("打完一局之后", SCALE) }, { padding = 0.04 }),
+    W.row({
+      W.radio({ { "stop", "停止" }, { "continue", "继续 (保留上下文)" } }, function()
+        return config().after_run or "stop"
+      end, function(value)
+        config().after_run = value
+        save()
+      end, { minw = 2.2, scale = 0.28 }),
+    }),
     seed_row(),
     strategy_row(),
     W.row({ W.text("种子: 最多 8 位字母和数字, 空为随机; 固定种子的局按原版规则不计解锁和统计.", 0.26, G.C.UI.TEXT_INACTIVE) }),
+    W.row({ W.text("打完一局: 停止则回主菜单后关掉; 继续则保留对话, 由模型自己开下一局.", 0.26, G.C.UI.TEXT_INACTIVE) }),
     W.row({ W.text("策略: 自己写的打法要求, 粘贴后下一次开始时生效.", 0.26, G.C.UI.TEXT_INACTIVE) }),
     W.title("显示"),
   }

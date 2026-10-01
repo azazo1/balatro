@@ -5,7 +5,9 @@
 
 - 没有选择的步骤自动处理, 不问模型: 解锁弹窗 continue, 结算 cash_out.
 - 出牌那一步的结果开头带上这一手的计分过程 (谁加了多少, 从基础涨到多少), 摘要里只有一行结果.
-- 胜利按配置 after_win 处理 ("endless" 进入无尽模式继续打, "menu" 回主菜单并停止), 输了回主菜单并停止.
+- 胜利按配置 after_win 处理 ("endless" 进入无尽模式继续打, "menu" 回主菜单).
+  回到主菜单后按 after_run 处理 ("stop" 停止 loop, "continue" 保留对话历史, 由模型自己开下一局);
+  输了同样回主菜单, 再按 after_run 走.
 - 人打开了设置等菜单 (overlay 为 other), 或动画没停时等待, 不发请求也不执行动作.
 - 压缩上下文: 上一次请求报的 prompt_tokens + completion_tokens (没报用量时按字数估算) 超过最大上下文
   (配置 context_limit) 的 80% 时, 在下一轮开始前压缩. 较早的部分发一次不带工具的请求让模型写摘要,
@@ -24,9 +26,10 @@ deps:
 - abandon(): 放弃等待中的调用
 - text: agent/text.lua (UTF-8 安全的截断), 查询结果超长时用它切.
 - gamestate() -> table; overlay() -> "unlock"|"win"|"other"|nil; busy() -> boolean (动画或游戏暂停)
-- config() -> {endpoint, model, api_key, auth, after_win, strategy, context_limit, seed, reasoning_effort}
+- config() -> {endpoint, model, api_key, auth, after_win, after_run, strategy, context_limit, seed, reasoning_effort}
   seed 非空时 start 一律用它开局, 覆盖模型给的种子.
-  after_win 与 strategy 只在从停止状态开始时拼进系统提示, 运行中改动不影响这一次.
+  after_win / after_run / strategy 只在从停止状态开始时拼进系统提示, 运行中改动不影响提示词.
+  after_win 与 after_run 的实际分支在一局结束时读当前配置.
   reasoning_effort 非空时每次请求 (含写摘要) 都带上, 经 client.start 的 opts.extra 写进请求体.
 - json {encode, decode}; now() -> 秒
 - bar: begin_request(label?), push(kind, text), reset(), finish(), show_error(text 或 fun(): string, hold), show_status(text, hold)
@@ -35,7 +38,8 @@ deps:
 - on_state(state, detail): 可选, 子状态变化 (idle, requesting, acting, retry_wait, waiting, paused, halted, stopped)
 - report(event, ...): 可选, 向运行控制 (agent/runner.lua) 汇报, 由它负责单局 token 上限, 暂停与停止:
   "request"; "retry"; "usage"(prompt, completion); "new_run"; "halt"(reason) 防失控或不可恢复的错误;
-  "finish"(result) 本局结束 ("win" / "lose"), 应停止 loop. 没有 report 时 driver 自己处理 halt 与 finish.
+  "finish"(result) 本局结束 ("win" / "lose") 且 after_run 不是 continue 时, 应停止 loop.
+  没有 report 时 driver 自己处理 halt 与 finish.
 - transcript(entry): 可选, 转录一条记录
 - log(level, msg): 可选
 ]]
@@ -72,7 +76,8 @@ function M.new(deps)
     last_error = nil,
   }
 
-  -- 系统提示词带 user 的策略与本局的通关走向, 每次从停止状态开始时按当时的配置重建, 运行中改了不影响这一次.
+  -- 系统提示词带 user 的策略, 通关走向, 以及一局结束后是否接着打.
+  -- 每次从停止状态开始时按当时的配置重建, 运行中改了不影响这一次的提示词.
   local function system_prompt()
     local cfg = deps.config and deps.config() or {}
     return prompt.system and prompt.system(cfg) or prompt.SYSTEM
@@ -138,6 +143,16 @@ function M.new(deps)
   ---@param result string "win" | "lose"
   local function finish_run(result)
     transcript({ type = "finish", result = result })
+    local cfg = deps.config and deps.config() or {}
+    if cfg.after_run == "continue" then
+      -- 不调 stop, 历史原样留下. 下一轮模型看到主菜单, 自己 start.
+      note = (note and note .. "\n" or "") .. "(对话历史保留, 请开下一局)"
+      deps.bar.show_status(result == "win" and "赢下本局, 继续下一局" or "本局结束, 继续下一局", 3)
+      if self.state == "acting" then
+        set_state("idle")
+      end
+      return
+    end
     if not report("finish", result) then
       self.stop(result)
     end

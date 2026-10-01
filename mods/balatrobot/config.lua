@@ -24,8 +24,10 @@ return {
   context_limit = 256000,
   -- 思考强度: 写进请求体的 reasoning_effort ("low", "medium", "high"). "" 为默认, 不写这个字段.
   reasoning_effort = "",
-  -- 内置 agent 赢下一局后: "menu" 回主菜单并停止, "endless" 进入无尽模式继续打.
+  -- 内置 agent 赢下一局后: "menu" 回主菜单, "endless" 进入无尽模式继续打.
   after_win = "menu",
+  -- 内置 agent 一局结束回到主菜单后: "stop" 停止 loop, "continue" 保留对话历史, 由模型自己开下一局.
+  after_run = "stop",
   -- 内置 agent 的打法策略: user 自己写的一段文字, 拼在系统提示词末尾, 下一次开始时生效. 空为不加.
   strategy = "",
   -- 内置 agent 开局用的固定种子 (原版种子: 最多 8 位大写字母与数字). 空为随机.

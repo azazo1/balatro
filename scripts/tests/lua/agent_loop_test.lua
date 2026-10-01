@@ -399,7 +399,8 @@ do -- 本局设置: 通关之后继续无尽还是停下, 在胜利之前就要�
   env.driver.start()
   env.tick()
   local menu = env.requests[#env.requests][1].content
-  check("重新开始后换成停下那一段", menu:find("之后回主菜单并停止", 1, true) ~= nil, menu)
+  check("重新开始后换成停下那一段", menu:find("之后回主菜单", 1, true) ~= nil, menu)
+  check("停下时提示 loop 停止", menu:find("loop 停止", 1, true) ~= nil, menu)
   check("停下的那一段不再提无尽规划", not menu:find("一直打下去", 1, true))
 
   local plain = harness()
@@ -408,8 +409,33 @@ do -- 本局设置: 通关之后继续无尽还是停下, 在胜利之前就要�
   plain.tick()
   check(
     "设置缺省时按停下写",
-    (plain.requests[1][1].content):find("之后回主菜单并停止", 1, true) ~= nil
+    (plain.requests[1][1].content):find("之后回主菜单", 1, true) ~= nil
+      and (plain.requests[1][1].content):find("loop 停止", 1, true) ~= nil
   )
+end
+
+do -- 本局设置: 打完一局后继续时, 胜利之前就要让模型知道要自己开下一局
+  local env = harness()
+  env.cfg.after_run = "continue"
+  env.driver.start()
+  env.tick()
+  local cont = env.requests[1][1].content
+  check("继续时提醒保留对话并自己开下一局", cont:find("对话历史保留", 1, true) ~= nil, cont)
+  check("继续时点明用 start 开下一局", cont:find("调用 start 开下一局", 1, true) ~= nil, cont)
+  check("继续时不再说 loop 停止", not cont:find("loop 停止", 1, true))
+
+  env.cfg.after_run = "stop"
+  env.reply({ { "notify", { message = "先看看" } } })
+  env.settle()
+  check(
+    "运行中改 after_run 不影响这一次的提示词",
+    (env.requests[2] and env.requests[2][1].content or ""):find("对话历史保留", 1, true) ~= nil
+  )
+  env.driver.stop()
+  env.driver.start()
+  env.tick()
+  local stopped = env.requests[#env.requests][1].content
+  check("重新开始后换成停止那一段", stopped:find("loop 停止", 1, true) ~= nil, stopped)
 end
 
 do -- 固定种子: 设置了就覆盖模型给的种子 (没给也补上), 结果里告诉模型
@@ -663,6 +689,79 @@ do -- 胜利后回主菜单并停止
   env.driver.start()
   env.tick()
   check("胜利后自动 menu 并汇报结束", env.calls[1].method == "menu" and finished == "win" and env.driver.state == "stopped")
+end
+
+do -- 打完一局后继续: 回主菜单但 loop 不停, 对话历史保留, 下一轮看到主菜单
+  local env = harness()
+  local finished
+  env.report = function(event, result)
+    if event == "finish" then
+      finished = result
+      env.driver.stop(result)
+    end
+  end
+  env.cfg.after_run = "continue"
+  env.driver.start()
+  env.tick()
+  env.reply({ { "notify", { message = "先看看" } } })
+  env.tick() -- 执行 notify
+  env.tick() -- acting -> idle, 不发下一轮, 好让后面的胜利界面接手
+  local kept = #env.driver._history.messages
+  check("开打之后历史里已有对话", kept > 2, tostring(kept))
+
+  env.overlay = "win"
+  env.tick()
+  check("胜利后仍自动 menu", env.calls[#env.calls] and env.calls[#env.calls].method == "menu")
+  check("继续时不汇报 finish, 也不停止", finished == nil and env.driver.state == "idle", env.driver.state)
+  check("继续时历史没有被清空", #env.driver._history.messages == kept, tostring(#env.driver._history.messages))
+
+  env.overlay = nil
+  env.gs = hand_state({ state = "MENU" })
+  env.tick()
+  local last = env.requests[#env.requests]
+  local user = last and last[#last]
+  check("下一轮仍会请求模型", env.driver.state == "requesting" and last ~= nil, env.driver.state)
+  check(
+    "下一轮状态是主菜单并提醒开下一局",
+    user and user.role == "user"
+      and tostring(user.content):find("阶段: 主菜单", 1, true) ~= nil
+      and tostring(user.content):find("对话历史保留, 请开下一局", 1, true) ~= nil,
+    user and user.content
+  )
+end
+
+do -- 失败后继续: 同样回主菜单但不停
+  local env = harness()
+  local finished
+  env.report = function(event, result)
+    if event == "finish" then
+      finished = result
+      env.driver.stop(result)
+    end
+  end
+  env.cfg.after_run = "continue"
+  env.gs = hand_state({ state = "GAME_OVER" })
+  env.driver.start()
+  env.tick()
+  check("失败后自动 menu", env.calls[1] and env.calls[1].method == "menu")
+  check("失败后继续时不停止", finished == nil and env.driver.state == "idle", env.driver.state)
+end
+
+do -- 开无尽时赢下不走 after_run, 仍进无尽
+  local env = harness()
+  local finished
+  env.report = function(event, result)
+    if event == "finish" then
+      finished = result
+    end
+  end
+  env.cfg.after_win = "endless"
+  env.cfg.after_run = "continue"
+  env.overlay = "win"
+  env.driver.start()
+  env.tick()
+  check("开无尽时胜利走 endless", env.calls[1] and env.calls[1].method == "endless", env.calls[1] and env.calls[1].method)
+  check("开无尽时胜利不 finish", finished == nil and env.driver.state == "idle", env.driver.state)
 end
 
 if failures > 0 then

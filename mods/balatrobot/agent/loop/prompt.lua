@@ -43,26 +43,36 @@ M.SYSTEM = [[
 - 期望分不是保证分, 要区分确定能过关和概率能过关.
 ]]
 
--- 通关之后怎么走由设置页的 "赢下一局之后" 决定, 和策略一样在开始时拼进去.
+-- 通关之后怎么走, 以及一局结束回主菜单后是否接着打, 都由设置页决定, 和策略一样在开始时拼进去.
 local AFTER_WIN = {
   endless = [[
 本局通关 (打完底注 8 的 Boss) 之后继续无尽模式, 底注 9 起目标分增长更快. 所以第 8 底注不是结束: 按 "一直打下去" 规划, 留住能继续成长的筹码与倍率来源, 保住经济和利息, 不要为了眼前过关丢掉手牌上限, 出牌次数, 成长型小丑这类长期收益.
 ]],
   menu = [[
-本局通关 (打完底注 8 的 Boss) 之后回主菜单并停止, 不进无尽模式. 目标是稳稳打完第 8 底注的 Boss, 不用为底注 9 以后留余量, 中期起可以把手里的资源换成当下的战力.
+本局通关 (打完底注 8 的 Boss) 之后回主菜单, 不进无尽模式. 目标是稳稳打完第 8 底注的 Boss, 不用为底注 9 以后留余量, 中期起可以把手里的资源换成当下的战力.
 ]],
 }
 
---- 系统提示词: 默认部分, 之后按设置补上本局的通关走向与 user 的策略.
+local AFTER_RUN = {
+  stop = [[
+回到主菜单之后 loop 停止, 不用开下一局.
+]],
+  continue = [[
+回到主菜单之后 loop 不停, 对话历史保留. 请自己调用 start 开下一局, 结合上一局的成败调整牌组, 赌注和打法, 不要停下来等.
+]],
+}
+
+--- 系统提示词: 默认部分, 之后按设置补上本局的通关走向, 一局结束后是否接着打, 以及 user 的策略.
 --- 策略只管打法; 规则要点和解说要求仍按上面的默认, 避免策略里一句 "少说话" 把解说关掉.
---- 两者都只在从停止状态开始时重建, 运行中改设置不影响这一次.
----@param cfg {strategy: string?, after_win: string?}? 设置页里与本局有关的字段
+--- 三者都只在从停止状态开始时重建, 运行中改设置不影响这一次.
+---@param cfg {strategy: string?, after_win: string?, after_run: string?}? 设置页里与本局有关的字段
 ---@return string
 function M.system(cfg)
   cfg = cfg or {}
   local out = { M.SYSTEM }
   local after_win = AFTER_WIN[cfg.after_win] or AFTER_WIN.menu
-  out[#out + 1] = "\n## 本局设置\n" .. after_win
+  local after_run = AFTER_RUN[cfg.after_run] or AFTER_RUN.stop
+  out[#out + 1] = "\n## 本局设置\n" .. after_win .. after_run
   local strategy = cfg.strategy
   if type(strategy) == "string" and strategy:find("%S") then
     out[#out + 1] = "\n## 玩家指定的策略\n"
