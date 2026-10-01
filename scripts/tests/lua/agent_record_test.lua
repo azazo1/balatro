@@ -179,6 +179,18 @@ do -- 草稿脚本不删中间文件 (带 --clean 才删), 局末脚本成功后
   os.execute("rm -rf '" .. dir .. "'")
 end
 
+do -- 剪辑版重编码的目标码率: 按完整版的实测码率算, 量不到或不合理时给 nil (保持原来的画质档)
+  -- 真机上的那一局: 完整版 2726254461 字节, 196988 帧, 60fps, 平均约 6.47 Mbps
+  local mbps = Post.cut_mbps(2726254461, 196988, 60)
+  check("按实测码率取目标", mbps and mbps > 5.5 and mbps < 6.5, tostring(mbps))
+  check("低一点, 保证剪辑版更小", mbps and mbps < 2726254461 * 8 / (196988 / 60) / 1e6, tostring(mbps))
+  check("帧数为 0 时不给目标", Post.cut_mbps(1000, 0, 60) == nil)
+  check("帧率为 0 时不给目标", Post.cut_mbps(1000, 100, 0) == nil)
+  check("文件为空时不给目标", Post.cut_mbps(0, 100, 60) == nil)
+  check("读不到大小时不给目标", Post.cut_mbps(nil, 100, 60) == nil)
+  check("数值离谱时不给目标", Post.cut_mbps(1e12, 100, 60) == nil)
+end
+
 do -- 清晰度, 帧率, 码率: 环境变量 > 设置页 > 平台默认; 设置页的值不在可选范围内时按默认
   local Quality = dofile("mods/bbreplay/record/quality.lua")
   local function env(map)

@@ -418,6 +418,19 @@ local function launch_cmd(path)
   return true
 end
 
+--- 文件字节数, 读不到时返回 nil.
+---@param path string
+---@return integer?
+local function file_size(path)
+  local file = io.open(path, "rb")
+  if not file then
+    return nil
+  end
+  local size = file:seek("end")
+  file:close()
+  return size
+end
+
 --- 画面与声音都写完后启动后台合成. force 为 true 时 (退出前等不及了) 直接启动.
 ---@param item table
 ---@param force boolean
@@ -467,14 +480,25 @@ local function try_post(item, force)
 
   local audio_ok = item.audio ~= nil and not item.audio.error
   if audio_ok then
-    local file = io.open(item.post.base .. ".pcm", "rb")
-    local size = file and file:seek("end") or 0
-    if file then
-      file:close()
-    end
-    audio_ok = size > 0
+    audio_ok = (file_size(item.post.base .. ".pcm") or 0) > 0
   end
   item.post.audio = audio_ok
+  -- 自动码率档: 按完整版的实测码率给剪辑版一个目标码率, 否则离线重编码出来的剪辑版比完整版还大
+  -- (原因见 post.lua 的 cut_mbps). 量不到时保持原样, 手动选了码率的也不用管.
+  -- 崩溃后用的草稿脚本仍用画质档: 那一刻视频还没写完, 量不出码率.
+  if cfg.bitrate <= 0 and #(item.post.cuts or {}) > 0 then
+    local mbps = Post.cut_mbps(
+      file_size(item.post.base .. ".video.mp4"),
+      video_done.frames,
+      cfg.fps
+    )
+    if mbps then
+      item.post.codec_args = codec_args(cfg.codec, cfg.fps, mbps, false)
+      sendDebugMessage(string.format("Cut video target bitrate: %.2f Mbps", mbps), LOGGER)
+    else
+      sendWarnMessage("量不到完整版的码率, 剪辑版用默认画质档", LOGGER)
+    end
+  end
   local ok, err = Post.spawn(item.post, WINDOWS and launch_cmd or nil)
   sendInfoMessage(
     string.format(

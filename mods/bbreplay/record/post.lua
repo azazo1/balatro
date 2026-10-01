@@ -25,6 +25,30 @@ local function fmt(x)
   return string.format("%.3f", x)
 end
 
+-- 剪辑版重编码时相对完整版实测码率的系数. 丢帧后需要的比特略少, 而且离线编码的码率分配比实时编码
+-- 更有效率, 略降一点也看不出差别, 还能保证剪辑版一定比完整版小.
+local CUT_MBPS_FACTOR = 0.95
+
+--- 剪辑版重编码的目标码率 (Mbps), 量不到或数值不合理时返回 nil (调用方保持原来的画质档).
+--- 录制用的是实时编码, 为了跟上帧率会放宽质量, 同一个画质档出来的码率比离线编码低得多
+--- (真机实测 5.7 与 9.0 Mbps), 所以离线重编码的剪辑版会比完整版还大. 按完整版的实测码率给目标码率
+--- 就不会有这个问题: 指定码率时两种模式的实际输出基本一致 (实测 8.00 与 8.10 Mbps).
+---@param size_bytes integer 完整版视频的字节数
+---@param frames integer 帧数
+---@param fps integer
+---@return number? mbps
+function M.cut_mbps(size_bytes, frames, fps)
+  if not size_bytes or not frames or not fps or frames <= 0 or fps <= 0 or size_bytes <= 0 then
+    return nil
+  end
+  local mbps = size_bytes * 8 / (frames / fps) / 1e6 * CUT_MBPS_FACTOR
+  -- 明显不合理的值不用: 文件没写完, 或者量错了对象
+  if mbps < 0.5 or mbps > 200 then
+    return nil
+  end
+  return mbps
+end
+
 -- ==========================================================================
 -- 两种写法的差异: 引号, 失败标记, 判断, 删除
 -- ==========================================================================
