@@ -1,5 +1,5 @@
 -- 手动操作换算的纯逻辑单元测试, 用 luajit 在仓库根目录运行: just test-agent
-local Manual = dofile("mods/balatrobot/agent/replay/manual.lua")
+local Manual = dofile("mods/bbreplay/replay/manual.lua")
 
 local failures = 0
 local function check(name, cond, detail)
@@ -101,7 +101,7 @@ do -- 按钮函数的钩子: 用桩代替游戏, 装上钩子后模拟人点按�
   sendWarnMessage = function() end
 
   local recorded = {}
-  local M2 = dofile("mods/balatrobot/agent/replay/manual.lua")
+  local M2 = dofile("mods/bbreplay/replay/manual.lua")
   M2.install({
     record = function(fields)
       recorded[#recorded + 1] = fields

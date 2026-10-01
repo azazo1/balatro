@@ -2,7 +2,7 @@
 -- 用真的 ffi 模块跑 cdef, 声明文本有错 (例如漏了 media_status_t) 就会失败;
 -- 库本身用桩代替 (开发机上没有 libmediandk).
 
-local Cdef = dofile("mods/balatrobot/agent/record/android/cdef.lua")
+local Cdef = dofile("mods/bbreplay/record/android/cdef.lua")
 
 local failures = 0
 local function check(name, cond, detail)
@@ -34,21 +34,21 @@ local function stub_lib(h264)
 end
 
 do -- 首次加载: cdef 文本必须真能被 LuaJIT 解析
-  local Media = dofile("mods/balatrobot/agent/record/android/ffi.lua")
+  local Media = dofile("mods/bbreplay/record/android/ffi.lua")
   local ok, err = Media.load({ ffi = ffi, cdef = Cdef, lib = stub_lib(true) })
   check("加载 media 库", ok, tostring(err))
   check("有 H.264 编码器", Media.has_encoder("video/avc") == true)
 end
 
 do -- 同一个 Lua 状态里再加载一次: 重复声明报错, 但类型都在, 应按已声明处理
-  local Media = dofile("mods/balatrobot/agent/record/android/ffi.lua")
+  local Media = dofile("mods/bbreplay/record/android/ffi.lua")
   local ok, err = Media.load({ ffi = ffi, cdef = Cdef, lib = stub_lib(false) })
   check("重复声明仍能加载", ok, tostring(err))
   check("没有编码器时如实报告", Media.has_encoder("video/avc") == false)
 end
 
 do -- cdef 失败且类型缺失时给出原因而不是崩
-  local Media = dofile("mods/balatrobot/agent/record/android/ffi.lua")
+  local Media = dofile("mods/bbreplay/record/android/ffi.lua")
   local bad = {
     cdef = function()
       error("cannot parse")

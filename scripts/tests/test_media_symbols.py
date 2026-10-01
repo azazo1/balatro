@@ -14,7 +14,7 @@ import unittest
 import build_native
 from lib import layout
 
-ANDROID_DIR = os.path.join(layout.ROOT_DIR, "mods", "balatrobot", "agent", "record", "android")
+ANDROID_DIR = os.path.join(layout.ROOT_DIR, "mods", "bbreplay", "record", "android")
 # 声明文本在 cdef.lua (主线程与编码线程共用一份).
 CDEF_LUA = os.path.join(ANDROID_DIR, "cdef.lua")
 # 用 cdef.lua 的声明, 按 media./net./ffi.C. 调用原生函数的文件.

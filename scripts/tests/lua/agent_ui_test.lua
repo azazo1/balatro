@@ -1,6 +1,6 @@
 -- 内置 agent 界面纯逻辑的单元测试, 用 luajit 在仓库根目录运行: just test-agent
 local Mode = dofile("mods/balatrobot/agent/mode.lua")
-local Text = dofile("mods/balatrobot/agent/ui/stream_text.lua")
+local Text = dofile("mods/bbcore/ui/stream_text.lua")
 local Fields = dofile("mods/balatrobot/agent/ui/fields.lua")
 
 local failures = 0
@@ -194,7 +194,7 @@ end
 
 do -- 文字裁断: 行文字必须收进固定宽度, 否则会撑开面板; 裁断不能把多字节字符切一半
   G = { FUNCS = {} } -- widgets.lua 加载时往 G.FUNCS 注册回调
-  local Widgets = dofile("mods/balatrobot/agent/ui/widgets.lua")
+  local Widgets = dofile("mods/bbcore/ui/widgets.lua")
   -- 假测宽: ASCII 宽 1, 其余 (中文与省略号) 宽 2
   local function fake_measure(text)
     local _, ascii = text:gsub("[%z\1-\127]", "")
@@ -217,7 +217,7 @@ do -- 回放入口只在主菜单显示. 回归: 曾用不存在的 G.STAGES.MEN
   handle:close()
   local stages = assert(loadstring("return " .. block))()
   G = { FUNCS = {} }
-  local ReplayMenu = dofile("mods/balatrobot/agent/ui/replay_menu.lua")
+  local ReplayMenu = dofile("mods/bbreplay/ui/replay_menu.lua")
   check("阶段常量名必须存在", stages.MAIN_MENU ~= nil)
   check("主菜单显示回放入口", ReplayMenu.menu_visible(stages.MAIN_MENU, stages))
   check("局内与沙盒不显示", not ReplayMenu.menu_visible(stages.RUN, stages) and not ReplayMenu.menu_visible(stages.SANDBOX, stages))

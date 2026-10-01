@@ -1,5 +1,6 @@
 --[[
-agent 请求的活动追踪. 包装 upstream 的 dispatch 与 send_response, 不修改 upstream 文件.
+agent 请求的活动追踪 (BB_ACTIVITY). 包装 upstream 的 dispatch 与 BB_TRANSPORT.send_response, 不修改 upstream 文件.
+请求从哪来 (HTTP, 内置 loop 的本地调用, 回放) 都一样经过这里.
 
 - 任何请求的 params 都可以带 reason 字符串: 作为决策消息显示并写入时间线, 交给端点前去掉.
 - 被动方法 (查询状态, 截图) 不算 agent 活动, 录制不会因它们而保留等待时间.
@@ -19,16 +20,13 @@ local M = {
 -- 客户端断开等原因可能导致收不到响应, 超过这个时长的请求不再视为进行中.
 local STALE_SECONDS = 120
 
+-- 被动方法: 只读, 不算活动, 弹窗打开时也放行, 也不会清掉弹窗期间挂起的原请求 (见 overlay.lua).
+-- 别的 mod 注册的只读方法 (balatrobot 的手册查询) 由它自己登记进来.
 M.PASSIVE = {
   ["health"] = true,
   ["gamestate"] = true,
   ["rpc.discover"] = true,
   ["screenshot"] = true,
-  -- 手册查询只读, 不算活动, 也不能清掉弹窗期间挂起的原请求 (见 overlay.lua).
-  ["docs_index"] = true,
-  ["docs_read"] = true,
-  ["docs_search"] = true,
-  ["lookup"] = true,
 }
 
 ---@type table<string, function[]>
@@ -60,7 +58,7 @@ function M.busy(now)
 end
 
 ---@param dispatcher table BB_DISPATCHER
----@param server table BB_SERVER
+---@param server table BB_TRANSPORT (端点结果的公共出口, 见 transport.lua)
 function M.install(dispatcher, server)
   local dispatch = dispatcher.dispatch
   dispatcher.dispatch = function(request)

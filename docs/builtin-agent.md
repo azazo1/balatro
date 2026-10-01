@@ -25,7 +25,9 @@
 
 | 部分 | 语言 | 负责 |
 |---|---|---|
-| mod 本体 | Lua | agent loop, 执行动作, 设置页, Agent 面板, 流式条, 手册查询, 回放列表 |
+| balatrobot | Lua | agent loop, 设置页, Agent 面板, 手册查询 |
+| bbcore | Lua | 执行动作 (端点), 弹窗拦截, 决策消息, 流式条, 界面组件 |
+| bbreplay | Lua | 录像, 回放文件, 回放列表与回放 |
 | `bbnet` | Rust, 编译为 cdylib | HTTPS 流式请求, SSE 分帧, Android 上的录像编码 |
 
 只把网络放进原生库, 原因是游戏里的 Lua 发不出 HTTPS 流式请求:
@@ -48,8 +50,8 @@ loop 留在 Lua 里, 因为动作本来就在游戏的 Lua 里执行, 调用动�
 - 外部和内置之间不能直接切换, 必须先切到关闭. 内置 loop 运行中时, 先停止才能切换.
 - 用 `just macos run-agent` 启动时, 由环境变量锁定为外部模式, 设置页的其他选项变灰并注明原因.
 - 以内置模式启动的 recipe 另加一个, 复用 run-agent 的录像和日志逻辑.
-- 游戏内回放进行时: 内置 loop 不能开始; 外部模式暂停监听, 回放结束后恢复. 见 [replay.md](<replay.md>).
-- 两种模式共用 dispatcher, 动作, 手册查询和解说. 区别只在调用方式: 外部 agent 经 HTTP 调用, 内置 loop 在进程内直接调用. 为此 dispatcher 的响应要能交给本地接收方, 而不只是交给 `Server.send_response`.
+- 回放 (bbreplay) 进行时: 内置 loop 不能开始; 外部模式暂停监听, 回放结束后恢复. 两边通过 bbcore 的 `BB_CONTROL` 互斥, 见 [replay.md](<replay.md>).
+- 两种模式共用 dispatcher, 动作, 手册查询和解说. 区别只在调用方式: 外部 agent 经 HTTP 调用, 内置 loop 在进程内直接调用. dispatcher 的响应交给 bbcore 的 `BB_TRANSPORT`, HTTP 服务和本地调用都从这里取结果.
 
 ## 设置页
 
@@ -60,10 +62,11 @@ loop 留在 Lua 里, 因为动作本来就在游戏的 Lua 里执行, 调用动�
 - agent 模式.
 - 内置模式的配置: endpoint, 模型名, 鉴权方式 (Bearer 或 `x-api-key`, 默认 Bearer), key.
 - 防失控: 单局 token 上限, 默认不限; 赢下一局之后回主菜单并停止, 还是继续无尽模式.
-- 录像: 开关, 保留方式 (skip/keep), 分辨率和帧率. Android 没有环境变量, 只能在这里设置. 桌面端设置了 `BALATROBOT_RECORD*` 环境变量时以环境变量为准.
-  开关与保留方式改完立刻生效; 分辨率与帧率下一次启动才生效.
-- 状态行: 外部模式显示监听地址, 内置模式显示 loop 状态和最近一次错误, 以及录像与回放的当前状态.
+- 状态行: 外部模式显示监听地址, 内置模式显示 loop 状态和最近一次错误.
 - 原有的消息显示开关.
+
+录像的开关与保留方式 (skip/keep) 不在这里, 在 bbreplay 自己的设置页 (模组 -> BB Replay -> 配置), 改完立刻生效,
+桌面端设了 `BALATROBOT_RECORD*` 环境变量时以环境变量为准. 分辨率与帧率没有设置项, 只能用环境变量改, Android 上固定为默认值.
 
 输入: 原版文本框的字符表里没有 `/`, 并且会把 `0` 改成 `o`, URL 和 key 输不进去. 因此 endpoint, key 和模型名都用 "从剪贴板粘贴" 按钮输入, 读取 `love.system.getClipboardText()`. key 在界面上只显示掩码.
 
@@ -104,7 +107,7 @@ Agent 面板:
 
 ## 流式条
 
-外观: 原版成就通知的样式 (参考 `agent/toast.lua`), 即黑底, 灰描边, 外圈半透明暗边. 位于顶部居中, 只有一行高, 从上方滑入, 收起时滑回屏幕外.
+外观: 原版成就通知的样式 (参考 bbcore 的 `runtime/toast.lua`), 即黑底, 灰描边, 外圈半透明暗边. 位于顶部居中, 只有一行高, 从上方滑入, 收起时滑回屏幕外.
 
 内容:
 
@@ -166,8 +169,8 @@ Agent 面板:
 进度:
 
 - 1~3 已实现, 有单测, 未在游戏里实际运行过 (界面外观, F9, 流式条位置, 真实模型请求都待实机验证).
-- 4 已实现: 主菜单 选项 -> 回放 (列表, 确认页, 存档写入拦截, 结束收尾) 在 `agent/replay/library.lua`,
-  `agent/replay/session.lua`, `agent/replay/player.lua` 与 `agent/ui/replay_menu.lua`; 列表的解析, 缓存,
+- 4 已实现: 主菜单 选项 -> 回放 (列表, 确认页, 存档写入拦截, 结束收尾) 在 bbreplay 的 `replay/library.lua`,
+  `replay/session.lua`, `replay/player.lua` 与 `ui/replay_menu.lua`; 列表的解析, 缓存,
   分页有单测. 界面外观和真机上的长按中止待验证. 手动打的局也能录制与回放, 已在真机上回放一局 23 步.
 - 5 完成了一部分: `bbnet` 的 arm64-v8a 交叉编译与 APK 打包 (`just android dist-modded` 已验证 .so 进入
   `lib/arm64-v8a/`), 切到后台自动暂停, 运行中防熄屏. armeabi-v7a 缺 rust target; 真机上的触摸流程未验证.

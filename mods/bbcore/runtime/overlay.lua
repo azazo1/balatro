@@ -15,24 +15,22 @@ G.round_eval 被移除; 之后点 "无尽模式" 关掉弹窗, 恢复执行的�
 
 local M = {}
 
--- 弹窗打开时仍可调用的方法
+-- 弹窗打开时仍可调用的方法. 另外, 被动方法 (BB_ACTIVITY.PASSIVE, 只读查询) 一律放行:
+-- 别的 mod 注册的只读方法 (balatrobot 的手册查询) 登记进 PASSIVE 即可, 不用改这里.
 local ALLOWED = {
-  ["health"] = true,
-  ["gamestate"] = true,
-  ["rpc.discover"] = true,
-  ["screenshot"] = true,
   ["notify"] = true,
   ["save"] = true,
   ["load"] = true,
   ["menu"] = true,
   ["endless"] = true,
   ["continue"] = true,
-  -- 手册查询, 只读
-  ["docs_index"] = true,
-  ["docs_read"] = true,
-  ["docs_search"] = true,
-  ["lookup"] = true,
 }
+
+---@param method string
+---@return boolean
+local function allowed(method)
+  return ALLOWED[method] == true or BB_ACTIVITY.PASSIVE[method] == true
+end
 
 -- continue 等原请求结果的上限, 超时后返回当前状态.
 local WAITER_TIMEOUT = 30
@@ -95,6 +93,26 @@ local function win_settled()
   return jimbo ~= nil and type(jimbo.is) == "function" and jimbo:is(Card_Character)
 end
 M.win_settled = win_settled
+
+--- 画面还在动: 有未完成的阻塞事件 (发牌, 计分, 翻牌等动画都是), 或者控制器被锁住.
+--- 暂停时 (弹窗打开) 事件都停着, 算作停下. 内置 loop 等它停下再动作, 回放的 tight 节奏与录像的活动判定也用它.
+---@return boolean
+function M.animating()
+  if G.SETTINGS.paused then
+    return false
+  end
+  if G.CONTROLLER and G.CONTROLLER.locked then
+    return true
+  end
+  for _, queue in pairs(G.E_MANAGER.queues) do
+    for _, event in ipairs(queue) do
+      if event.blocking and not event.complete then
+        return true
+      end
+    end
+  end
+  return false
+end
 
 --- 让请求以当前状态先返回, 原请求留在后台.
 ---@param request table
@@ -173,7 +191,7 @@ function M.install(dispatcher, gamestate)
       M.orphan = nil
     end
     local kind = M.kind()
-    if kind and type(method) == "string" and not ALLOWED[method] then
+    if kind and type(method) == "string" and not allowed(method) then
       local hint
       if kind == "win" then
         hint = "The run is won and the win screen is open. Call 'endless' to keep playing or 'menu' to return to the main menu"

@@ -1,5 +1,5 @@
 --[[
-把 gamestate (src/lua/utils/gamestate.lua 的输出) 转成给模型看的中文精简文本. 纯逻辑, 不依赖游戏.
+把 gamestate (bbcore 的 src/lua/utils/gamestate.lua 的输出) 转成给模型看的中文精简文本. 纯逻辑, 不依赖游戏.
 
 - 下标从 0 开始, 与动作参数一致, 每行开头写 [下标].
 - 小丑, 消耗牌, 优惠券, 商店与卡包里的牌第一次出现时附上中文名与效果, 之后只写名字,

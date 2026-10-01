@@ -1,8 +1,9 @@
-# ESC 菜单 (create_UIBox_options) 里插入 "Agent" 按钮, 仿 Steamodded 插入 "模组" 按钮的做法 (Steamodded/lovely/menu.toml).
-# 补丁里只放一个调用: 显示与否, 颜色, 点击后的面板都在 agent/ui/agent_menu.lua, 只在内置模式下返回按钮.
+# 选项菜单 (create_UIBox_options) 里插入各 mod 的按钮 (balatrobot 的 "Agent", bbreplay 的 "回放"),
+# 仿 Steamodded 插入 "模组" 按钮的做法 (Steamodded/lovely/menu.toml).
+# 补丁里只放一个调用: 有哪些按钮, 显示与否都在 ui/menu.lua 与各 mod 登记的入口里.
 # pattern 按原版 game/functions/UI_definitions.lua 的原文匹配. 两处都选在 "统计" 按钮上, 与 Steamodded 的补丁
 # (匹配 main_menu 所在的行) 互不重叠, 先后顺序不影响结果: 按钮排在 "模组" 之后, "统计" 之前.
-# BB_AGENT_MENU 为 nil (mod 加载失败) 或调用出错时不显示按钮, 不影响原版菜单.
+# BB_MENU 为 nil (mod 加载失败) 或调用出错时不显示按钮, 不影响原版菜单.
 [manifest]
 version = "1.0.0"
 dump_lua = true
@@ -13,10 +14,10 @@ priority = 0
 target = "functions/UI_definitions.lua"
 pattern = '''local high_scores = UIBox_button{ label = {localize('b_stats')}, button = "high_scores", minw = 5}'''
 position = "after"
-payload = '''local bb_agent = nil
-if BB_AGENT_MENU then
-  local bb_ok, bb_node = pcall(BB_AGENT_MENU.button)
-  bb_agent = bb_ok and bb_node or nil
+payload = '''local bb_menu = nil
+if BB_MENU then
+  local bb_ok, bb_node = pcall(BB_MENU.button)
+  bb_menu = bb_ok and bb_node or nil
 end'''
 match_indent = true
 times = 1
@@ -26,6 +27,6 @@ times = 1
 target = "functions/UI_definitions.lua"
 pattern = '''high_scores,'''
 position = "before"
-payload = '''bb_agent,'''
+payload = '''bb_menu,'''
 match_indent = true
 times = 1

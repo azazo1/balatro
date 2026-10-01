@@ -1,32 +1,26 @@
 --[[
-运行控制入口: ESC 菜单的 "Agent" 按钮, Agent 面板, F9 快捷键.
+运行控制入口: 选项菜单的 "Agent" 按钮, Agent 面板, F9 快捷键.
 
-- 按钮由 lovely 补丁 (lovely/agent_menu.toml) 在 create_UIBox_options 里调用 BB_AGENT_MENU.button() 插入,
-  补丁里只有这一个调用, 显示与否等逻辑都在这里. 只在内置模式下显示.
+- 按钮登记在 bbcore 的选项菜单入口 (BB_MENU.entries) 里, 显示与否等逻辑都在这里. 只在内置模式下显示.
 - 按钮颜色跟随 runner 状态: 运行中绿色, 暂停金色, 出错与停止为原版按钮的红色 (标签文字区分两者).
 - Agent 面板: 状态, 本局统计, 开始 / 暂停或继续 / 停止 / 前往设置.
-- menu_entries 与 panel_extras 是给以后的 "回放" 按钮等预留的钩子, 目前只有 Agent 一项.
 ]]
 
----@type table agent/ui/widgets.lua, init 时注入
+---@type table bbcore 的 ui/widgets.lua, init 时注入
 local W
 
 local LOGGER = "BB.AGENT.MENU"
 
-local M = {
-  ---@type (fun(): table?)[] ESC 菜单里依次插入的按钮, 返回 nil 表示不显示
-  menu_entries = {},
-  ---@type (fun(): table?)[] Agent 面板按钮行之后追加的节点
-  panel_extras = {},
-}
+local M = {}
 
 ---@class BBAgentMenuDeps
 ---@field mod table SMODS mod 对象
 ---@field mode table agent/mode.lua 的实例
 ---@field runner table agent/runner.lua
----@field stream table agent/ui/stream_bar.lua
----@field toast table agent/toast.lua
----@field widgets table agent/ui/widgets.lua (已 init)
+---@field stream table bbcore 的 ui/stream_bar.lua
+---@field toast table bbcore 的 runtime/toast.lua
+---@field widgets table bbcore 的 ui/widgets.lua (已 init)
+---@field menu table bbcore 的 ui/menu.lua
 local deps
 
 local view = {
@@ -143,12 +137,6 @@ local function panel_definition()
       end,
     })
   end
-  for _, extra in ipairs(M.panel_extras) do
-    local ok, node = pcall(extra)
-    if ok and node then
-      nodes[#nodes + 1] = node
-    end
-  end
   return create_UIBox_generic_options({
     back_func = "options",
     contents = {
@@ -190,37 +178,6 @@ local function agent_entry()
     end,
   })
 end
-M.menu_entries[1] = agent_entry
-
---- lovely 补丁调用: 返回要插进 ESC 菜单的节点, 没有时返回 nil.
----@return table?
-function M.button()
-  if not deps then
-    return nil
-  end
-  local nodes = {}
-  for _, entry in ipairs(M.menu_entries) do
-    local ok, node = pcall(entry)
-    if not ok then
-      sendErrorMessage("Options menu entry failed: " .. tostring(node), LOGGER)
-    elseif node then
-      nodes[#nodes + 1] = node
-    end
-  end
-  if #nodes <= 1 then
-    return nodes[1]
-  end
-  -- 多个按钮时包成一行, 中间留出与原版按钮相同的间距.
-  local spaced = {}
-  for i, node in ipairs(nodes) do
-    if i > 1 then
-      spaced[#spaced + 1] = { n = G.UIT.R, config = { minh = 0.2 }, nodes = {} }
-    end
-    spaced[#spaced + 1] = node
-  end
-  return { n = G.UIT.R, config = { align = "cm", padding = 0 }, nodes = spaced }
-end
-
 --- F9: 内置模式下切换暂停/继续.
 function M.hotkey()
   if not deps or not deps.mode.is_builtin() then
@@ -238,6 +195,7 @@ end
 function M.init(options)
   deps = options
   W = options.widgets
+  options.menu.entries[#options.menu.entries + 1] = agent_entry
   SMODS.Keybind({
     key = "agent_pause",
     key_pressed = "f9",

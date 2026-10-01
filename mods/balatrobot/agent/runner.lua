@@ -14,7 +14,7 @@ driver 通过 runner 汇报进度:
   runner.note_request()  runner.note_retry()  runner.add_usage(prompt, completion)
   runner.fail(message)   不可重试的错误, loop 停止
   runner.pause(reason)   防失控自动暂停, reason 以红字显示
-  runner.stream()        流式条 (agent/ui/stream_bar.lua)
+  runner.stream()        流式条 (bbcore 的 ui/stream_bar.lua)
 
 没有真实 driver 时: 设置里开了 "演示流式条" 就用演示 driver (agent/demo_driver.lua), 否则 start 失败并提示.
 停止 (含出错停止) 时依次调用 on_stop 里的钩子 fn(reason), 用于结束当前录像段.

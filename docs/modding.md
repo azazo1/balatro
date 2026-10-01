@@ -59,9 +59,24 @@ just windows dist-modded     # 打包 dist/windows/Balatro-Modded-<版本>-win64
 | mod | 来源 | 说明 |
 | --- | --- | --- |
 | Steamodded | [26.829.0](https://github.com/Steamodded/smods/releases/tag/26.829.0) | mod 加载器与 API |
-| balatrobot | [v1.5.2](https://github.com/coder/balatrobot/releases/tag/v1.5.2) | 供 agent 游玩的 HTTP 接口, 默认关闭, 见 [agent-api.md](agent-api.md) |
+| bbcore | 本仓库, 由 [balatrobot v1.5.2](https://github.com/coder/balatrobot/releases/tag/v1.5.2) 拆出 | 游戏动作端点, 弹窗拦截, 决策消息, 选项菜单入口. 本身不开端口, 供下面两个 mod 共用 |
+| balatrobot | [v1.5.2](https://github.com/coder/balatrobot/releases/tag/v1.5.2) 改写, 依赖 bbcore | 供 agent 游玩的 HTTP 接口与内置 agent, 默认关闭, 见 [agent-api.md](agent-api.md) |
+| bbreplay | 本仓库, 依赖 bbcore | 按局录像与回放, 不依赖 balatrobot, 见 [recording.md](recording.md) 与 [replay.md](replay.md) |
 | smods-fixes | 本仓库 | Steamodded 自身问题的修复补丁, 与游戏版本无关, 不改玩法 |
 | vanilla-ui | 本仓库 | 沿用原版的选牌组开局界面和 Run Info 的 Stake 页 |
+
+bbcore, balatrobot, bbreplay 的关系:
+
+- 加载顺序按 priority: bbcore (-50) -> balatrobot (0) -> bbreplay (1). 后两个都只依赖 bbcore, 可以单独装.
+- bbcore 提供全局 `BB_DISPATCHER` (执行端点), `BB_TRANSPORT` (端点结果的出口, HTTP 服务与内置 loop
+  从这里取结果), `BB_CONTROL` (谁在操作游戏: 回放进行时登记独占, 内置 agent 运行时登记为忙,
+  两者互斥), `BB_MENU` (选项菜单里的按钮入口), 以及弹窗拦截, 决策消息, 流式条与界面组件.
+- balatrobot 在 bbcore 上加 HTTP 服务, 手册查询端点与内置 agent; bbreplay 加录像, 回放文件与回放.
+  装了 balatrobot 时 bbreplay 会跟随 agent 的暂停与停止切分录像段.
+- 各自的配置分开存: `config/balatrobot.jkr` (agent 模式与内置 agent), `config/bbreplay.jkr` (录像).
+  bbreplay 第一次加载时把旧版写在 balatrobot 配置里的录像设置搬过来.
+- 目录: bbcore 的 `src/lua/` 是从 upstream 搬来的代码, `runtime/` 与 `ui/` 是本仓库新增的;
+  balatrobot 的 `agent/` 是本仓库新增的; bbreplay 按 `record/`, `replay/`, `ui/` 分.
 
 Steamodded 默认把 "开始游戏" 的选牌组界面换成分页式, 把 Run Info 的 Stake 页换成自己的样式.
 vanilla-ui 在运行时打开 Steamodded 自带的 `vanilla_run_select` 与 `vanilla_stake` 开关, 恢复原版界面,

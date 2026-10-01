@@ -1,8 +1,8 @@
 --[[
 流式条: 画面顶部居中的一行, 显示内置 agent 最新输出的尾部, 让观众知道模型在工作.
 
-- 外观与 agent/toast.lua 一致 (仿原版成就通知): 黑底灰描边, 外圈 TRANSPARENT_DARK. 从上方滑入, 空闲时滑回屏幕外.
-- 内容是分段缓冲 {kind, text}, 截取与拆段在 agent/ui/stream_text.lua (纯逻辑, 有单测).
+- 外观与 runtime/toast.lua 一致 (仿原版成就通知): 黑底灰描边, 外圈 TRANSPARENT_DARK. 从上方滑入, 空闲时滑回屏幕外.
+- 内容是分段缓冲 {kind, text}, 截取与拆段在 ui/stream_text.lua (纯逻辑, 有单测).
   reasoning 灰色, content 白色, error 红色, status 金色; 同一行里可以有几种颜色.
 - 渲染用固定数量的 ref_table 文本节点, 文字长度变化时引擎自动重算布局; 刷新限制在约 18 Hz.
 - 首个增量到达时滑入; 请求结束后停留 LINGER 秒再收起, 期间下一个请求开始输出就直接换内容.
@@ -10,7 +10,7 @@
 - UIBox 挂在 G.ROOM_ATTACH 上 (POPUP 层, 在覆盖菜单之上), 阶段切换重建 ROOM_ATTACH 时自己重建.
 ]]
 
-local Text = assert(SMODS.load_file("agent/ui/stream_text.lua", "balatrobot"))()
+local Text = assert(SMODS.load_file("ui/stream_text.lua", "bbcore"))()
 
 local M = {}
 

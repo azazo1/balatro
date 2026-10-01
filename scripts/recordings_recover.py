@@ -4,7 +4,7 @@
 录制中每局只写中间文件 <stem>.video.mp4 (fragmented mp4), <stem>.pcm (s16le 44100Hz 双声道)
 和合成脚本 <stem>.post.sh, 局末才合成 -full.mp4 与 -cut.mp4. 游戏崩溃时局末那一步没有发生,
 这里补上: 优先执行现成的 .post.sh (开局时就写出的草稿, 带当时已确定的剪辑区间);
-没有脚本, 或脚本里的路径已经不在这个目录时, 按 agent/record/post.lua 的规则只合成 -full.mp4.
+没有脚本, 或脚本里的路径已经不在这个目录时, 按 mods/bbreplay/record/post.lua 的规则只合成 -full.mp4.
 
 默认只列出不执行, 加 --run 才合成. 正在录制或正在合成的局会跳过.
 
@@ -27,7 +27,7 @@ from lib import layout, log
 
 log.set_prefix("recover")
 
-# 中间文件后缀, 与 agent/record/post.lua 一致
+# 中间文件后缀, 与 mods/bbreplay/record/post.lua 一致
 SUFFIXES = (".video.mp4", ".pcm", ".post.sh")
 GAME_PATTERN = "Balatro-Modded"
 

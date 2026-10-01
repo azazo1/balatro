@@ -9,7 +9,7 @@ Android 录像在主线程上的 media 绑定: 只用来判断这台设备能不
 local M = {}
 
 -- 运行时加载自己的模块要显式给出 mod id (SMODS.load_file 只在首次加载 mod 时可以省).
-local MOD_ID = "balatrobot"
+local MOD_ID = "bbreplay"
 
 --- cdef 之后逐个核对类型是否真的声明成功.
 --- 只看 cdef 的返回值不够: 同一个 Lua 状态里重复声明会报 "attempt to redefine", 那其实说明已经声明好了;
@@ -49,7 +49,7 @@ end
 ---@return string? err
 function M.load(opts)
   opts = opts or {}
-  local Cdef = opts.cdef or assert(SMODS.load_file("agent/record/android/cdef.lua", MOD_ID))()
+  local Cdef = opts.cdef or assert(SMODS.load_file("record/android/cdef.lua", MOD_ID))()
   local ok, ffi_lib = true, opts.ffi
   if not ffi_lib then
     ok, ffi_lib = pcall(require, "ffi")

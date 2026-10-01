@@ -4,8 +4,8 @@
 
 两种入口:
 - 命令行: 由 BALATROBOT_REPLAY=<回放文件> 开启, 用 just macos replay 启动. 结束后以退出码结束进程.
-- 游戏内: 主菜单的 选项 -> 回放 选一个文件, 见 agent/ui/replay_menu.lua. 存档隔离与收尾交给
-  agent/replay/session.lua (丢弃存档写入, 结束后读回进度并恢复设置), 结束后回调给界面显示结果.
+- 游戏内: 主菜单的 选项 -> 回放 选一个文件, 见 ui/replay_menu.lua. 存档隔离与收尾交给
+  replay/session.lua (丢弃存档写入, 结束后读回进度并恢复设置), 结束后回调给界面显示结果.
 
 节奏 (BALATROBOT_REPLAY_PACING, 游戏内由确认页选):
 - tight: 上一步完成且动画停下后, 稍等 TIGHT_GAP 秒就做下一步, 去掉原局里 agent 思考的时间.
@@ -50,7 +50,11 @@ local cfg = {
   verify_window = 2, -- 摘要不一致时反复确认的时长
 }
 
-local deps = {} -- dispatcher, activity, overlay, gamestate, recorder, toast, stream, format, snapshot, session, input_lock, manual, game_version, mod_version
+-- dispatcher, activity, overlay, gamestate, recorder, toast, stream, format, snapshot, session, input_lock, manual,
+-- control (bbcore 的 BB_CONTROL), animating (画面是否还在动, bbcore 的 BB_OVERLAY.animating), game_version, mod_version
+local deps = {}
+-- 回放进行时在 BB_CONTROL 上的独占名: balatrobot 据此不开端口, 内置 loop 不能开始.
+local OWNER = "回放"
 local data = nil -- 回放文件内容
 local st = {} -- 回放进度
 
@@ -124,6 +128,8 @@ local function finish_ingame()
   M.active = false
   M.status = "off"
   st.phase = "off"
+  -- 先释放再回调: 界面收尾时 agent 已经按当前模式恢复.
+  deps.control.release(OWNER)
   if st.on_finish then
     local ok, err = pcall(st.on_finish, st.exit_code, warnings)
     if not ok then
@@ -184,7 +190,7 @@ local function gap_ready(action, t)
   if t - st.prev_done > cfg.settle_max then
     return true
   end
-  if deps.recorder.animating() then
+  if deps.animating() then
     return false
   end
   if cfg.pacing == "original" then
@@ -236,7 +242,7 @@ local function local_tick(t)
     end
     return
   end
-  if t - waiting.applied_at >= LOCAL_SETTLE_MIN and not deps.recorder.animating() then
+  if t - waiting.applied_at >= LOCAL_SETTLE_MIN and not deps.animating() then
     st.result = { ok = true }
   end
 end
@@ -302,7 +308,7 @@ local function verify_tick(t)
   local v = st.verify
   if v.settle and t - v.started < cfg.settle_max then
     -- 动画没停, 或者刚做完 (它触发的事件可能还没排进队列): 确认窗口从停下的那一刻算起.
-    if t - v.started < cfg.tight_gap or deps.recorder.animating() then
+    if t - v.started < cfg.tight_gap or deps.animating() then
       v.since = t
       return
     end
@@ -458,6 +464,8 @@ function M.init_early(options)
   if not path or path == "" then
     return
   end
+  -- 启动时没有别的东西在操作游戏, 这里只是登记, 让 balatrobot 不开端口.
+  deps.control.claim(OWNER)
   M.active = true
   st = { phase = "boot", phase_at = now(), index = 1, prev_done = now(), last_busy = now(), reference = 0 }
 
@@ -553,14 +561,20 @@ function M.start(options)
   if M.active then
     return false, "回放已经在进行"
   end
+  local claimed, blocker = deps.control.claim(OWNER)
+  if not claimed then
+    return false, tostring(blocker) .. " 正在运行, 先停止再回放"
+  end
   local decoded, problem = read_data(options.path)
   if problem then
+    deps.control.release(OWNER)
     return false, problem
   end
   cfg.pacing = options.pacing == "original" and "original" or "tight"
   -- 回放期间不写盘: 待弹的解锁通知也保持磁盘上的原样, 回放里没有的通知就跳过对应步骤.
   local ok, result = pcall(deps.snapshot.apply, decoded.snapshot, { write_notify = false })
   if not ok then
+    deps.control.release(OWNER)
     return false, "恢复存档进度失败: " .. tostring(result)
   end
   data = decoded
@@ -600,7 +614,7 @@ function M.update()
     deps.recorder.annotate("replay", { source = data and data.source, pacing = cfg.pacing, ok = false, aborted = true, step = st.index })
     finish_later(2, 1)
   end
-  if deps.recorder.animating() then
+  if deps.animating() then
     st.last_busy = t
   end
 

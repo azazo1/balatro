@@ -2,18 +2,18 @@
 mod 设置页 (模组 -> BalatroBot -> 配置), 即 MOD.config_tab.
 
 左列: agent 模式与内置 agent 的配置 (endpoint, 模型名, 鉴权方式, key, 单局 token 上限).
-右列: 录像, 显示, 开发开关, 状态行.
+右列: 显示, 开发开关, 状态行. 录像与回放的设置在 bbreplay 自己的设置页.
 
 - 原版文本框的字符表没有 '/', 还会把 '0' 改成 'o', 所以 endpoint, 模型名, key 都用 "从剪贴板粘贴" 输入.
 - key 只显示掩码, 不写进日志. 配置以明文存在存档目录的 config/balatrobot.jkr.
 - 状态行等文字每帧由根节点的 func 刷新, 按钮的可点与颜色由 widgets 的 bb_button_state 刷新.
 ]]
 
----@type table agent/ui/widgets.lua, init 时注入
+---@type table bbcore 的 ui/widgets.lua, init 时注入
 local W
-local MOD_ID = "balatrobot"
-local Fields = assert(SMODS.load_file("agent/ui/fields.lua", MOD_ID))()
-local Text = assert(SMODS.load_file("agent/ui/stream_text.lua", MOD_ID))()
+local Fields = assert(SMODS.load_file("agent/ui/fields.lua", "balatrobot"))()
+-- stream_text 是纯函数, 每次加载各得一份也没关系.
+local Text = assert(SMODS.load_file("ui/stream_text.lua", "bbcore"))()
 
 local LOGGER = "BB.AGENT.SETTINGS"
 
@@ -29,12 +29,9 @@ local SCALE = 0.3
 ---@field modes table agent/mode.lua 模块
 ---@field mode table agent/mode.lua 的实例
 ---@field runner table agent/runner.lua
----@field toast table agent/toast.lua
+---@field toast table bbcore 的 runtime/toast.lua
 ---@field agent table BB_AGENT
----@field recorder table BB_RECORDER
----@field replay table BB_REPLAY
----@field record_env string? 启动时的 BALATROBOT_RECORD
----@field widgets table agent/ui/widgets.lua (已 init)
+---@field widgets table bbcore 的 ui/widgets.lua (已 init)
 local deps
 
 -- 界面上显示的文字, 由 refresh 与 refresh_values 更新.
@@ -47,8 +44,6 @@ local view = {
   agent_line = "",
   runner_line = "",
   error_line = "",
-  record_line = "",
-  replay_line = "",
 }
 
 local AGENT_STATUS = {
@@ -143,8 +138,6 @@ local function refresh_status()
     view.runner_line = "内置: 未启用"
     view.error_line = ""
   end
-  view.record_line = "录像: " .. tostring(deps.recorder.status)
-  view.replay_line = "回放: " .. tostring(deps.replay.status)
 end
 
 G.FUNCS.bb_settings_refresh = function(_e)
@@ -307,35 +300,7 @@ local function mode_column()
 end
 
 local function side_column()
-  local record_nodes
-  if deps.record_env and deps.record_env ~= "" then
-    record_nodes = {
-      W.row({ W.text("以环境变量 BALATROBOT_RECORD=" .. deps.record_env .. " 为准", SCALE, G.C.UI.TEXT_INACTIVE) }),
-    }
-  else
-    record_nodes = {
-      toggle("录制对局", "record", function(value)
-        deps.recorder.set_enabled(value, "settings")
-      end),
-      W.row({ W.text("分辨率与帧率下次启动生效", 0.26, G.C.UI.TEXT_INACTIVE) }),
-    }
-  end
-  record_nodes[#record_nodes + 1] = W.row({
-    W.col({ W.text("保留方式", SCALE) }, { minw = LABEL_W }),
-    W.radio({ { "skip", "skip" }, { "keep", "keep" } }, function()
-      return config().record_keep
-    end, function(value)
-      config().record_keep = value
-      deps.recorder.set_keep(value)
-      save()
-    end, { minw = 1.1, scale = SCALE }),
-  })
-
-  local nodes = { W.title("录像") }
-  for _, node in ipairs(record_nodes) do
-    nodes[#nodes + 1] = node
-  end
-  nodes[#nodes + 1] = W.title("显示")
+  local nodes = { W.title("显示") }
   nodes[#nodes + 1] = toggle("显示 agent 消息", "show_messages", function(value)
     deps.toast.enabled = value
     if not value then
@@ -348,8 +313,6 @@ local function side_column()
     nodes[#nodes + 1] = W.row({ W.live(view, key, 0.28) })
   end
   nodes[#nodes + 1] = W.row({ W.live(view, "error_line", 0.28, G.C.RED) })
-  nodes[#nodes + 1] = W.row({ W.live(view, "record_line", 0.28) })
-  nodes[#nodes + 1] = W.row({ W.live(view, "replay_line", 0.28) })
   return W.col(nodes, { minw = COL_W, padding = 0.05 })
 end
 

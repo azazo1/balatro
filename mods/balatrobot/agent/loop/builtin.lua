@@ -1,10 +1,10 @@
 --[[
 内置 agent 在游戏里的接线: 把 driver.lua 接到运行控制 (agent/runner.lua), 模型客户端 (agent/llm/client.lua),
-进程内调用 (local_call.lua), 流式条与录像. 在 balatrobot.lua 里 BB_OVERLAY/BB_ACTIVITY 安装之后调用 M.install.
+进程内调用 (local_call.lua), 流式条与录像. bbcore 装好 BB_OVERLAY/BB_ACTIVITY 之后, 由 balatrobot.lua 调用 M.install.
 
 - runner 的暂停, 继续, 停止转给 driver; driver 的汇报 (请求, 重试, 用量, 防失控, 本局结束) 转给 runner.
-- 转录: 每条记录一行 JSON. 在录像时写到录像旁边的 <stem>-agent.jsonl, 能和录像时间轴对上;
-  不录像时写到存档目录的 agent/<开始时间>-agent.jsonl. 不含 key.
+- 转录: 每条记录一行 JSON. 装了 bbreplay 且正在录像时写到录像旁边的 <stem>-agent.jsonl, 能和录像时间轴对上;
+  否则写到存档目录的 agent/<开始时间>-agent.jsonl. 不含 key.
 ]]
 
 local LOGGER = "BB.AGENT.LOOP"
@@ -111,6 +111,7 @@ local function describer()
 end
 
 ---@param opts {mod: table, runner: table, stream: table, dispatcher: table, server: table, gamestate: table}
+--- server: 端点结果的出口 (bbcore 的 BB_TRANSPORT), 本地调用在这里取结果.
 function M.install(opts)
   local mod, runner, stream = opts.mod, opts.runner, opts.stream
   local LocalCall = load("agent/loop/local_call.lua")
@@ -154,7 +155,7 @@ function M.install(opts)
       if G.OVERLAY_MENU and kind ~= "unlock" and kind ~= "win" then
         return true
       end
-      return BB_RECORDER.animating() and true or false
+      return BB_OVERLAY.animating() and true or false
     end,
     describe = describer(),
     bar = stream,

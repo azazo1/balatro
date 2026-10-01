@@ -1,0 +1,14 @@
+{
+  "id": "bbcore",
+  "name": "BB Core",
+  "author": ["S1M0N38", "stirby", "phughesion", "besteon", "giewev", "azazo1"],
+  "description": "Game action endpoints and shared runtime for BalatroBot and BB Replay: dispatcher, game state, overlay handling, messages. No network port by itself.",
+  "prefix": "bbc",
+  "main_file": "main.lua",
+  "priority": -50,
+  "badge_colour": "4CAF50",
+  "badge_text_colour": "FFFFFF",
+  "display_name": "BB Core",
+  "version": "0.1.0",
+  "dependencies": ["Steamodded (>=1.~)"]
+}

@@ -52,7 +52,7 @@ function M.start(mod_path, path, started)
   if not install_tap() then
     return nil, "sound thread not available"
   end
-  local source = SMODS.NFS.read(mod_path .. "agent/record/audio_thread.lua")
+  local source = SMODS.NFS.read(mod_path .. "record/audio_thread.lua")
   local thread = love.thread.newThread(love.filesystem.newFileData(source, "bb_audio_thread.lua"))
   local messages = love.thread.newChannel()
   local status = love.thread.newChannel()

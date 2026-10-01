@@ -25,7 +25,7 @@ JSON-RPC 2.0 over HTTP 接口, 外部程序 (agent, 脚本) 可以读取完整�
 | `BALATROBOT_HEADLESS=1` | 不显示窗口, 跳过开场动画 |
 | `BALATROBOT_AUDIO=1` | 强制开声音, 不设时沿用存档音量 |
 | `BALATROBOT_GAMESPEED`, `BALATROBOT_FPS_CAP`, `BALATROBOT_ANIMATION_FPS` | 显式设置时覆盖 |
-| `BALATROBOT_PORT`, `BALATROBOT_HOST`, `BALATROBOT_RENDER_ON_API`, `BALATROBOT_NO_SHADERS` | 与 upstream 相同, 见 `mods/balatrobot/src/lua/settings.lua` 文件头 |
+| `BALATROBOT_PORT`, `BALATROBOT_HOST`, `BALATROBOT_RENDER_ON_API`, `BALATROBOT_NO_SHADERS` | 与 upstream 相同, 见 `mods/bbcore/src/lua/settings.lua` 文件头 |
 
 启动后游戏先播开场动画, 这时 `gamestate` 返回 `SPLASH`. 开局前等它进入主菜单:
 
@@ -228,7 +228,7 @@ just macos run-agent on 1     # 10 倍速, 仅在需要时使用
 | `BALATROBOT_RECORD_PREFIX` | 空 | 输出文件名前缀, 回放时为 `replay-` |
 | `BALATROBOT_FFMPEG` | 自动查找 | ffmpeg 路径 |
 
-设置页的 "保留方式" 与 `BALATROBOT_RECORD_KEEP` 对应: `skip` 在局末合成成功后删掉 `.video.mp4` 与 `.pcm`,
+录像由 bbreplay 负责, 设置在 模组 -> BB Replay -> 配置. 设置页的 "保留方式" 与 `BALATROBOT_RECORD_KEEP` 对应: `skip` 在局末合成成功后删掉 `.video.mp4` 与 `.pcm`,
 `keep` 留着只删脚本自身 (想再改剪辑区间重跑时有用). 合成失败时无论哪种都保留中间文件.
 录像的开关与保留方式改完后立刻生效 (下一次录像段开始起算), 桌面端设了对应环境变量时以环境变量为准.
 
@@ -258,7 +258,7 @@ JSON 的时间都是秒. `wall` 为开局起的实际时间, 即完整版里的�
 | --- | --- |
 | `cuts` | 剪辑版去掉的区间, `start`/`stop` 为完整版里的时间, `at` 为剪辑版里对应的剪辑点 |
 | `duration.removed` | 剪掉的总时长 |
-| `result.reason` | 结束原因: `menu`, `restart` (开了下一局), `quit`, `stop` (内置 agent 停止) |
+| `result.reason` | 结束原因: `menu`, `restart` (开了下一局), `quit`, `agent_user` / `agent_error` (内置 agent 被停止 / 出错停止), `replay` (游戏内回放结束), `disabled` (录像被关掉) |
 | `result.paused` | 暂停中结束时为 true |
 | `pause`, `resume` | 内置 agent 暂停与恢复, 带 `reason`. 两者之间在剪辑版里剪掉, 期间事件的 `cut` 为对应的剪辑点 |
 | `action` | agent 的操作, `wall_end`/`cut_end` 为操作完成的时间, 失败时带 `error` |
@@ -291,11 +291,12 @@ just macos replay recordings/<stem>.replay.json original   # original: 按原局
   结束后用 `load_profile` 从磁盘读回当前档位, 再按开始前的快照恢复解锁与设置.
 - 原局没指定种子时, 回放用同一个种子开局后恢复为 "未指定种子" 的状态.
 - 回放期间锁定鼠标, 键盘和手柄, 光标停在右上角的空白处.
-- 讲解照常显示并按阅读时长等待, 不受 Config 里 "Show Agent Messages" 的影响.
+- 命令行回放时讲解照常显示并按阅读时长等待, 不受 balatrobot 设置页 "显示 agent 消息" 的影响; 游戏内回放沿用这个开关.
 - 弹窗停留后再关: 解锁通知停 2.5 秒, 胜利界面在 Jimbo 出现后停 3 秒, 游戏结束界面停 3 秒;
   original 节奏下取原局的停留时长. 原局里关过的解锁通知回放时没弹出就跳过, 多出的同样停留后关掉.
-- 人在胜利界面上点的 "无尽模式", 在局内回主菜单也会记成一步, 回放时照做. 其余手动操作不会重做,
-  原局里有手动操作时回放开始前会提示结果可能不同. 构建版本或 mod 版本不一致时同样提示.
+- 人手动的操作也会记成步骤, 回放时照做: 出牌, 弃牌, 选或跳过盲注, 刷新商店, 结算, 离开商店, 购买,
+  使用, 出售, 跳过卡包, 重掷 Boss, 理牌, 拖动排序, 以及胜利界面上点 "无尽模式", 局内回主菜单. 原局里有手动操作时回放开始前仍会提示
+  结果可能不同 (换算不到的操作不会重做). 构建版本或 mod 版本不一致时同样提示.
 - 每步完成后比对状态摘要 (状态, 底注, 回合, 金钱, 牌堆张数, 手牌, 小丑, 消耗牌, 商店, 卡包的顺序与修饰),
   2 秒内仍不一致就停止回放, 游戏日志记下哪一项不同, 录像保留到这里.
 - 退出码 (仅命令行): 0 回放完成, 1 跑偏或超时, 2 中止, 3 回放文件无法使用. 游戏内以同样的数字作为
@@ -328,8 +329,10 @@ just macos replay recordings/<stem>.replay.json original   # original: 按原局
 
 ## 与 upstream 的区别
 
-改写了入口 `mods/balatrobot/balatrobot.lua`, 新增了 `config.lua` 和 `agent/` 目录 (设置, 存档迁移,
-决策消息, 录制), 另有兼容性修复, 其余文件保持 v1.5.2 原样:
+upstream 是一个 mod, 这里拆成三个 (见 [modding.md](<modding.md>) 的内置 mod 一节): 端点, dispatcher,
+gamestate 等 upstream 的公共代码搬进 `mods/bbcore/src/lua/`; HTTP 服务 (`src/lua/core/server.lua`) 留在
+balatrobot; 录像与回放在 bbreplay. 改写了 balatrobot 的入口 `balatrobot.lua`, 新增了 `config.lua` 和 `agent/`
+目录 (设置, 存档迁移, 内置 agent, 手册查询), 另有兼容性修复, upstream 的其余文件内容保持 v1.5.2 原样:
 
 - upstream 一加载就开端口并修改游戏设置. 这里改为默认关闭, 由开关或环境变量启用.
 - 游戏内开关只启停 HTTP 服务, 不执行 upstream 的设置调整.
@@ -337,7 +340,9 @@ just macos replay recordings/<stem>.replay.json original   # original: 按原局
   见上方环境变量表. 存档里 `skip_splash` 为 `Yes` 时 (原版游戏没有这个选项, 只可能是早期版本写的),
   启动时把这些设置恢复为原版默认值.
 - 跳过教程保留: 全新存档里教程进度要等第一帧才创建, 入口里提前把教程标记为完成.
-- `src/lua/settings.lua` 末尾导出了 headless 等函数供 `agent/settings.lua` 调用.
+- bbcore 的 `src/lua/settings.lua` 末尾导出了 headless 等函数供 balatrobot 的 `agent/settings.lua` 调用.
+- upstream 的 dispatcher 直接把结果交给 HTTP 服务. 这里交给 bbcore 的 `BB_TRANSPORT`, HTTP 服务, 内置 loop
+  与回放都从这里取结果.
 - 新增 `notify` 方法和各方法的 `reason` 参数, `rpc.discover` 返回的描述里也有.
 - upstream 在弹窗打开时仍然执行操作. 胜利界面下直接 `cash_out` 进商店后, 再点 "无尽模式" 会让停着的
   结算事件访问已移除的 `G.round_eval` 而崩溃. 现在弹窗打开时拦截操作, 并新增 `endless` 方法和 `overlay` 字段.

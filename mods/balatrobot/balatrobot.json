@@ -17,6 +17,7 @@
   "display_name": "BB",
   "version": "1.5.1",
   "dependencies": [
-    "Steamodded (>=1.~)"
+    "Steamodded (>=1.~)",
+    "bbcore"
   ]
 }

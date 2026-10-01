@@ -1,7 +1,9 @@
 # 录像
 
-按局录下画面与声音, 写时间轴, 并剪掉等待的部分. 录像的开关与参数在设置页 (见 [builtin-agent.md](<builtin-agent.md>)),
-环境变量与输出文件见 [agent-api.md](<agent-api.md>). 回放文件与录像同名, 见 [replay.md](<replay.md>).
+按局录下画面与声音, 写时间轴, 并剪掉等待的部分. 代码在独立的 mod `bbreplay` 里 (`mods/bbreplay/record/`),
+只依赖 `bbcore`, 不装 balatrobot 也能录手动打的局. 录像的开关与保留方式在 模组 -> BB Replay -> 配置;
+分辨率与帧率只能用环境变量改, 环境变量与输出文件见 [agent-api.md](<agent-api.md>).
+回放文件与录像同名, 见 [replay.md](<replay.md>).
 
 ## 落盘
 
@@ -27,14 +29,14 @@
 
 - 桌面录像通过 `io.popen` 调用 ffmpeg, Android 上没有 ffmpeg (系统不提供这个二进制, 也塞不进 APK).
 - 用 NDK 的 `AMediaCodec` 编码 H.264 与 AAC, `AMediaMuxer` 封装 mp4. 不新增 crate, 也不新增原生库:
-  media 的 ffi 声明放在 [android/ffi.lua](<../mods/balatrobot/agent/record/android/ffi.lua>), 直接加载
+  media 的 ffi 声明放在 [android/ffi.lua](<../mods/bbreplay/record/android/ffi.lua>), 直接加载
   系统的 `libmediandk`.
 - 颜色转换 (RGBA -> NV12) 放在 bbnet 里 ([yuv.rs](<../native/bbnet/src/yuv.rs>), 导出 `bbnet_rgba_to_nv12`).
   540p 一帧 50 万像素, 逐像素在 Lua 里转达不到 24fps; 放在 bbnet 是因为那里已经有三个平台的交叉编译链路,
   不必为一次换算再养一个 C 库和一套构建. 系数按 BT.601 有限范围 (与硬件编码器一致), 色度按 2x2 平均.
 - Lua 读回帧后把像素指针交给原生侧转换, 再喂给编码器. 声音复用现有的 pcm 采集.
 - 剪辑版不重新编码, 按关键帧截取拼接 (`AMediaExtractor` 加 `AMediaMuxer`). 关键帧间隔 1 秒, 剪切精度约 1 秒.
-- 默认 540p 24fps, 可在设置页调整. 卡顿时按墙钟重复上一帧, 音画不会错位.
+- 固定 540p 24fps (Android 没有环境变量可改). 卡顿时按墙钟重复上一帧, 音画不会错位.
 - 桌面端继续用 ffmpeg.
 
 进度: 视频链路已在真机跑通 (640x360 自检: 30 帧 / 30 个样本 / 封装成功, 取出用 ffprobe 核对是

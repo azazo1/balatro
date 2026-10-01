@@ -16,14 +16,14 @@ session.thread / session.frames / session.status 的用法不用分平台:
 local M = {}
 
 -- 运行时加载自己的模块要显式给出 mod id (SMODS.load_file 只在首次加载 mod 时可以省).
-local MOD_ID = "balatrobot"
+local MOD_ID = "bbreplay"
 
 --- 能不能用: libmediandk 可用且建得出 H.264 编码器. 只在 Android 上调用.
 ---@return boolean ok
 ---@return string? reason
 function M.available()
   local ok, media = pcall(function()
-    return assert(SMODS.load_file("agent/record/android/ffi.lua", MOD_ID))()
+    return assert(SMODS.load_file("record/android/ffi.lua", MOD_ID))()
   end)
   if not ok then
     return false, tostring(media)
@@ -57,13 +57,13 @@ end
 ---@return table? status 仅成功时给出
 function M.start(mod_path, video_path, width, height, fps)
   local ok_cdef, Cdef = pcall(function()
-    return assert(SMODS.load_file("agent/record/android/cdef.lua", MOD_ID))()
+    return assert(SMODS.load_file("record/android/cdef.lua", MOD_ID))()
   end)
   if not ok_cdef then
     return false, "读取 C 声明失败: " .. tostring(Cdef)
   end
 
-  local source_ok, source = pcall(SMODS.NFS.read, mod_path .. "agent/record/android/encoder_thread.lua")
+  local source_ok, source = pcall(SMODS.NFS.read, mod_path .. "record/android/encoder_thread.lua")
   if not source_ok or type(source) ~= "string" then
     return false, "读取编码线程脚本失败: " .. tostring(source)
   end

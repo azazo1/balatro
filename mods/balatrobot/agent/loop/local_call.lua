@@ -1,8 +1,8 @@
 --[[
 在进程内调用端点, 不经过 HTTP. 内置 agent loop 用它执行动作.
 
-端点通过 BB_DISPATCHER.Server.send_response 交回结果. 这里包一层: 有本地调用在等时, 把结果交给
-它的回调; HTTP 服务此时不监听 (内置模式与外部模式互斥), 原函数因没有客户端直接返回.
+端点通过 BB_DISPATCHER.Server.send_response (bbcore 的 BB_TRANSPORT) 交回结果. 这里包一层: 有本地调用在等时,
+把结果交给它的回调; HTTP 服务此时不监听 (内置模式与外部模式互斥), 它的 writer 因没有客户端直接返回.
 overlay.lua 可能先把请求挂起, 在弹窗关掉后再用同一个 send_response 交回结果, 这里照样能收到.
 
 一次只允许一个本地调用, 与 HTTP 服务一次只处理一个请求的约束一致.

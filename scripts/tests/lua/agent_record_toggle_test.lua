@@ -44,11 +44,12 @@ SMODS = {
   NFS = { createDirectory = function() return true end },
 }
 
-local Recorder = dofile("mods/balatrobot/agent/record/recorder.lua")
+local Recorder = dofile("mods/bbreplay/record/recorder.lua")
 Recorder.init({
   activity = { on = function() end },
   toast = { active = function() return false end, duration_for = function() return 2.5 end },
-  mod_path = "mods/balatrobot/",
+  animating = function() return false end,
+  mod_path = "mods/bbreplay/",
   config_enabled = false,
   config_keep = "skip",
 })
@@ -62,7 +63,7 @@ check("运行时打开录像", ok == true and Recorder.enabled == true and #logs
 check("初始化保留先设的前缀", Recorder.get_prefix() == "replay-", Recorder.get_prefix())
 local wrong = {}
 for _, call in ipairs(loads) do
-  if call.id ~= "balatrobot" then
+  if call.id ~= "bbreplay" then
     wrong[#wrong + 1] = call.path
   end
 end

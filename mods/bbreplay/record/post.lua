@@ -90,11 +90,11 @@ function M.script(opts)
   local lines = { "#!/bin/sh" }
   if opts.draft then
     lines[#lines + 1] = "# bb-post: draft"
-    lines[#lines + 1] = "# 由 agent/record/post.lua 在录制中写出, 游戏崩溃时用于补做合成: sh <本文件> [--clean]."
+    lines[#lines + 1] = "# 由 record/post.lua 在录制中写出, 游戏崩溃时用于补做合成: sh <本文件> [--clean]."
     lines[#lines + 1] = "# 剪辑版只剪掉写出时已确定的区间. 默认保留中间文件, 带 --clean 且全部成功时删除."
   else
     lines[#lines + 1] = "# bb-post: final"
-    lines[#lines + 1] = "# 由 agent/record/post.lua 在局末写出并运行: 合成完整版与剪辑版视频. 失败时可以手动重跑."
+    lines[#lines + 1] = "# 由 record/post.lua 在局末写出并运行: 合成完整版与剪辑版视频. 失败时可以手动重跑."
     if opts.keep then
       lines[#lines + 1] = "# 保留方式为 keep: 成功后不删中间文件."
     end

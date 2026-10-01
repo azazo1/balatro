@@ -1,9 +1,10 @@
 # 回放
 
-录制时每局写一份回放文件 `<录像同名>.replay.json` (`agent/replay/log.lua`), 记下开局参数, 开局时的存档进度
+录制时每局写一份回放文件 `<录像同名>.replay.json` (`replay/log.lua`), 记下开局参数, 开局时的存档进度
 和每一步操作. 回放用同一个种子开局, 恢复原局的存档进度, 再按顺序重做每一步, 画面与声音由游戏自己产生.
+下文的路径都在 `mods/bbreplay/` 下; 每一步由 bbcore 的端点执行, 所以不装 balatrobot 也能回放.
 
-两种入口共用同一套播放器 (`agent/replay/player.lua`):
+两种入口共用同一套播放器 (`replay/player.lua`):
 
 - 命令行: `just macos replay <回放文件>`, 见 [agent-api.md](<agent-api.md>) 的 "回放" 一节. 用环境变量指定
   回放文件, 用临时存档 `Balatro-Replay` 隔离, 放完后以退出码结束进程.
@@ -30,7 +31,7 @@
 
 ## 手动操作的录制
 
-人手动打的局也能回放 (`agent/replay/manual.lua`).
+人手动打的局也能回放 (`replay/manual.lua`).
 
 - 人点的按钮和 agent 的接口走同一批游戏函数, 给它们套一层, 按调用时的选中状态换算成一步,
   标 `manual = true`.
@@ -81,7 +82,10 @@
 互斥:
 
 - 回放进行时, 内置 loop 不能开始; 外部模式暂停监听, 回放结束后恢复.
-- 内置 loop 正在运行时, 回放按钮不可用.
+- 内置 loop 正在运行或暂停时, 回放按钮不可用.
+- 两个 mod 不直接互相调用, 都通过 bbcore 的 `BB_CONTROL`: player 开始时申请独占 (`claim`), 结束时释放;
+  balatrobot 把内置 loop 登记为忙 (`add_busy`), 并在独占变化时重新按模式启停监听 (`on_change`).
+  命令行回放在 bbreplay 加载时就登记独占, balatrobot 的首次启停推迟到所有 mod 加载完, 所以端口不会先开再关.
 
 中止:
 
@@ -103,13 +107,16 @@
 
 | 文件 | 职责 |
 |---|---|
-| `agent/replay/log.lua` | 录制时写回放文件, 手动步骤的状态摘要 |
-| `agent/replay/manual.lua` | 手动操作换算成回放步骤, 回放时重做本地步骤 |
-| `agent/replay/library.lua` | 扫描 `*.replay.json`, 解析列表字段, 判断能不能回放, 缓存与分页 |
-| `agent/replay/session.lua` | 等存档线程写完, 装上写入拦截, 结束后读回进度与设置 |
-| `agent/replay/player.lua` | 两种入口共用的回放驱动, 游戏内以回调结束而不是退出进程 |
-| `agent/replay/input_lock.lua` | 输入锁, 中止的按住时长与进度 |
-| `agent/ui/replay_menu.lua` | 选项菜单里的回放入口, 列表页与确认页 |
+| `main.lua` | 入口: 装载录像与回放, 挂钩子的顺序, 跟随 agent 的暂停与停止 |
+| `migrate.lua` | 配置迁移 (把旧版 balatrobot 配置里的录像设置搬过来) |
+| `replay/log.lua` | 录制时写回放文件, 手动步骤的状态摘要 |
+| `replay/manual.lua` | 手动操作换算成回放步骤, 回放时重做本地步骤 |
+| `replay/library.lua` | 扫描 `*.replay.json`, 解析列表字段, 判断能不能回放, 缓存与分页 |
+| `replay/session.lua` | 等存档线程写完, 装上写入拦截, 结束后读回进度与设置 |
+| `replay/player.lua` | 两种入口共用的回放驱动, 游戏内以回调结束而不是退出进程 |
+| `replay/input_lock.lua` | 输入锁, 中止的按住时长与进度 |
+| `ui/replay_menu.lua` | 选项菜单里的回放入口, 列表页与确认页 |
+| `ui/settings_tab.lua` | 本 mod 的设置页: 录像开关, 保留方式, 状态 |
 
 - 列表用 `SMODS.NFS` 按目录取一次信息 (`getDirectoryItemsInfo`), 只解析文件名, 大小与修改时间有变化的
   文件; 解析出的 `snapshot` 与 `actions` 不留着, 真正开始时由 player 重新读一遍文件.
@@ -118,9 +125,9 @@
 - 恢复分两步: 先 `load_profile` 从磁盘读回当前档位 (磁盘没被改动, 读到的就是回放前的状态), 再按开始前
   取的内存快照把解锁, 发现, 累计数据与设置放回去. 这两步都在拦截还装着的时候做, 期间游戏标脏的保存请求
   会被丢掉, 之后才按恢复后的状态落盘.
-- 互斥: 回放期间 `BB_REPLAY.active` 为真, mode 的 `apply()` 因此停掉外部监听并锁定切换; 内置 loop 的
-  `can_start` 也据此拒绝启动. 开始前若内置 loop 在运行, 确认页的开始按钮不可点.
-- 录制器的开关与文件名前缀运行时可设 (`agent/record/recorder.lua` 的 `set_enabled` / `set_prefix`):
+- 互斥: 回放期间 `BB_CONTROL.owner()` 为 "回放", balatrobot 的 mode `apply()` 因此停掉外部监听并锁定切换;
+  内置 loop 的 `can_start` 也据此拒绝启动. 开始前若内置 loop 在运行, 确认页的开始按钮不可点.
+- 录制器的开关与文件名前缀运行时可设 (`record/recorder.lua` 的 `set_enabled` / `set_prefix`):
   游戏内回放选了录像时按 `replay-` 前缀录, 结束或开始失败时回滚. 录像本来关着时, 这一步才装载编码相关的
   模块并挂上钩子; 回放文件由 `log.lua` 补写, 因为录制器的开局钩子在这种情况下装得比它晚, 开局那一刻录像段
   还没建立.

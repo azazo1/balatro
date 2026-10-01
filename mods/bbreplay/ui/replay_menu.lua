@@ -1,14 +1,14 @@
 --[[
 游戏内回放的入口与界面: 主菜单的 选项 -> 回放.
 
-- 按钮通过 BB_AGENT_MENU.menu_entries 挂钩插入 ESC 菜单, 与 agent 模式无关, 只在主菜单显示
-  (回放要从开局开始), 内置 loop 运行中不可用.
+- 按钮登记在 bbcore 的选项菜单入口 (BB_MENU.entries) 里, 与 agent 模式无关, 只在主菜单显示
+  (回放要从开局开始). 别的东西在操作游戏 (BB_CONTROL, 例如内置 agent 运行中) 时不可用.
 - 列表: 扫描录像目录, 按时间倒序分页, 每行是开始时间, 牌组, 赌注, 种子, 结果, 步数, 原局时长.
   不能回放的文件不可点, 行的文字里带上原因.
 - 确认页: 回放前的提示, 节奏 (tight / original), 是否录像, 然后开始.
 
-开始时的动作: 检查互斥 -> 存档隔离 (agent/replay/session.lua) -> 按选择设定录像 -> 关掉菜单 ->
-交给 agent/replay/player.lua. 结束时 player 回调到这里: 恢复录像设置, 恢复 agent 监听, 显示结果.
+开始时的动作: 检查互斥 -> 存档隔离 (replay/session.lua) -> 按选择设定录像 -> 关掉菜单 ->
+交给 replay/player.lua (它在 BB_CONTROL 上申请独占). 结束时 player 释放独占并回调到这里: 恢复录像设置, 显示结果.
 
 布局: 竖直排的行都直接作为 R 型兄弟展开, 不用 W.col 包. 布局引擎里 C 型节点会把横向游标推走,
 它后面的 R 兄弟就整体右移, 跑出面板外面.
@@ -16,7 +16,7 @@
 
 local json = require("json")
 
----@type table agent/ui/widgets.lua, init 时注入
+---@type table bbcore 的 ui/widgets.lua, init 时注入
 local W
 
 local LOGGER = "BB.AGENT.REPLAY.MENU"
@@ -35,17 +35,16 @@ local FINISH_TEXT = {
 local M = {}
 
 ---@class BBReplayMenuDeps
----@field agent_menu table agent/ui/agent_menu.lua
----@field runner table agent/runner.lua
----@field mode table agent/mode.lua 的实例
----@field recorder table agent/record/recorder.lua
----@field replay table agent/replay/player.lua
----@field session table agent/replay/session.lua
----@field library table agent/replay/library.lua
----@field format table agent/replay/format.lua
----@field toast table agent/toast.lua
----@field stream table agent/ui/stream_bar.lua
----@field widgets table agent/ui/widgets.lua (已 init)
+---@field menu table bbcore 的 ui/menu.lua (BB_MENU)
+---@field control table bbcore 的 runtime/control.lua (BB_CONTROL)
+---@field recorder table record/recorder.lua
+---@field replay table replay/player.lua
+---@field session table replay/session.lua
+---@field library table replay/library.lua
+---@field format table replay/format.lua
+---@field toast table bbcore 的 runtime/toast.lua
+---@field stream table bbcore 的 ui/stream_bar.lua
+---@field widgets table bbcore 的 ui/widgets.lua (已 init)
 local deps
 
 local view = {
@@ -246,13 +245,12 @@ local function restore_recording(previous, reason)
   deps.recorder.set_prefix(previous.prefix)
 end
 
---- 回放结束后的收尾: 恢复录像设置, 让 agent 按当前模式重新生效, 显示结果.
+--- 回放结束后的收尾: 恢复录像设置, 显示结果. agent 由 player 释放独占时按当前模式恢复.
 ---@param previous {enabled: boolean, prefix: string}
 ---@param code integer
 ---@param warnings string[]
 local function on_finish(previous, code, warnings)
   restore_recording(previous, "replay end")
-  deps.mode.apply()
   local text = FINISH_TEXT[code]
   if #warnings > 0 then
     text = text .. "; " .. table.concat(warnings, ", ")
@@ -271,9 +269,11 @@ end
 --- 确认页上点 "开始回放".
 local function start_selected()
   local entry = confirm.entry
-  -- 按钮的可点状态每帧才刷新, 内置 agent 可能刚好在这一帧启动.
-  if deps.runner.is_busy() then
-    deps.toast.push("回放", "内置 agent 正在运行, 先停止再回放", 4)
+  -- 按钮的可点状态每帧才刷新, 内置 agent 可能刚好在这一帧启动. 真正的独占在 player.start 里申请,
+  -- 这里先查一次, 免得做完存档隔离与录像设置再回滚.
+  local busy = deps.control.owner() or deps.control.busy()
+  if busy then
+    deps.toast.push("回放", busy .. " 正在运行, 先停止再回放", 4)
     return
   end
   local profile = tostring(G.SETTINGS.profile or 1)
@@ -306,8 +306,12 @@ local function start_selected()
     G.FUNCS.bb_replay_list()
     return
   end
-  -- 回放期间不开端口: 外部模式下暂停监听 (mode.apply 里据此判断), 结束后由 on_finish 恢复.
-  deps.mode.apply()
+end
+
+--- 内置 agent 等别的东西在操作游戏时, 开始按钮与入口不可点.
+---@return boolean
+local function can_start()
+  return deps.control.owner() == nil and deps.control.busy() == nil
 end
 
 local function confirm_definition()
@@ -361,9 +365,7 @@ local function confirm_definition()
       minh = 0.6,
       scale = 0.4,
       colour = G.C.GREEN,
-      enabled = function()
-        return not deps.runner.is_busy()
-      end,
+      enabled = can_start,
       on_click = start_selected,
     }),
     W.button({
@@ -414,9 +416,7 @@ local function replay_entry()
     padding = 0,
     outer_padding = 0,
     colour = G.C.RED,
-    enabled = function()
-      return not deps.runner.is_busy()
-    end,
+    enabled = can_start,
     on_click = function()
       G.FUNCS.bb_replay_list()
     end,
@@ -427,7 +427,7 @@ end
 function M.init(options)
   deps = options
   W = options.widgets
-  deps.agent_menu.menu_entries[#deps.agent_menu.menu_entries + 1] = replay_entry
+  options.menu.entries[#options.menu.entries + 1] = replay_entry
 end
 
 return M

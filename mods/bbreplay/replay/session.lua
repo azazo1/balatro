@@ -23,7 +23,7 @@ local LOGGER = "BB.AGENT.REPLAY"
 local DRAIN_LIMIT = 5 -- 等存档线程的上限 (秒)
 
 ---@class BBReplaySessionDeps
----@field snapshot table agent/replay/snapshot.lua
+---@field snapshot table replay/snapshot.lua
 
 ---@type BBReplaySessionDeps
 local deps

@@ -79,15 +79,18 @@ function BB_DISPATCHER.register(endpoint)
   return true
 end
 
+--- 加载并注册端点. 端点可以来自别的 mod (balatrobot 的手册查询), 所以路径按 mod_id 解析.
 ---@param endpoint_files string[]
+---@param mod_id string? 端点文件所在的 mod, 默认 bbcore
 ---@return boolean success
 ---@return string? error_message
-function BB_DISPATCHER.load_endpoints(endpoint_files)
+function BB_DISPATCHER.load_endpoints(endpoint_files, mod_id)
+  mod_id = mod_id or "bbcore"
   local loaded_count = 0
   for _, filepath in ipairs(endpoint_files) do
-    sendDebugMessage("Loading endpoint: " .. filepath, "BB.DISPATCHER")
+    sendDebugMessage("Loading endpoint: " .. mod_id .. "/" .. filepath, "BB.DISPATCHER")
     local success, endpoint = pcall(function()
-      return assert(SMODS.load_file(filepath))()
+      return assert(SMODS.load_file(filepath, mod_id))()
     end)
     if not success then
       return false, "Failed to load endpoint '" .. filepath .. "': " .. tostring(endpoint)
@@ -102,13 +105,16 @@ function BB_DISPATCHER.load_endpoints(endpoint_files)
   return true
 end
 
+--- 端点的结果都交给 Server.send_response. 本仓库里它是 bbcore 的 BB_TRANSPORT, 不是 HTTP 服务:
+--- HTTP 服务 (balatrobot), 内置 loop 的本地调用与回放都从 BB_TRANSPORT 取结果, 见 runtime/transport.lua.
 ---@param server_module table
 ---@param endpoint_files string[]?
+---@param mod_id string? 端点文件所在的 mod, 见 load_endpoints
 ---@return boolean success
-function BB_DISPATCHER.init(server_module, endpoint_files)
+function BB_DISPATCHER.init(server_module, endpoint_files, mod_id)
   BB_DISPATCHER.Server = server_module
   endpoint_files = endpoint_files or { "src/lua/endpoints/health.lua" }
-  local success, err = BB_DISPATCHER.load_endpoints(endpoint_files)
+  local success, err = BB_DISPATCHER.load_endpoints(endpoint_files, mod_id)
   if not success then
     sendErrorMessage("Dispatcher initialization failed: " .. err, "BB.DISPATCHER")
     return false

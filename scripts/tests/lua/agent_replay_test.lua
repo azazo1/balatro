@@ -1,5 +1,5 @@
 -- 回放文件纯逻辑的单元测试, 用 luajit 在仓库根目录运行: just test-agent
-local Format = dofile("mods/balatrobot/agent/replay/format.lua")
+local Format = dofile("mods/bbreplay/replay/format.lua")
 
 local failures = 0
 local function check(name, cond, detail)

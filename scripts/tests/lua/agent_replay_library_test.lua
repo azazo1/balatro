@@ -3,7 +3,7 @@
 
 package.path = "mods/Steamodded/libs/json/?.lua;" .. package.path
 local json = require("json")
-local DIR = "mods/balatrobot/agent/replay/"
+local DIR = "mods/bbreplay/replay/"
 local Library = dofile(DIR .. "library.lua")
 local Format = dofile(DIR .. "format.lua")
 
@@ -180,16 +180,16 @@ do -- 回放菜单的布局: 竖直列表里不能出现"C 型节点后面还有
   sendDebugMessage = function() end
 
   -- widgets 量文字宽度要用 toast.pick_lang 给的字体
-  local Widgets = dofile("mods/balatrobot/agent/ui/widgets.lua")
+  local Widgets = dofile("mods/bbcore/ui/widgets.lua")
   Widgets.init({
     toast = {
       pick_lang = function() return { font = { FONT = { getWidth = function(_, t) return #t * 10 end }, squish = 1, FONTSCALE = 0.1 } } end,
     },
   })
 
-  local ReplayMenu = dofile("mods/balatrobot/agent/ui/replay_menu.lua")
+  local ReplayMenu = dofile("mods/bbreplay/ui/replay_menu.lua")
   ReplayMenu.init({
-    agent_menu = { menu_entries = {} },
+    menu = { entries = {} },
     library = Library,
     format = Format,
     widgets = Widgets,

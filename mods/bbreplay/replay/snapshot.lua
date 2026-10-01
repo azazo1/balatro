@@ -1,6 +1,6 @@
 --[[
 开局那一刻的存档进度, 回放时恢复. 命令行回放恢复到临时存档里; 游戏内回放的写盘由
-agent/replay/session.lua 丢弃, 只改内存.
+replay/session.lua 丢弃, 只改内存.
 
 商店, 卡包的候选池按 "已解锁 / 已发现" 过滤 (functions/common_events.lua get_current_pool),
 局中的解锁判断还要看 profile 里的累计数据. 两者不一致, 同一个种子也会抽出不同的牌.

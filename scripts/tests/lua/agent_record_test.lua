@@ -1,11 +1,11 @@
 -- 录制剪辑点与消息的单元测试, 用 luajit 在仓库根目录运行: just test-agent
-local Cuts = dofile("mods/balatrobot/agent/record/cuts.lua")
-local Post = dofile("mods/balatrobot/agent/record/post.lua")
+local Cuts = dofile("mods/bbreplay/record/cuts.lua")
+local Post = dofile("mods/bbreplay/record/post.lua")
 package.preload.json = function() -- 时间线只在 flush 时用到, 测试不写文件
   return { encode = function() return "{}" end }
 end
-local Timeline = dofile("mods/balatrobot/agent/record/timeline.lua")
-local Toast = dofile("mods/balatrobot/agent/toast.lua")
+local Timeline = dofile("mods/bbreplay/record/timeline.lua")
+local Toast = dofile("mods/bbcore/runtime/toast.lua")
 
 local failures = 0
 local function check(name, cond, detail)
@@ -194,9 +194,14 @@ end
 do -- 运行时加载自己的模块必须显式给出 mod id.
   -- SMODS.load_file 只在首次加载 mod 时才可以省 id; 这些文件里的加载可能发生在运行中 (例如设置页打开
   -- 录像开关时装载编码模块, 内置 loop 启动时装载依赖), 省掉 id 会报 "No ID was provided!" 并崩掉游戏.
-  -- 扫 agent/ 下所有 lua (含子目录; balatrobot.lua 不在其中, 它在 mod 首次加载时执行, 可以省 id).
+  -- 扫三个本仓库 mod 里由本仓库编写的模块 (含子目录). 各 mod 的入口 (main.lua, balatrobot.lua) 与
+  -- bbreplay 的 migrate.lua 在 mod 首次加载时执行, 可以省 id, 不在其中; bbcore 的 src/lua 是 upstream 代码,
+  -- 也只在加载时执行.
   local RUNTIME_FILES = {}
-  local pipe = io.popen("find mods/balatrobot/agent -name '*.lua' | sort")
+  local pipe = io.popen(
+    "find mods/balatrobot/agent mods/bbcore/runtime mods/bbcore/ui mods/bbreplay/record mods/bbreplay/replay"
+      .. " mods/bbreplay/ui -name '*.lua' | sort"
+  )
   for name in (pipe and pipe:read("*a") or ""):gmatch("[^\n]+") do
     RUNTIME_FILES[#RUNTIME_FILES + 1] = name
   end

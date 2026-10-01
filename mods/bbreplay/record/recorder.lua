@@ -35,7 +35,7 @@ agent 暂停期间一律不算活动.
 local LOGGER = "BB.AGENT.RECORD"
 -- 运行时加载自己的模块必须显式给出 mod id: SMODS.load_file 只在首次加载 mod 时才可以省 id,
 -- 少了它会报 "No ID was provided!". 录像可能在运行中才装载 (设置页打开开关, 游戏内回放).
-local MOD_ID = "balatrobot"
+local MOD_ID = "bbreplay"
 local MAX_QUEUE = 8
 local START_GRACE = 1.5 -- 开局后固定算作活动的秒数, 覆盖开局动画
 local QUIT_WAIT = 5
@@ -311,7 +311,7 @@ local function start_encoder(video_path, log_path, w, h)
     shell_quote(video_path),
     "2>" .. shell_quote(log_path),
   }, " ")
-  local source = SMODS.NFS.read(deps.mod_path .. "agent/record/encoder_thread.lua")
+  local source = SMODS.NFS.read(deps.mod_path .. "record/encoder_thread.lua")
   local thread = love.thread.newThread(love.filesystem.newFileData(source, "bb_encoder_thread.lua"))
   local frames = love.thread.newChannel()
   local status = love.thread.newChannel()
@@ -748,23 +748,9 @@ local function track_state(s)
   end
 end
 
---- 画面还在动: 有未完成的阻塞事件 (发牌, 计分, 翻牌等动画都是), 或者控制器被锁住.
---- 暂停时 (弹窗打开) 事件都停着, 算作停下.
+--- 画面还在动 (动画未停或控制器被锁住), 由 init 注入 bbcore 的 BB_OVERLAY.animating.
 local function animating()
-  if G.SETTINGS.paused then
-    return false
-  end
-  if G.CONTROLLER and G.CONTROLLER.locked then
-    return true
-  end
-  for _, queue in pairs(G.E_MANAGER.queues) do
-    for _, event in ipairs(queue) do
-      if event.blocking and not event.complete then
-        return true
-      end
-    end
-  end
-  return false
+  return deps.animating() == true
 end
 
 -- ==========================================================================
@@ -772,9 +758,6 @@ end
 -- ==========================================================================
 
 local ENABLE_VALUES = { on = true, ["1"] = true, ["true"] = true, yes = true }
-
---- 画面是否还在动, 回放的 tight 节奏据此等动画停下.
-M.animating = animating
 
 --- 正在录制的一段: stem, base (不含扩展名的输出路径), started (love.timer 时间), paused. 没有时为 nil.
 ---@return {stem: string, base: string, started: number, paused: boolean}?
@@ -888,10 +871,10 @@ local function setup()
     return false
   end
 
-  Cuts = assert(SMODS.load_file("agent/record/cuts.lua", MOD_ID))()
-  Timeline = assert(SMODS.load_file("agent/record/timeline.lua", MOD_ID))()
-  Audio = assert(SMODS.load_file("agent/record/audio.lua", MOD_ID))()
-  Post = assert(SMODS.load_file("agent/record/post.lua", MOD_ID))()
+  Cuts = assert(SMODS.load_file("record/cuts.lua", MOD_ID))()
+  Timeline = assert(SMODS.load_file("record/timeline.lua", MOD_ID))()
+  Audio = assert(SMODS.load_file("record/audio.lua", MOD_ID))()
+  Post = assert(SMODS.load_file("record/post.lua", MOD_ID))()
 
   -- Android 上只走 MediaCodec (没有 ffmpeg), 默认 540p 24fps: 手机屏幕小, 540p 够看;
   -- 退到软编时 24fps 比 30fps 省四分之一 CPU. 桌面默认 720p30.
@@ -917,7 +900,7 @@ local function setup()
   -- 编码后端: Android 上用 MediaCodec, 其余平台用 ffmpeg.
   if android then
     local ok_backend, backend = pcall(function()
-      return assert(SMODS.load_file("agent/record/android/backend.lua", MOD_ID))()
+      return assert(SMODS.load_file("record/android/backend.lua", MOD_ID))()
     end)
     if not ok_backend then
       sendWarnMessage("装载 Android 编码后端失败: " .. tostring(backend), LOGGER)
@@ -1025,7 +1008,8 @@ local function setup()
   return true
 end
 
----@param options {activity: table, toast: table, mod_path: string, config_enabled: boolean?, config_keep: string?}
+---@param options {activity: table, toast: table, animating: fun(): boolean, mod_path: string, config_enabled: boolean?, config_keep: string?}
+--- activity / toast / animating: bbcore 的 BB_ACTIVITY, BB_TOAST, BB_OVERLAY.animating.
 --- config_enabled: 设置页的录像开关. 设了 BALATROBOT_RECORD 环境变量时以环境变量为准 (Android 没有环境变量).
 --- config_keep: 设置页的保留方式, "keep" 时合成成功后保留中间文件. 设了 BALATROBOT_RECORD_KEEP 时以它为准.
 function M.init(options)

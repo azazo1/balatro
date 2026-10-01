@@ -1,11 +1,11 @@
 --[[
-录制时写回放文件 <stem>.replay.json, 与录像同名. 回放见 agent/replay/player.lua.
+录制时写回放文件 <stem>.replay.json, 与录像同名. 回放见 replay/player.lua.
 
 内容:
 - run: 牌组, 赌注, 种子, 是否指定过种子 (seeded), 是否读档开局; 读档时附带存档.
-- snapshot: 开局那一刻的存档进度与画面设置, 见 agent/replay/snapshot.lua.
+- snapshot: 开局那一刻的存档进度与画面设置, 见 replay/snapshot.lua.
 - actions: agent 的每一步操作 (含 notify), 带参数, reason, 开始与完成时间, 成功与否, 状态摘要.
-  人手动的操作 (出牌, 购买, 拖动排序, 弹窗上选无尽或回主菜单等, 见 agent/replay/manual.lua)
+  人手动的操作 (出牌, 购买, 拖动排序, 弹窗上选无尽或回主菜单等, 见 replay/manual.lua)
   换算成同样的步骤, 标 manual = true. 手动步骤没有 "完成" 的时刻, 它的状态摘要在下一步开始时取:
   人点下一步时画面已经停下, 与回放时这一步的接口返回时的状态对应.
 
