@@ -1,0 +1,66 @@
+# 录像
+
+按局录下画面与声音, 写时间轴, 并剪掉等待的部分. 录像的开关与参数在设置页 (见 [builtin-agent.md](<builtin-agent.md>)),
+环境变量与输出文件见 [agent-api.md](<agent-api.md>). 回放文件与录像同名, 见 [replay.md](<replay.md>).
+
+## 落盘
+
+各平台通用:
+
+1. 编码参数设置约 2 秒一个关键帧. 画面本来就写成 fragmented mp4, 这样崩溃时最多丢约 2 秒画面.
+2. 音频线程每秒 flush 一次 pcm.
+3. 开局时就写出合成脚本, 局末再用最终的剪辑区间覆盖. 崩溃后至少能合成出 `-full.mp4`.
+4. 新增 `just macos recordings-recover`: 扫描 `recordings/` 里残留的中间文件, 加 `--run` 补做合成.
+   脚本本身跨平台, 只依赖 python3, ffmpeg 和 pgrep.
+
+实测 (7.3 秒时 kill -9): 只加 `-g` 仍然读不出任何帧, 因为分片小于 ffmpeg 的 32 KB 写缓冲, 一直没落盘.
+加上 `-flush_packets 1` 后读出 6.0 秒, 关键帧在 0, 2, 4 秒.
+
+## 与 agent 状态的关系
+
+- 暂停: 完整版照录, 暂停段在剪辑版里剪掉. 暂停期间的手动操作只保留在完整版里.
+- 停止: 立即结束当前录像段并开始合成, 不等回到主菜单.
+
+## Android
+
+方案:
+
+- 桌面录像通过 `io.popen` 调用 ffmpeg, Android 上没有 ffmpeg (系统不提供这个二进制, 也塞不进 APK).
+- 用 NDK 的 `AMediaCodec` 编码 H.264 与 AAC, `AMediaMuxer` 封装 mp4. 不新增 crate, 也不新增原生库:
+  media 的 ffi 声明放在 [android/ffi.lua](<../mods/balatrobot/agent/record/android/ffi.lua>), 直接加载
+  系统的 `libmediandk`.
+- 颜色转换 (RGBA -> NV12) 放在 bbnet 里 ([yuv.rs](<../native/bbnet/src/yuv.rs>), 导出 `bbnet_rgba_to_nv12`).
+  540p 一帧 50 万像素, 逐像素在 Lua 里转达不到 24fps; 放在 bbnet 是因为那里已经有三个平台的交叉编译链路,
+  不必为一次换算再养一个 C 库和一套构建. 系数按 BT.601 有限范围 (与硬件编码器一致), 色度按 2x2 平均.
+- Lua 读回帧后把像素指针交给原生侧转换, 再喂给编码器. 声音复用现有的 pcm 采集.
+- 剪辑版不重新编码, 按关键帧截取拼接 (`AMediaExtractor` 加 `AMediaMuxer`). 关键帧间隔 1 秒, 剪切精度约 1 秒.
+- 默认 540p 24fps, 可在设置页调整. 卡顿时按墙钟重复上一帧, 音画不会错位.
+- 桌面端继续用 ffmpeg.
+
+进度: 视频链路已在真机跑通 (640x360 自检: 30 帧 / 30 个样本 / 封装成功, 取出用 ffprobe 核对是
+H.264 640x360 yuv420p 30fps 1.0 秒, 抽帧确认红绿蓝三块颜色正确). 声音与剪辑版还没做.
+
+实现要点 (都是真机上试出来的):
+
+- 编码器按顺序试: `createEncoderByType` (系统推荐, 通常是最省电的硬件编码器), 然后
+  `c2.android.avc.encoder`, 再 `OMX.google.h264.encoder`. 第一个 `configure` 通过的用.
+  实测高通设备上硬件编码器会以 `err(-22, BAD_VALUE)` 拒绝同一份 format, 而软件编码器直接通过 ——
+  硬件编码器实例有限, 被别的应用 (例如 scrcpy, 系统录屏) 占用时就建不起来, 这时软编仍可用.
+  软编占 CPU, 所以放在最后; 结束时会报告实际用了哪个, 以及编码队列被压满的次数 (次数多说明跟不上帧率).
+- 只用 NV12 (`COLOR_FormatYUV420SemiPlanar`), 与 bbnet 的转换输出一致. 不换 I420 兜底:
+  那是三平面布局, 喂 NV12 的数据会得到颜色错乱的视频.
+- `i-frame-interval` 是 float 键 (Java 侧 `KEY_I_FRAME_INTERVAL` 也是 float), 用 `setFloat` 设.
+- 文件用非变参声明的 `open` 建: LuaJIT 把变参里的 Lua 数字按 double 传, `mode` 会按 4 字节读成 0,
+  文件权限就成了 0000 (连自己都读不到). 产物写完再走一次存档目录的权限修正, 外部工具才取得走.
+- `AMediaMuxer` 只写普通 mp4, moov 在收尾时才落盘, 所以录制中途崩溃会丢掉这一局的视频 (桌面的
+  ffmpeg 用 fragmented mp4 抗崩溃, 这个特性 Android 上没有对应做法).
+- 整个编码线程包在 `xpcall` 里: LÖVE 会把线程里未捕获的错误抛到主线程并直接崩掉游戏, 而这里出错
+  多半与设备相关, 不该让玩家的对局陪葬. 失败只记一条警告.
+- Android 默认 540p 24fps (手机屏幕小, 软编时 24fps 比 30fps 省四分之一 CPU), 桌面仍是 720p30.
+
+还没做:
+
+- 声音: Android 的 mp4 目前没有音轨 (所以这一路不采 `.pcm`, 免得留下用不到的文件). 要加音轨得再用
+  MediaCodec 编 AAC 并在封装器里多一条轨道.
+- 剪辑版: Android 上没有 ffmpeg 可以调, 要按关键帧截取拼接 (`AMediaExtractor` 加 `AMediaMuxer`) 重新封装.
+- 崩溃恢复: 见上面的 moov 限制.

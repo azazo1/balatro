@@ -211,7 +211,7 @@ just macos run-agent on 1     # 10 倍速, 仅在需要时使用
   默认 540p 24fps. 录制中写 `.video.mp4`, 局末封装成功后改名成同样的 `<开始时间>-<种子>-full.mp4`.
   目前**没有音轨**, 也没有剪辑版, 而且中途崩溃会丢掉这一局的视频 (moov 在收尾时才落盘, 留下的
   `.video.mp4` 播不了). 细节与实现要点见
-  [builtin-agent.md](<builtin-agent.md>) 的 "录像" 一节.
+  [recording.md](<recording.md>) 的 "Android" 一节.
 
 `run-agent` 已经设好下面的变量. 表格供直接启动应用或调参时参考:
 

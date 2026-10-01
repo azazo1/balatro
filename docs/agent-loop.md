@@ -1,0 +1,140 @@
+# 内置 agent loop
+
+内置模式下游戏自己运行的主循环, 以及它用来请求模型的原生网络库 bbnet. 模式, 设置页, 运行控制与流式条见
+[builtin-agent.md](<builtin-agent.md>).
+
+## 主循环
+
+代码在 `agent/loop/`: `driver.lua` 是主循环, 依赖全部注入, 有单测; `summary.lua`, `tools.lua`, `prompt.lua`,
+`history.lua` 是纯逻辑; `local_call.lua` 在进程内调用端点.
+
+每一步:
+
+1. 读取游戏状态. 动画没停, 游戏暂停或人打开了设置等菜单 (`overlay` 为 `other`) 时等待.
+2. 能自动处理的直接处理, 不问模型: `unlock` 时调用 `continue`, 结算 (`ROUND_EVAL`) 调用 `cash_out`.
+   做了什么以一句说明附在下一轮的状态前面.
+3. 其余情况下组装状态摘要和历史, 以流式方式请求模型. 思维链和正文推给流式条.
+4. 拿到工具调用后逐个执行, 结果回灌给模型. 动作的结果直接带上新的状态摘要, 下一轮不再重复.
+   一个动作失败后, 同一次回复里剩下的调用不执行, 都回 "未执行", 保证每个 tool_call 都有结果.
+5. 胜利后按设置进入无尽模式, 或回主菜单并停止; 输了回主菜单并停止.
+
+执行动作不经过 HTTP: `local_call.lua` 直接调用 dispatcher, 并包一层 `send_response` 截获结果.
+这样照样经过弹窗拦截与活动追踪, 录像的剪辑和时间线与外部 agent 一致. 内置模式与外部模式互斥, 所以两者不会争抢.
+
+工具: 在 `tools.lua` 里手写一份精简的中文定义, 不从 `rpc.discover` 生成. 那份规格缺少 `pack` 等方法, 描述是英文且偏长.
+端点参数变化时要同步修改. 不给模型的方法:
+
+- `gamestate`: 每次结果里已经带状态摘要.
+- `cash_out`, `continue`, `endless`: loop 自己处理.
+- `menu`, `save`, `load`, `set`, `add`, `screenshot`: 与游玩无关或会破坏进度.
+
+动作工具都带 `reason`, 调用时拆出来作为决策消息. 解说仍按 [agent-commentary.md](<agent-commentary.md>) 使用 `notify` 和 `reason`, 和流式条的思考流分开.
+
+提示与上下文:
+
+- 系统提示 (`prompt.lua`) 是 [手册 README](<game/README.md>) 的 "Agent 必须区分的概念" 和 "每次动作前的规则检查" 两节,
+  以及解说规范的压缩版. 那两份文档改动时同步这里.
+- 状态摘要 (`summary.lua`): 把 gamestate 转成中文精简文本, 每行开头写下标. 小丑, 消耗牌, 优惠券, 商店与卡包里的牌
+  第一次出现时, 从 catalog 取中文名和一句效果附上, 之后只写名字. 整副牌只给张数; 牌型只列出等级高于 1 或打过的.
+- 压缩历史 (`history.lua`): 进入新底注的选盲注时, 或估算的上下文超过约 6 万 token 时, 丢掉旧消息, 只留系统提示,
+  最近约 40 步的简要记录和当前状态. 只在一轮完整结束的边界上压缩, 不会拆开 tool_calls 和对应的结果.
+
+防失控 (都转为自动暂停, 红字显示原因, 保留历史, 处理后可以继续):
+
+- 模型连续 3 次只回文字不调用工具. 每次先追加一条提醒.
+- 同一个调用 (方法和参数都相同) 连续失败 3 次.
+- 模型请求出现不可重试的错误, 或重试用完.
+- 超过单局 token 上限 (由运行控制按每次请求的用量判断).
+
+暂停时进行中的请求直接取消, 半截回复不进历史. 正在执行的动作做完为止. 继续时重新给一次状态摘要, 因为暂停期间 user 可能手动操作过.
+
+chat completions 协议兼容:
+
+- 推理内容按 `reasoning_content` → `reasoning` → `reasoning_details[].text` 的顺序读取. 都没有时只显示正文. 能拿到什么就显示什么, 模型隐藏思维链时显示它返回的 reasoning summary.
+- tool call 按 `index` 累积: `id` 只取第一次出现的值, `name` 和 `arguments` 分段拼接.
+- `data: {"error": ...}` 按失败处理. `finish_reason` 或 `[DONE]` 表示结束.
+- 回填历史时, 同一条 assistant 消息里同时放 `reasoning_content` 和 `tool_calls`, 只有工具调用时 `content` 为 null. DeepSeek 思考模式下漏回填会返回 400.
+- usage 规范化: 缓存命中同时兼容 `prompt_tokens_details.cached_tokens` 和 `prompt_cache_hit_tokens`.
+
+转录与日志:
+
+- 每局写一份 `<录像同名>-agent.jsonl`, 带时间戳, 能和录像的时间轴对上. 不含 key.
+- 请求的开始, 结束, 耗时, 重试和错误写进游戏日志.
+
+## bbnet
+
+依赖只有两个 crate:
+
+- `rustls`: 关掉默认 feature, 只开 `ring`, `std`, `tls12`.
+- `webpki-roots`: 打包一份 Mozilla 根证书. Android 上不读系统证书, 所以不需要 JNI.
+
+不用 tokio, hyper, reqwest 和 serde.
+
+网络:
+
+- 手写 HTTP/1.1: 每个请求开一个线程, 用 `std::net::TcpStream`. 支持 chunked, Content-Length 和读到 EOF 三种响应体.
+- 同时支持 `http://`, 方便连接本地的 ollama, vLLM.
+- 不支持代理和重定向, 3xx 原样交给调用方.
+- SSE 分帧放在 Rust 里, 同时认 `\n\n` 和 `\r\n\r\n` 作分隔. JSON 解析交给 Lua, 游戏里已经有 `json` 库.
+- 非 2xx 响应照常交出状态码和响应体, 由 Lua 判断是否重试.
+- 没有日志设施, 错误信息都以 ERROR 字符串交给调用方, 前缀有 `invalid:`, `resolve:`, `connect:`, `tls:`,
+  `timeout`, `read:`, `write:`, `http:`, `cancelled`, `internal:`, `spawn:`.
+
+接口用轮询, 不用回调, 因为 LuaJIT 的 ffi 回调不能从别的线程调用:
+
+```c
+// 发起请求, 立即返回句柄 (>0), 参数错误返回 -1. headers 为 "Name: value\n" 拼接的文本, 值里不能有换行.
+// timeout_ms 为连接与两次读之间的空闲超时, 0 表示默认 (连接 15 秒, 空闲 120 秒).
+int64_t bbnet_request(const char *method, const char *url, const char *headers,
+                      const char *body, size_t body_len, uint32_t timeout_ms);
+// 主线程每帧调用, 每次取出一项. 返回种类:
+//   0 没有新数据; 1 响应头到达 (*status 为状态码, out 为原始响应头);
+//   2 一条完整的 SSE 事件 (只在 Content-Type 含 text/event-stream 时); 3 普通响应体的一段;
+//   4 正常结束; 5 出错 (out 为错误描述). 4 和 5 是终态, 之后再 poll 返回同样的值.
+// out 用完要 bbnet_free, 末尾另有一个不计入 out_len 的 NUL.
+int bbnet_poll(int64_t id, int *status, char **out, size_t *out_len);
+void bbnet_free(char *p);
+// 取消: 从别的线程直接关闭 socket, 阻塞中的读取马上返回, 之后 poll 得到 "cancelled".
+// 正在解析域名或建立连接时, 请求线程要等这一步结束才退出, 但 poll 马上就返回 cancelled.
+void bbnet_cancel(int64_t id);
+// 释放句柄, 未结束时先取消.
+void bbnet_close(int64_t id);
+const char *bbnet_version(void);
+```
+
+导出函数内部都用 `catch_unwind` 包住, panic 不会带崩游戏.
+
+构建 (`just native ...`, 实现见 [build_native.py](<../scripts/build_native.py>)):
+
+- `just native test`: 单元测试与集成测试. 颜色转换的用例也在其中 ([yuv.rs](<../native/bbnet/src/yuv.rs>)).
+- `just native build macos`: 编译 arm64, 放到 `mods/balatrobot/native/macos/libbbnet.dylib`, 打包时随 mod 进入游戏.
+  x86_64 的 rust target 没装, 要做 universal 包时分别编译再用 lipo 合并.
+- `just native build android [abi...]`: 用 cargo-ndk 编译到 `dist/native/android/<abi>/libbbnet.so`, 默认 arm64-v8a.
+  armeabi-v7a 需要先 `rustup target add armv7-linux-androideabi`. NDK r27 起默认 16KB 页对齐.
+  `just android dist-modded` 打包时, 已有的 .so 会放进 APK 的 `lib/<abi>/`, 只放运行时 APK 已有的 ABI 目录, 缺的打印提示后继续.
+- `just native build windows`: 只能在 Windows 或 CI 上编译, macOS 上缺 MSVC 链接器.
+- 编译产物不入库. 以后 CI 在各平台预编译.
+
+这些 recipe 都只是转调 python: NDK 查找, target 映射与产物复制写在脚本里, 三个平台共用一份,
+不用为 Windows 单写一套 shell.
+
+加载 ([bbnet.lua](<../mods/balatrobot/agent/net/bbnet.lua>)), 按顺序尝试:
+
+- 环境变量 `BALATROBOT_BBNET` 给的绝对路径 (开发用).
+- 桌面: `<mod 目录>/native/<macos|windows|linux>/<库文件名>`. mod 在运行时释放到存档目录的 `Mods/` 下, 是真实文件.
+- Android: `ffi.load("bbnet")`, `ffi.load("libbbnet.so")`, 再从 `/proc/self/maps` 找到 liblove.so 所在的目录拼完整路径.
+- 都失败时退回 `SMODS.https`: 不能流式, 整段回复到齐后一次交出, 取消只丢弃结果, 整体时限 300 秒.
+  Android 上没有这个退路, 内置模式报 "网络库不可用".
+
+## 参考
+
+协议处理参考 codex-switch (一个 Rust 写的 API 代理) 的以下部分. 它的网络层依赖 axum/hyper, 不照搬.
+
+| 位置 | 内容 |
+|---|---|
+| `src/proxy/forward/error_policy.rs` | SSE 事件分隔; 可重试与不可重试的错误码 |
+| `src/proxy/compat/chat_completions/shared.rs` | 推理字段的读取顺序; usage 规范化 |
+| `src/proxy/compat/chat_completions/stream.rs` | 逐 chunk 取推理, 正文和 tool_calls; tool call 增量累积 |
+| `src/proxy/compat/chat_completions.rs` | assistant 消息回填 `reasoning_content` 和 `tool_calls` |
+| `src/core/models.rs` | Bearer 与 `x-api-key` 两种鉴权 |
+| `src/live.rs`, `src/app/ui/active.rs`, `src/app/ui/active/scroll.rs` | 活跃请求的实时预览: 尾部缓冲, 按字形宽度截取, 限速推进, 结束后停留 |

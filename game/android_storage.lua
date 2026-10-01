@@ -1,7 +1,7 @@
 --|Android: 让存档目录能被文件管理器和 adb 读取.
 --|
 --|存档在 Android/data/<包名>/files/save/<存档名> 下 (conf.lua 的 t.externalstorage). 下面几点在真机上
---|实测确认, 详见 docs/builtin-agent.md:
+--|实测确认, 详见 docs/android.md:
 --|- LÖVE 用的 PhysicsFS 把权限写死为目录 0700, 文件 0600, 而且 mkdir 不补父目录: 新装的包第一次启动时
 --|  files/save 不存在, 存档目录直接建失败. 所以要逐级补建.
 --|- 进程 umask 是 0077, mkdir 请求的组位会被削掉, 但 chmod 有效, 所以建完再 chmod.

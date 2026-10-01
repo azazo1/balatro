@@ -10,7 +10,7 @@ session.thread / session.frames / session.status 的用法不用分平台:
 与桌面的差别:
 - 桌面把原始 RGBA 直接交给 ffmpeg 的标准输入; 这里在线程里先转成 NV12 再喂给编码器.
 - 桌面用 fragmented mp4 抗崩溃; AMediaMuxer 只写普通 mp4, moov 在收尾时才写. 所以录制中途崩溃
-  会丢掉这一局的视频, 这是 Android 上目前的取舍 (见 docs/builtin-agent.md).
+  会丢掉这一局的视频, 这是 Android 上目前的取舍 (见 docs/recording.md).
 ]]
 
 local M = {}

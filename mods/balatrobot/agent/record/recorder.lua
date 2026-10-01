@@ -566,7 +566,7 @@ local function start_session(resumed, reason)
     pause_session(session, "carried")
   end
 
-  -- 只有 ffmpeg 后端采音频: Android 只写无声 mp4, 混音还没做 (见 docs/builtin-agent.md),
+  -- 只有 ffmpeg 后端采音频: Android 只写无声 mp4, 混音还没做 (见 docs/recording.md),
   -- 采了也只会留下用不到的 .pcm, 白白占 CPU 与磁盘.
   if cfg.backend == "ffmpeg" then
     local audio, audio_err = Audio.start(deps.mod_path, base .. ".pcm", session.started)
