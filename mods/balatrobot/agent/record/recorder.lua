@@ -813,6 +813,36 @@ function M.annotate(key, value)
   end
 end
 
+--- Android 上的一次性诊断: 报告 media 库, 颜色转换与可用的编码器.
+--- 用来确认真机上 libmediandk 与 bbnet 的换算可用 (编码还没接, 先把前提查清).
+--- todo remove: 编码串接完成后改由正常的错误路径报告.
+---@return string 一行摘要
+local function probe_android_codecs()
+  local Media = assert(SMODS.load_file("agent/record/android/ffi.lua", MOD_ID))()
+  local Bbnet = assert(SMODS.load_file("agent/net/bbnet.lua", MOD_ID))()
+  local probe = Media.probe()
+  local convert = "bbnet 不可用"
+  if Bbnet.load(deps.mod_path) and Bbnet.available() then
+    local ffi = require("ffi")
+    -- 2x2 纯白: Y 应在 235 左右, U/V 在 128 左右
+    local src = ffi.new("uint8_t[16]")
+    for i = 0, 3 do
+      src[i * 4 + 0], src[i * 4 + 1], src[i * 4 + 2], src[i * 4 + 3] = 255, 255, 255, 255
+    end
+    local dst = ffi.new("uint8_t[8]")
+    convert = Bbnet.rgba_to_nv12(src, 2, 2, 8, dst, 2, 2)
+        and string.format("Y=%d U=%d V=%d", dst[0], dst[4], dst[5])
+      or "转换失败"
+  end
+  return string.format(
+    "media=%s, 转换=%s, H.264 编码器=%s, AAC 编码器=%s",
+    probe.ok and "ok" or tostring(probe.error),
+    convert,
+    probe.h264 and "有" or "无",
+    probe.aac and "有" or "无"
+  )
+end
+
 ---@param options {activity: table, toast: table, mod_path: string, config_enabled: boolean?}
 --- config_enabled: 设置页的录像开关. 设了 BALATROBOT_RECORD 环境变量时以环境变量为准 (Android 没有环境变量).
 --- 装载模块, 定下输出参数, 装全局钩子. 录像本来关着但游戏内回放要录一段时, 由 M.set_enabled 调用.
@@ -939,44 +969,12 @@ local function setup()
   )
   if not cfg.ffmpeg then
     if love._os == "Android" then
-      -- todo remove: 一次性自检, 确认 libmediandk 与 bbnet 的颜色转换在真机可用.
-      local ok_probe, media = pcall(function()
-        return assert(SMODS.load_file("agent/record/android/ffi.lua", MOD_ID))()
-      end)
-      local ok_net, Bbnet = pcall(function()
-        return assert(SMODS.load_file("agent/net/bbnet.lua", MOD_ID))()
-      end)
-      if ok_probe then
-        local probe = media.probe()
-        local convert = "bbnet 不可用"
-        if ok_net and Bbnet.available and Bbnet.available() then
-          -- 2x2 纯白: Y 应在 235 左右, U/V 在 128 左右
-          local ffi_ok, ffi_lib = pcall(require, "ffi")
-          if ffi_ok then
-            local src = ffi_lib.new("uint8_t[16]")
-            for i = 0, 3 do
-              src[i * 4 + 0], src[i * 4 + 1], src[i * 4 + 2], src[i * 4 + 3] = 255, 255, 255, 255
-            end
-            local dst = ffi_lib.new("uint8_t[8]")
-            if Bbnet.rgba_to_nv12(src, 2, 2, 8, dst, 2, 2) then
-              convert = string.format("Y=%d U=%d V=%d", dst[0], dst[4], dst[5])
-            else
-              convert = "转换失败"
-            end
-          end
-        end
-        sendInfoMessage(
-          string.format(
-            "Android 录像自检: media=%s, 转换=%s, H.264=%s, AAC=%s",
-            probe.ok and "ok" or tostring(probe.error),
-            convert,
-            #probe.h264 > 0 and table.concat(probe.h264, "|") or "(无)",
-            #probe.aac > 0 and table.concat(probe.aac, "|") or "(无)"
-          ),
-          LOGGER
-        )
+      -- 诊断信息, 绝不能因为它自己出错而中断游戏: 整块包在 pcall 里.
+      local ok_diag, detail = pcall(probe_android_codecs)
+      if not ok_diag then
+        sendWarnMessage("Android 录像自检失败: " .. tostring(detail), LOGGER)
       else
-        sendWarnMessage("Android 录像自检失败: " .. tostring(media), LOGGER)
+        sendInfoMessage("Android 录像自检: " .. detail, LOGGER)
       end
       sendWarnMessage("Android 上没有 ffmpeg, 这一版只写时间轴 JSON, 还没有 mp4", LOGGER)
     else
