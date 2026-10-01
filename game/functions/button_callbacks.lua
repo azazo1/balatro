@@ -1261,6 +1261,21 @@ G.FUNCS.RUN_SETUP_check_stake2 = function(e)
   end
 end
 
+G.FUNCS.change_viewed_collab = function(args)
+  G.viewed_collab = args.to_val
+end
+
+G.FUNCS.CREDITS_check_collab = function(e)
+  if (G.viewed_collab ~= e.config.id) then 
+    e.config.object:remove() 
+    e.config.object = UIBox{
+      definition =  G.UIDEF.viewed_collab_option(),
+      config = {offset = {x=0,y=0}, align = 'cm', parent = e}
+    }
+    e.config.id = G.viewed_collab
+  end
+end
+
 G.FUNCS.RUN_SETUP_check_back_stake_column= function(e)
   if G.GAME.viewed_back.name ~= e.config.id then 
     --removes the UI from the previously selected back and adds the new one

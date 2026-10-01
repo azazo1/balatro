@@ -82,7 +82,7 @@ local STRINGS = { type = "array", items = { type = "string" } }
 local DOCS_INDEX = {
   name = "docs_index",
   summary = "列出游戏手册的文件与按决策查阅表",
-  description = "游戏手册是本版本 (1.0.1n) 的规则, 机制与卡牌目录, 以源码为准. 查规则前先调用 docs_index 看目录: "
+  description = "游戏手册是本版本 (1.0.1o) 的规则, 机制与卡牌目录, 以源码为准. 查规则前先调用 docs_index 看目录: "
     .. "返回每个文件的路径, 标题和行数, 以及 README 的 \"按决策查阅\" 表 (guide), 按当前要做的决策挑文件读. "
     .. "手册不存在 (未经打包直接运行 game/) 时返回 InternalError.",
   tags = { KNOWLEDGE_TAG },

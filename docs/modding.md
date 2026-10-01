@@ -60,7 +60,7 @@ just windows dist-modded     # 打包 dist/windows/Balatro-Modded-<版本>-win64
 | --- | --- | --- |
 | Steamodded | [26.829.0](https://github.com/Steamodded/smods/releases/tag/26.829.0) | mod 加载器与 API |
 | balatrobot | [v1.5.2](https://github.com/coder/balatrobot/releases/tag/v1.5.2) | 供 agent 游玩的 HTTP 接口, 默认关闭, 见 [agent-api.md](agent-api.md) |
-| compat-1.0.1n | 本仓库 | Steamodded 在 1.0.1n 上的兼容补丁, 不改玩法 |
+| smods-fixes | 本仓库 | Steamodded 自身问题的修复补丁, 与游戏版本无关, 不改玩法 |
 | vanilla-ui | 本仓库 | 沿用原版的选牌组开局界面和 Run Info 的 Stake 页 |
 
 Steamodded 默认把 "开始游戏" 的选牌组界面换成分页式, 把 Run Info 的 Stake 页换成自己的样式.
@@ -69,15 +69,20 @@ vanilla-ui 在运行时打开 Steamodded 自带的 `vanilla_run_select` 与 `van
 从 `mods/` 删掉这个目录再打包. 装了新增开局页的 mod 时, Steamodded 会忽略这个开关.
 主菜单的 Steamodded 版本号, MODS 按钮等小改动保留.
 
-Steamodded 按较新的游戏版本编写, 在 1.0.1n 上有 3 个补丁未命中, `just mods-check` 会列出:
+Steamodded 在 1.0.1o 上有 1 个补丁未命中, `just mods-check` 会列出:
 
 - `fixes.toml` 的 luasteam 补丁: 仓库移植 macOS 时已经做了同样的修改, 无需处理.
-- `deck_skins.toml` 的 Production / Collabs 两条: 1.0.1n 的制作人员界面没有 Collabs 页.
-  配套代码依赖该页生成的 `G.collab_credits`. 缺少它时, 每次切换阶段都会打开再关闭一次
-  制作人员界面, Customize Deck 预览联名皮肤时也会报错. compat-1.0.1n 提前放一个空表规避.
 
-compat-1.0.1n 还修正了 Steamodded 的 Boss 抽取顺序: `SMODS.create_blind_pool` 按哈希顺序排列候选,
-同一个种子每次启动游戏都可能抽到不同的 Boss. 补丁在返回前按 key 排序, 与原版一致, 结果只由种子决定.
+Steamodded 的联名皮肤代码依赖 1.0.1o 制作人员界面 Collabs 页生成的 `G.collab_credits`,
+它在首次切换阶段时打开再关闭一次制作人员界面来提前生成这张表. 不要预先给它赋值,
+否则原版的惰性初始化会被跳过, 打开 Collabs 页时找不到联名条目而报错.
+
+smods-fixes 修复 Steamodded 自身的两个问题:
+
+- Boss 抽取顺序: `SMODS.create_blind_pool` 按哈希顺序排列候选, 同一个种子每次启动游戏都可能抽到
+  不同的 Boss. 补丁在返回前按 key 排序, 与原版一致, 结果只由种子决定.
+- 选项说明文字: Steamodded 的部分翻译把 `info` 写成单个字符串, 原版 `create_toggle` 等要求字符串数组,
+  中文下打开 Steamodded 配置页会崩溃. 运行时把字符串包成一行的数组.
 
 ## 实现
 

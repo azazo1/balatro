@@ -1,13 +1,13 @@
 # 结构化目录数据
 
-[目录数据](<catalog.json>) 是静态知识库, 来自本地 1.0.1n 源码与中英卡面文本. 适合按 ID 查询, 不包含当前存档, 当前局或屏幕状态. 总入口见 [Agent 手册](<../README.md>).
+[目录数据](<catalog.json>) 是静态知识库, 来自本地 1.0.1o 源码与中英卡面文本. 适合按 ID 查询, 不包含当前存档, 当前局或屏幕状态. 总入口见 [Agent 手册](<../README.md>).
 
 ## 顶层字段
 
 | 字段 | 类型 | 含义 |
 | --- | --- | --- |
 | `schema_version` | integer | 本数据结构版本, 当前 1, 与游戏版本不同 |
-| `game_version` | string | `1.0.1n` |
+| `game_version` | string | `1.0.1o` |
 | `description_semantics` | string | 描述与动态值的语义约束 |
 | `counts` | object | 每种类别的覆盖数量 |
 | `records` | array | 360 个原型, 包含小丑, 消耗牌, 优惠券, 牌组, 标签, 补充包, 盲注, 增强, 版本, 蜡封, 赌注 |

@@ -1,6 +1,6 @@
 # 一局流程与可用操作
 
-适用版本: Balatro 1.0.1n. 本文用于 agent 判断当前阶段能做什么, 以及行动会如何消耗资源和推进盲注. 单次出牌的计分规则见 [计分流程](<scoring.md>), 分数目标见 [盲注与 Boss](<blinds.md>).
+适用版本: Balatro 1.0.1o. 本文用于 agent 判断当前阶段能做什么, 以及行动会如何消耗资源和推进盲注. 单次出牌的计分规则见 [计分流程](<scoring.md>), 分数目标见 [盲注与 Boss](<blinds.md>).
 
 ## 1. 起始状态
 
@@ -139,4 +139,4 @@
 
 ## 6. Wiki 核对
 
-[Balatro Wiki: Blinds and Antes](<https://balatrowiki.org/w/Blinds>) 与本地代码一致地描述小/大/Boss 顺序, 跳过不打 Boss, 完成 Ante 8 后可继续无尽模式. 数字和状态边界以上述本地 1.0.1n 源码为准; 本文不以 wiki 的其他版本或技巧描述覆盖代码规则.
+[Balatro Wiki: Blinds and Antes](<https://balatrowiki.org/w/Blinds>) 与本地代码一致地描述小/大/Boss 顺序, 跳过不打 Boss, 完成 Ante 8 后可继续无尽模式. 数字和状态边界以上述本地 1.0.1o 源码为准; 本文不以 wiki 的其他版本或技巧描述覆盖代码规则.

@@ -1,6 +1,6 @@
 # 整局修饰机制
 
-适用版本: Balatro 1.0.1n. 说明优惠券 Voucher, 标签 Tag, 牌组 Deck 和挑战 Challenge 对一局状态的实际修改. 卡面名称/全文/原型列表分别见 [优惠券](<../cards/vouchers.md>), [标签](<../cards/tags.md>), [牌组](<../cards/decks.md>), [挑战](<../cards/challenges.md>). 本文件以源码 ID 为精确索引, 不把卡面概括误当完整算法.
+适用版本: Balatro 1.0.1o. 说明优惠券 Voucher, 标签 Tag, 牌组 Deck 和挑战 Challenge 对一局状态的实际修改. 卡面名称/全文/原型列表分别见 [优惠券](<../cards/vouchers.md>), [标签](<../cards/tags.md>), [牌组](<../cards/decks.md>), [挑战](<../cards/challenges.md>). 本文件以源码 ID 为精确索引, 不把卡面概括误当完整算法.
 
 ## 1. 优惠券: 32 张, 16 对
 
@@ -197,4 +197,4 @@
 - 标签队列与各标签 triggered 状态, 投资待兑现数量, 下一次轨道牌型, 双倍待复制数量.
 - challenge 的 modifiers, banned_keys, 当前 ante 与 blind_ante. 规则相同的卡面在不同挑战下可能有不同合法购买/生成空间.
 
-Wiki 交叉核对: [Balatro Wiki - Ankh](https://balatrowiki.org/w/Ankh) 对不腐之物挑战中永恒保护, 角色固化导致生命十字章因槽位不足不可用, 无小丑挑战禁生成来源的描述与本地组合规则一致. 页面不是固定 1.0.1n 快照, 精确生效时刻, 数值与源码细节仍按本文链接处为准.
+Wiki 交叉核对: [Balatro Wiki - Ankh](https://balatrowiki.org/w/Ankh) 对不腐之物挑战中永恒保护, 角色固化导致生命十字章因槽位不足不可用, 无小丑挑战禁生成来源的描述与本地组合规则一致. 页面不是固定 1.0.1o 快照, 精确生效时刻, 数值与源码细节仍按本文链接处为准.

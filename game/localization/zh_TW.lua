@@ -3403,6 +3403,8 @@ return {
                 ["3"]="Slay the Spire",
                 ["4"]="Potion Craft",
                 ["5"]="Warframe",
+                ["6"]="Vault-Tec",
+                ["7"]="Dead by Daylight",
             },
             Diamonds={
                 ["1"]="預設",
@@ -3410,6 +3412,8 @@ return {
                 ["3"]="Stardew Valley",
                 ["4"]="Enter the Gungeon",
                 ["5"]="1000xRESIST",
+                ["6"]="Civilization VII",
+                ["7"]="Rust",
             },
             Hearts={
                 ["1"]="預設",
@@ -3417,6 +3421,8 @@ return {
                 ["3"]="The Binding of Isaac",
                 ["4"]="進擊羔羊傳說",
                 ["5"]="Divinity Original Sin 2",
+                ["6"]="Critical Role",
+                ["7"]="Bugsnax",
             },
             Spades={
                 ["1"]="預設",
@@ -3424,6 +3430,8 @@ return {
                 ["3"]="電馭叛客 2077",
                 ["4"]="Shovel Knight",
                 ["5"]="饑荒",
+                ["6"]="Assassin's Creed",
+                ["7"]="Slay the Princess",
             },
         },
         dictionary={
