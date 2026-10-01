@@ -8,10 +8,19 @@
 --   成长值 (拉面的当前倍率, 公交车的当前倍率, 城堡的当前筹码...) 与概率都已代入, 就是玩家悬停看到的文字.
 --   卡面本身不显示当前值的只有超新星 (看各牌型本赛局的打出次数): 那个数在 gamestate 的 hands[].played 里.
 -- - hand: 手牌里带增强, 版本或蜡封的牌的效果文本 (玻璃牌的破碎概率等).
+-- - deck / discard: 摸牌堆与弃牌堆 (弃牌堆里是本回合弃掉与打出的牌), 按参数给统计或完整列表,
+--   算同花与顺子的概率要用它. 默认不给, 避免每次调用都带上几十张牌.
+--
+-- 参数都是可选的: targets 与 cards 默认给 (布尔), deck 与 discard 取值 "stats" (张数与按花色点数的统计) 或
+-- "list" (再加完整列表), 不给就完全不带这一项.
 --
 -- 只读, 任何阶段都能调用, 不算 agent 活动 (BB_ACTIVITY.PASSIVE), 也不写进回放文件.
 
 ---@class Request.Endpoint.Dynamics.Params
+---@field targets boolean? 是否给认牌目标, 默认 true
+---@field cards boolean? 是否给持有卡与手牌的实时效果, 默认 true
+---@field deck string? "stats" 或 "list", 不给时不返回摸牌堆
+---@field discard string? "stats" 或 "list", 不给时不返回弃牌堆
 
 -- ==========================================================================
 -- 取实时文本
@@ -145,8 +154,62 @@ local function targets(round, joker)
 end
 
 -- ==========================================================================
+-- 摸牌堆与弃牌堆
+-- ==========================================================================
+
+-- 列表最多给这么多张 (牌组可能被复制到上百张), 超出时只给统计并标 truncated.
+local PILE_LIST_MAX = 60
+
+--- 一堆牌的一份快照: 张数, 按花色与点数的统计, 以及 (要的时候就给) 完整列表.
+--- 花色与点数用游戏语言的名字, 与 targets 那边一致.
+---@param area table? 例如 G.deck
+---@param detail string "stats" 或 "list"
+---@return table
+local function pile(area, detail)
+  local cards = (area and area.cards) or {}
+  local out = { count = #cards }
+  local by_suit, by_rank = {}, {}
+  for _, card in ipairs(cards) do
+    local base = card.base or {}
+    local suit = localized(base.suit, "suits_plural")
+    local rank = localized(base.value, "ranks")
+    if suit then
+      by_suit[suit] = (by_suit[suit] or 0) + 1
+    end
+    if rank then
+      by_rank[rank] = (by_rank[rank] or 0) + 1
+    end
+  end
+  out.by_suit = by_suit
+  out.by_rank = by_rank
+
+  if detail == "list" then
+    local list = {}
+    for i, card in ipairs(cards) do
+      if i > PILE_LIST_MAX then
+        out.truncated = true
+        break
+      end
+      local base = card.base or {}
+      list[#list + 1] = {
+        key = (card.config and card.config.card_key) or "",
+        suit = BB_GAMESTATE and BB_GAMESTATE.suit_enum and BB_GAMESTATE.suit_enum(base.suit) or base.suit,
+        suit_name = localized(base.suit, "suits_plural"),
+        rank = BB_GAMESTATE and BB_GAMESTATE.rank_enum and BB_GAMESTATE.rank_enum(base.value) or base.value,
+        rank_name = localized(base.value, "ranks"),
+      }
+    end
+    out.cards = list
+  end
+  return out
+end
+
+-- ==========================================================================
 -- Dynamics Endpoint
 -- ==========================================================================
+
+-- 取值只有这两个, 别的都算参数错误 (校验器只管类型, 取值范围端点自己把关).
+local DETAIL = { stats = true, list = true }
 
 ---@type Endpoint
 return {
@@ -154,34 +217,77 @@ return {
 
   description = "Current per-round targets and live card values (growth, targets, probabilities)",
 
-  schema = {},
+  schema = {
+    targets = {
+      type = "boolean",
+      required = false,
+      description = "Give the per-round targets, defaults to true",
+    },
+    cards = {
+      type = "boolean",
+      required = false,
+      description = "Give live effect texts of held cards and special cards in hand, defaults to true",
+    },
+    deck = {
+      type = "string",
+      required = false,
+      description = "Draw pile detail: 'stats' (count, by suit and rank) or 'list' (also the full list). Omit for none",
+    },
+    discard = {
+      type = "string",
+      required = false,
+      description = "Discard pile (discarded and played this round) detail: 'stats' or 'list'. Omit for none",
+    },
+  },
 
   requires_state = nil,
 
-  ---@param _ Request.Endpoint.Dynamics.Params
+  ---@param args Request.Endpoint.Dynamics.Params
   ---@param send_response fun(response: Response.Endpoint)
-  execute = function(_, send_response)
+  execute = function(args, send_response)
     sendDebugMessage("Init dynamics()", "BB.ENDPOINTS")
+    args = args or {}
+    for _, field in ipairs({ "deck", "discard" }) do
+      local detail = args[field]
+      if detail ~= nil and not DETAIL[detail] then
+        send_response({
+          message = "Field '" .. field .. "' must be 'stats' or 'list'",
+          name = BB_ERROR_NAMES.BAD_REQUEST,
+        })
+        return
+      end
+    end
+
     local game = G and G.GAME
     local round = (game and game.current_round) or {}
     local jokers = G and G.jokers
 
-    local out = {
-      targets = targets(round, jokers),
-      jokers = collect(jokers),
-      consumables = collect(G and G.consumeables),
+    -- targets 与 cards 默认都给, 显式传 false 时才省掉
+    local out = {}
+    if args.targets ~= false then
+      out.targets = targets(round, jokers)
+      local most_played = round.most_played_poker_hand
+      if most_played then
+        out.most_played_poker_hand = {
+          poker_hand = most_played,
+          poker_hand_name = localized(most_played, "poker_hands"),
+        }
+      end
+    end
+    if args.cards ~= false then
+      out.jokers = collect(jokers)
+      out.consumables = collect(G and G.consumeables)
       -- 手牌只列带增强, 版本或蜡封的: 其余牌的实时文本就是点数花色, 摘要里已经有了
-      hand = collect(G and G.hand, function(card)
+      out.hand = collect(G and G.hand, function(card)
         local ability = card.ability or {}
         return (ability.effect and ability.effect ~= "Base") or card.edition or card.seal
-      end),
-    }
-    local most_played = round.most_played_poker_hand
-    if most_played then
-      out.most_played_poker_hand = {
-        poker_hand = most_played,
-        poker_hand_name = localized(most_played, "poker_hands"),
-      }
+      end)
+    end
+    if args.deck then
+      out.deck = pile(G and G.deck, args.deck)
+    end
+    if args.discard then
+      out.discard = pile(G and G.discard, args.discard)
     end
 
     sendDebugMessage("Return dynamics()", "BB.ENDPOINTS")

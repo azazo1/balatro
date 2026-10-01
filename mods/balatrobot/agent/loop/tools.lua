@@ -155,8 +155,23 @@ local DEFS = {
     name = "dynamics",
     description = "查当前局的动态值: 本回合认的花色, 点数与牌型 (古老小丑, 偶像, 邮件回扣, 城堡, 待办清单),"
       .. " 盲注公牛要用的最常打出牌型, 以及持有小丑, 消耗牌和手牌里特殊牌的当前效果文本"
-      .. " (成长值, 概率这类会变的值). 手册里这些位置是占位, 要当前值就查它, 不要猜.",
-    parameters = object({}),
+      .. " (成长值, 概率这类会变的值). 手册里这些位置是占位, 要当前值就查它, 不要猜."
+      .. " 算同花, 顺子这类概率时传 deck 或 discard 要摸牌堆与弃牌堆 (本回合弃掉与打出的牌) 的张数与花色点数统计,"
+      .. " 想看具体是哪几张就传 list.",
+    parameters = object({
+      deck = {
+        type = "string",
+        enum = { "stats", "list" },
+        description = "摸牌堆: stats 给张数与按花色点数的统计, list 再加完整列表. 不传则不给",
+      },
+      discard = {
+        type = "string",
+        enum = { "stats", "list" },
+        description = "弃牌堆 (本回合弃掉与打出的牌), 取值同上. 不传则不给",
+      },
+      targets = { type = "boolean", description = "是否要认牌目标, 默认要" },
+      cards = { type = "boolean", description = "是否要持有卡与手牌的实时效果, 默认要" },
+    }),
   },
 }
 

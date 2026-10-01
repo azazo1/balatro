@@ -210,21 +210,31 @@ just agent-call docs_search '{"query":"xmult","path":"mechanics"}'
 
 ```shell
 just agent-call dynamics | jq '.result.targets, .result.jokers'
+just agent-call dynamics '{"deck":"stats"}' | jq '.result.deck.by_suit'
+just agent-call dynamics '{"deck":"list","discard":"list","cards":false}' | jq '.result.deck'
 ```
 
-| 字段 | 内容 |
-| --- | --- |
-| `targets` | 每回合重抽的认牌目标: 古老小丑的花色, 偶像的花色与点数, 邮件回扣的点数, 城堡的花色, 待办清单的牌型 |
-| `most_played_poker_hand` | 本局最常打出的牌型, 盲注公牛 (The Ox) 用它, 还没打过牌时不出现 |
-| `jokers`, `consumables` | 持有的小丑与消耗牌: `{index, key, name, effect}` |
-| `hand` | 手牌里带增强, 版本或蜡封的牌, 同样三项加 `effect` |
+| 参数 | 默认 | 内容 |
+| --- | --- | --- |
+| `targets` | `true` | 每回合重抽的认牌目标: 古老小丑的花色, 偶像的花色与点数, 邮件回扣的点数, 城堡的花色, 待办清单的牌型 |
+| `cards` | `true` | 持有小丑, 消耗牌与手牌里特殊牌的实时效果文本 |
+| `deck` | 不给 | 摸牌堆的详细程度: `stats` 或 `list` |
+| `discard` | 不给 | 弃牌堆 (本回合弃掉与打出的牌) 的详细程度: `stats` 或 `list` |
+
+结果里的键与请求的项对应: 传 `false` 的项不出现 (`targets` 为 `false` 时 `most_played_poker_hand` 也不给),
+`deck`/`discard` 不传就不返回; 取值只能是 `stats` 或 `list`, 别的值返回 `BAD_REQUEST`.
 
 - `targets` 每项是 `{key, name, suit?, suit_name?, rank?, rank_name?, poker_hand?, poker_hand_name?}`,
   `key` 是认牌的牌 (`j_ancient` 等), `*_name` 是游戏语言的名字 (默认简体中文, 例如 `黑桃`, `红桃Q`).
   没有的目标不出现, 例如本局没有古老小丑时就没有 `j_ancient` 项.
-- `effect` 取游戏自己生成的那一份 (`Card:generate_UIBox_ability_table`), 就是玩家悬停看到的文字:
-  成长值 (拉面的当前倍率, 城堡的当前筹码) 与概率 (幸运牌, 玻璃牌) 都已代入.
-- `index` 与该区域在 `gamestate` 里的下标一致, 从 0 开始.
+- `most_played_poker_hand` 是本局最常打出的牌型, 盲注公牛 (The Ox) 用它, 还没打过牌时不出现.
+- `jokers` / `consumables` / `hand` 每项是 `{index, key, name, effect}`. `effect` 取游戏自己生成的那一份
+  (`Card:generate_UIBox_ability_table`), 就是玩家悬停看到的文字: 成长值 (拉面的当前倍率, 城堡的当前筹码)
+  与概率 (幸运牌, 玻璃牌) 都已代入. `index` 与该区域在 `gamestate` 里的下标一致, 从 0 开始.
+- `deck` / `discard` 每项是 `{count, by_suit, by_rank, cards?, truncated?}`: `count` 是张数,
+  `by_suit` 与 `by_rank` 的键是游戏语言的花色名与点数名 (例如 `{"红桃": 4}`), `list` 时另给 `cards`
+  完整列表 (每张 `{key, suit, suit_name, rank, rank_name}`, 超过 60 张截断并置 `truncated`).
+  算同花与顺子的概率用它 (摸牌堆是接下来会抽到的牌, 弃牌堆是本回合已经出过局的牌).
 
 ## 决策消息
 

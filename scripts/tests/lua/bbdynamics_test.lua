@@ -15,12 +15,16 @@ end
 
 local MISC = {
   suits_singular = { Spades = "黑桃", Hearts = "红桃", Clubs = "梅花", Diamonds = "方片" },
-  ranks = { Ace = "A", Queen = "Q", King = "K" },
+  suits_plural = { Spades = "黑桃", Hearts = "红桃", Clubs = "梅花", Diamonds = "方片" },
+  ranks = { Ace = "A", Queen = "Q", King = "K", ["2"] = "2", ["3"] = "3" },
   poker_hands = { ["Two Pair"] = "两对", Pair = "对子" },
 }
 
 --- 假日志 (端点开头会写一行调试日志)
 function sendDebugMessage() end
+
+-- 假错误码 (端点参数非法时用它)
+BB_ERROR_NAMES = { BAD_REQUEST = "BAD_REQUEST", INVALID_STATE = "INVALID_STATE" }
 
 --- 假本地化: 带分类的两参调用查词表, 表参数 (raw_descriptions) 这里用不到, 返回错误由调用方兜住.
 function localize(args, category)
@@ -81,10 +85,27 @@ G = {
   },
 }
 
+---@param card table
+---@param suit string
+---@param value string
+---@return table 一张扑克牌 (base 带花色与点数)
+local function playing(suit, value)
+  return { base = { suit = suit, value = value }, config = { card_key = ({ Hearts = "H", Spades = "S", Clubs = "C", Diamonds = "D" })[suit] .. "_" .. value } }
+end
+
+G.deck = {
+  cards = {
+    playing("Hearts", "King"), playing("Hearts", "Queen"), playing("Spades", "Ace"),
+    playing("Clubs", "Ace"), playing("Diamonds", "Ace"),
+  },
+}
+G.discard = { cards = { playing("Hearts", "2"), playing("Spades", "3") } }
+
+---@param args table?
 ---@return table 端点的返回
-local function collect()
+local function collect(args)
   local out
-  Dynamics.execute({}, function(response)
+  Dynamics.execute(args or {}, function(response)
     out = response
   end)
   return out
@@ -145,6 +166,58 @@ do -- 生成效果文本抛错时不让端点崩掉
   end
   local ok, result = pcall(collect)
   check("生成报错不崩", ok and result.jokers[1].effect == nil, tostring(result and result.jokers[1].effect))
+end
+
+do -- 摸牌堆与弃牌堆: 默认不给, 传参才给, 统计与列表两档
+  local plain = collect()
+  check("默认不带牌堆", plain.deck == nil and plain.discard == nil)
+
+  local stats = collect({ deck = "stats", discard = "stats" })
+  check("stats 给张数", stats.deck.count == 5 and stats.discard.count == 2, tostring(stats.deck.count))
+  check(
+    "stats 按花色统计",
+    stats.deck.by_suit["红桃"] == 2 and stats.deck.by_suit["黑桃"] == 1 and stats.deck.by_suit["方片"] == 1,
+    tostring(stats.deck.by_suit["红桃"])
+  )
+  check("stats 按点数统计", stats.deck.by_rank["A"] == 3 and stats.deck.by_rank["K"] == 1, tostring(stats.deck.by_rank["A"]))
+  check("stats 不带列表", stats.deck.cards == nil and stats.deck.truncated == nil)
+  check("弃牌堆也算", stats.discard.by_suit["红桃"] == 1 and stats.discard.by_rank["3"] == 1)
+
+  local list = collect({ deck = "list" })
+  check("list 带完整列表", #list.deck.cards == 5 and list.deck.cards[1].key == "H_King", tostring(#(list.deck.cards or {})))
+  check(
+    "列表项给花色点数与枚举",
+    list.deck.cards[1].suit == "H" and list.deck.cards[1].suit_name == "红桃" and list.deck.cards[1].rank == "K",
+    list.deck.cards[1].suit
+  )
+  check("list 也给统计", list.deck.by_rank["A"] == 3)
+  check("只要牌堆时不给弃牌堆", list.discard == nil)
+end
+
+do -- 参数: 关掉 targets 与 cards, 非法取值报错
+  local bare = collect({ targets = false, cards = false })
+  check("可以关掉 targets", bare.targets == nil and bare.most_played_poker_hand == nil)
+  check("可以关掉 cards", bare.jokers == nil and bare.consumables == nil and bare.hand == nil)
+
+  local bad
+  Dynamics.execute({ deck = "all" }, function(response)
+    bad = response
+  end)
+  check("非法 detail 报 BAD_REQUEST", bad.message ~= nil and bad.name ~= nil, tostring(bad.message))
+end
+
+do -- 牌堆列表超过上限时截断并标出来
+  local many = {}
+  for i = 1, 70 do
+    many[i] = playing("Spades", "Ace")
+  end
+  local saved = G.deck.cards
+  G.deck.cards = many
+  local result = collect({ deck = "list" })
+  check("列表截到上限", #result.deck.cards == 60, tostring(#result.deck.cards))
+  check("截断时标出来", result.deck.truncated == true)
+  check("张数仍是真的", result.deck.count == 70, tostring(result.deck.count))
+  G.deck.cards = saved
 end
 
 if failures > 0 then

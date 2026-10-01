@@ -192,7 +192,22 @@ do -- 工具: reason 拆出, 空参数不编码成 properties: []
     end
     return false
   end)())
-  check("dynamics 只读且无参数", Tools.QUERIES.dynamics == true and Tools.ACTIONS.dynamics == nil)
+  check("dynamics 是只读工具", Tools.QUERIES.dynamics == true and Tools.ACTIONS.dynamics == nil)
+  -- 工具描述与端点参数要保持一致: 牌堆那两项是可选的枚举
+  local dynamics_def
+  for _, def in ipairs(Tools.definitions()) do
+    if def["function"].name == "dynamics" then
+      dynamics_def = def["function"]
+    end
+  end
+  local props = dynamics_def and dynamics_def.parameters.properties or {}
+  check(
+    "dynamics 能要牌堆与弃牌堆",
+    props.deck and props.deck.enum[1] == "stats" and props.discard and not props.deck.required,
+    tostring(props.deck and props.deck.type)
+  )
+  check("dynamics 可关掉默认项", props.targets and props.targets.type == "boolean" and props.cards ~= nil)
+  check("dynamics 无必填参数", dynamics_def.parameters.required == nil)
 end
 
 do -- 摘要: 下标从 0 开始, 效果只在第一次出现时附上

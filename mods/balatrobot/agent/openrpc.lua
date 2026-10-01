@@ -98,13 +98,39 @@ local DYNAMIC_CARD = {
 
 local DYNAMICS = {
   name = "dynamics",
-  summary = "当前局的动态值 (本回合认的牌, 成长值)",
+  summary = "当前局的动态值 (本回合认的牌, 成长值, 摸牌堆与弃牌堆)",
   description = "手册 (docs_read 与 lookup) 是版本快照, 里面会变的量只能写成占位, 例如古老小丑的 [本回合目标花色], "
     .. "城堡的 (当前为+[当前筹码]筹码). 这个方法返回此刻的真实值: targets 是每回合重抽的认牌目标 (古老小丑的花色, "
     .. "偶像的花色与点数, 邮件回扣的点数, 城堡的花色, 待办清单的牌型), most_played_poker_hand 是盲注公牛要用的牌型, "
     .. "jokers, consumables 与 hand 是持有卡与手牌里特殊牌的效果文本, 取游戏自己生成的那一份, 成长值与概率都已代入. "
-    .. "只读, 任何阶段都能调用, 不算 agent 活动, 也不写进回放文件.",
-  params = {},
+    .. "传 deck 或 discard 还能拿到摸牌堆与弃牌堆 (弃牌堆里是本回合弃掉与打出的牌) 的张数, 按花色点数的统计与完整列表, "
+    .. "算同花与顺子的概率要用它; 这两项默认不给. 只读, 任何阶段都能调用, 不算 agent 活动, 也不写进回放文件.",
+  params = {
+    {
+      name = "targets",
+      required = false,
+      description = "给认牌目标, 默认 true; 传 false 时结果里没有 targets 与 most_played_poker_hand",
+      schema = { type = "boolean" },
+    },
+    {
+      name = "cards",
+      required = false,
+      description = "给持有卡与手牌特殊牌的实时效果, 默认 true; 传 false 时结果里没有 jokers, consumables 与 hand",
+      schema = { type = "boolean" },
+    },
+    {
+      name = "deck",
+      required = false,
+      description = "摸牌堆的详细程度, 不传时结果里没有 deck",
+      schema = { type = "string", enum = { "stats", "list" } },
+    },
+    {
+      name = "discard",
+      required = false,
+      description = "弃牌堆 (本回合弃掉与打出的牌) 的详细程度, 不传时结果里没有 discard",
+      schema = { type = "string", enum = { "stats", "list" } },
+    },
+  },
   result = {
     name = "dynamics",
     schema = {
@@ -143,11 +169,49 @@ local DYNAMICS = {
           description = "手牌里带增强, 版本或蜡封的牌",
           items = DYNAMIC_CARD,
         },
+        deck = { ["$ref"] = "#/components/schemas/DynamicPile" },
+        discard = {
+          allOf = { { ["$ref"] = "#/components/schemas/DynamicPile" } },
+          description = "弃牌堆: 本回合弃掉与打出的牌",
+        },
       },
-      required = { "targets", "jokers", "consumables", "hand" },
     },
   },
-  errors = {},
+  errors = { { ["$ref"] = "#/components/errors/BadRequest" } },
+}
+
+-- 摸牌堆或弃牌堆的一份快照.
+local DYNAMIC_PILE = {
+  type = "object",
+  properties = {
+    count = { type = "integer", description = "这一堆的张数" },
+    by_suit = {
+      type = "object",
+      description = "按花色的张数, 键是游戏语言的花色名",
+      additionalProperties = { type = "integer" },
+    },
+    by_rank = {
+      type = "object",
+      description = "按点数的张数, 键是游戏语言的点数名",
+      additionalProperties = { type = "integer" },
+    },
+    cards = {
+      type = "array",
+      description = "完整列表 (只在 detail 为 list 时给, 超过 60 张时截断)",
+      items = {
+        type = "object",
+        properties = {
+          key = { type = "string", description = "例如 H_K" },
+          suit = { type = "string", description = "花色枚举 H/D/C/S" },
+          suit_name = { type = "string" },
+          rank = { type = "string", description = "点数枚举, 例如 Q" },
+          rank_name = { type = "string" },
+        },
+      },
+    },
+    truncated = { type = "boolean", description = "列表被截断时为 true" },
+  },
+  required = { "count", "by_suit", "by_rank" },
 }
 
 local DOCS_INDEX = {
@@ -381,6 +445,9 @@ function M.extend(spec_text, passive)
   local schemas = spec.components and spec.components.schemas
   if schemas and schemas.GameState and schemas.GameState.properties then
     schemas.GameState.properties.overlay = OVERLAY
+  end
+  if schemas then
+    schemas.DynamicPile = DYNAMIC_PILE
   end
   local encoded_ok, encoded = pcall(json.encode, spec)
   return encoded_ok and encoded or spec_text
