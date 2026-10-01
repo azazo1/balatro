@@ -31,6 +31,7 @@ local REPLAY_FORMAT = assert(SMODS.load_file("replay/format.lua"))()
 local REPLAY_SNAPSHOT = assert(SMODS.load_file("replay/snapshot.lua"))()
 local REPLAY_SESSION = assert(SMODS.load_file("replay/session.lua"))()
 local REPLAY_MANUAL = assert(SMODS.load_file("replay/manual.lua"))()
+local REPLAY_TUTORIAL = assert(SMODS.load_file("replay/tutorial.lua"))()
 REPLAY_SESSION.init({ snapshot = REPLAY_SNAPSHOT })
 BB_REPLAY = assert(SMODS.load_file("replay/player.lua"))()
 local function replaying()
@@ -52,6 +53,7 @@ BB_REPLAY.init_early({
   format = REPLAY_FORMAT,
   snapshot = REPLAY_SNAPSHOT,
   session = REPLAY_SESSION,
+  tutorial = REPLAY_TUTORIAL,
   input_lock = assert(SMODS.load_file("replay/input_lock.lua"))(),
   manual = REPLAY_MANUAL,
   game_version = GAME_VERSION,

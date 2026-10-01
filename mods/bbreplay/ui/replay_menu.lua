@@ -104,7 +104,6 @@ local function refresh()
   local ok, err = pcall(function()
     entries, cache = deps.library.list(make_fs(), {
       supported_version = deps.format.VERSION,
-      is_tutorial = deps.format.is_tutorial,
       decode = json.decode,
       cache = cache,
       log = function(text)

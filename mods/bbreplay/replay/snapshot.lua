@@ -9,6 +9,7 @@ replay/session.lua 丢弃, 只改内存.
 - profile: G.PROFILES[当前档位] 整张表, 用 STR_PACK 序列化.
 - unlock_notify: 待显示的解锁通知 (开局或回主菜单时弹出), 按原样恢复, 回放时同样弹出.
 - settings: 影响画面的设置. 语言不在运行中切换, 只在不一致时提示.
+- tutorial: 教程状态. 教程局开局时的优惠券, 标签与商店牌由它决定, 回放要按原局那一刻的值放回去.
 
 都从内存里取: 游戏写存档在后台线程里进行, 磁盘上的文件可能还没写到最新.
 ]]
@@ -54,6 +55,10 @@ function M.capture()
     unlock_notify = get_compressed(profile_num .. "/unlock_notify.jkr") or "",
     settings = settings,
     language = G.SETTINGS.language,
+    tutorial = {
+      complete = G.SETTINGS.tutorial_complete,
+      progress = type(G.SETTINGS.tutorial_progress) == "table" and STR_PACK(G.SETTINGS.tutorial_progress) or nil,
+    },
   }
 end
 
@@ -114,6 +119,12 @@ function M.apply(snap, opts)
   end
   if snap.language and snap.language ~= G.SETTINGS.language then
     warnings[#warnings + 1] = string.format("原局语言为 %s, 回放为 %s, 界面文字会不同", snap.language, G.SETTINGS.language)
+  end
+
+  -- 教程状态. 没有这一个字段的是旧文件, 保持内存里的原样, 由 replay/tutorial.lua 兜底.
+  if type(snap.tutorial) == "table" then
+    G.SETTINGS.tutorial_complete = snap.tutorial.complete
+    G.SETTINGS.tutorial_progress = snap.tutorial.progress and STR_UNPACK(snap.tutorial.progress) or nil
   end
 
   G:save_progress()

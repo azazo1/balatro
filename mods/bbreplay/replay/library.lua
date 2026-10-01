@@ -135,9 +135,8 @@ end
 --- 解析出的回放数据转成列表项. 不能回放时 ok 为 false, reason 是中文原因.
 ---@param data table 回放文件内容 (已解码)
 ---@param supported_version integer 当前支持的版本号
----@param is_tutorial (fun(run: table): boolean)? 是不是教程局 (format.is_tutorial)
 ---@return BBReplayEntry
-function M.describe(data, supported_version, is_tutorial)
+function M.describe(data, supported_version)
   local run = type(data.run) == "table" and data.run or {}
   local actions = type(data.actions) == "table" and data.actions or {}
   local entry = {
@@ -165,8 +164,6 @@ function M.describe(data, supported_version, is_tutorial)
     reason = "回放文件格式不对"
   elseif run.challenge then
     reason = "挑战模式的局不支持回放"
-  elseif is_tutorial and is_tutorial(run) then
-    reason = "教程局不支持回放"
   elseif not run.resumed and not (run.deck and run.stake and run.seed) then
     reason = "只支持原版牌组的局"
   elseif M.play_steps(data) == 0 then
@@ -181,9 +178,8 @@ end
 ---@param name string
 ---@param decode fun(text: string): table?
 ---@param supported_version integer
----@param is_tutorial (fun(run: table): boolean)?
 ---@return BBReplayEntry
-local function describe_file(fs, name, decode, supported_version, is_tutorial)
+local function describe_file(fs, name, decode, supported_version)
   local text = fs.read(name)
   if not text or text == "" then
     return { ok = false, reason = "读不到文件" }
@@ -192,12 +188,12 @@ local function describe_file(fs, name, decode, supported_version, is_tutorial)
   if not ok or type(decoded) ~= "table" then
     return { ok = false, reason = "文件损坏或不是回放文件" }
   end
-  return M.describe(decoded, supported_version, is_tutorial)
+  return M.describe(decoded, supported_version)
 end
 
 --- 扫描一遍目录, 用缓存跳过没变的文件. 按开始时间倒序.
 ---@param fs BBReplayFS
----@param options {supported_version: integer, decode: fun(text: string): table?, is_tutorial: (fun(run: table): boolean)?, cache: table?, log: fun(text: string)?}
+---@param options {supported_version: integer, decode: fun(text: string): table?, cache: table?, log: fun(text: string)?}
 ---@return BBReplayEntry[] entries
 ---@return table cache 传回给下一次调用, 只留这次还在的文件
 function M.list(fs, options)
@@ -209,7 +205,7 @@ function M.list(fs, options)
     local key = string.format("%s|%d|%d", file.name, file.size, file.mtime)
     local entry = cache[key]
     if not entry then
-      entry = describe_file(fs, file.name, options.decode, options.supported_version, options.is_tutorial)
+      entry = describe_file(fs, file.name, options.decode, options.supported_version)
       entry.name = file.name
       if options.log then
         options.log(string.format("%s: %s", file.name, entry.ok and "可回放" or ("不可回放: " .. entry.reason)))

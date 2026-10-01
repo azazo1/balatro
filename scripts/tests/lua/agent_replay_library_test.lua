@@ -93,6 +93,14 @@ do -- 新版本录下的手动局: 出牌等手动步骤可以重做
   check("可回放: 手动步骤", entry.ok == true, entry.reason)
 end
 
+do -- 教程局: 强制内容是写死的常量, 回放前按录像里的教程状态重建, 所以可以回放
+  local data = replay_data()
+  data.run.tutorial = true
+  data.run.seed = "TUTORIAL"
+  local entry = Library.describe(data, Format.VERSION)
+  check("可回放: 教程局", entry.ok == true, entry.reason)
+end
+
 do
   -- 扫描: 坏文件不炸, 按时间倒序
   local newer = replay_data()

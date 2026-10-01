@@ -51,6 +51,7 @@ local cfg = {
 }
 
 -- dispatcher, activity, overlay, gamestate, recorder, toast, stream, format, snapshot, session, input_lock, manual,
+-- tutorial (教程局的回放支持),
 -- control (bbcore 的 BB_CONTROL), animating (画面是否还在动, bbcore 的 BB_OVERLAY.animating), game_version, mod_version
 local deps = {}
 -- 回放进行时在 BB_CONTROL 上的独占名: balatrobot 据此不开端口, 内置 loop 不能开始.
@@ -105,9 +106,6 @@ local function read_data(path)
   if decoded.run.challenge then
     return nil, "挑战模式的局不支持回放"
   end
-  if deps.format.is_tutorial(decoded.run) then
-    return nil, "教程局不支持回放 (强制给出的牌重现不了)"
-  end
   if not decoded.run.resumed and not (decoded.run.deck and decoded.run.stake and decoded.run.seed) then
     return nil, "只支持原版牌组的局"
   end
@@ -124,6 +122,7 @@ end
 --- 游戏内回放的收尾: 结束录像段, 恢复存档进度与设置, 把结果交给界面.
 local function finish_ingame()
   deps.recorder.end_segment("replay")
+  deps.tutorial.restore()
   local warnings = deps.session.finish()
   M.active = false
   M.status = "off"
@@ -539,6 +538,10 @@ local function start_run_request()
   local run = data.run
   -- 先切阶段: start_run 钩子据此判断这次开局是回放发起的.
   set_phase("starting")
+  -- 教程局的强制内容 (优惠券, 标签, 商店牌) 来自 G.SETTINGS 的教程状态, 开局前换成回放用的那份.
+  if deps.format.is_tutorial(run) then
+    deps.tutorial.install()
+  end
   if run.resumed then
     -- 读档开局: 把存档写成一个临时文件交给 load. 游戏内回放结束时由 session 删掉.
     local name = "replay_resume.jkr"
