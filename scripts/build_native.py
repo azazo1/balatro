@@ -10,6 +10,7 @@
 import argparse
 import os
 import shutil
+import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -28,6 +29,43 @@ DESKTOP = {
                 os.path.join(layout.DIST_DIR, "native", "windows")),
 }
 ANDROID_OUT = os.path.join(layout.DIST_DIR, "native", "android")
+# Android ABI -> Rust target. cargo-ndk 自己也有这张表, 这里只用来检查 target 有没有装.
+ANDROID_TARGETS = {
+    "arm64-v8a": "aarch64-linux-android",
+    "armeabi-v7a": "armv7-linux-androideabi",
+    "x86_64": "x86_64-linux-android",
+    "x86": "i686-linux-android",
+}
+
+
+def android_lib(abi):
+    """just native build android 产出的 libbbnet.so 路径."""
+    return os.path.join(ANDROID_OUT, abi, "libbbnet.so")
+
+
+def _probe(cmd):
+    """跑一个探测命令, 返回 (是否成功, 输出). 命令不存在时视为失败."""
+    try:
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    except FileNotFoundError:
+        return False, ""
+    return result.returncode == 0, result.stdout or ""
+
+
+def android_missing(abi):
+    """编译这个 ABI 还缺什么, 返回说明; 都齐了返回 None. 不退出进程, 供打包时判断."""
+    target = ANDROID_TARGETS.get(abi)
+    if not target:
+        return "不认识的 ABI %s" % abi
+    if not shutil.which("cargo"):
+        return "找不到 cargo"
+    if not _probe(["cargo", "ndk", "--version"])[0]:
+        return "找不到 cargo-ndk (cargo install cargo-ndk)"
+    ok, installed = _probe(["rustup", "target", "list", "--installed"])
+    # 没有 rustup (例如发行版自带的 rust) 时不判断, 交给编译报错.
+    if ok and target not in installed.split():
+        return "没装 rust target %s (rustup target add %s)" % (target, target)
+    return None
 
 
 def find_ndk():
@@ -76,7 +114,7 @@ def build_android(abis):
     # cargo-ndk 读当前目录的 Cargo.toml, 不认 --manifest-path.
     log.run(cmd, cwd=CRATE_DIR)
     for abi in abis:
-        log.info("已生成 %s" % os.path.relpath(os.path.join(ANDROID_OUT, abi, "libbbnet.so"), layout.ROOT_DIR))
+        log.info("已生成 %s" % os.path.relpath(android_lib(abi), layout.ROOT_DIR))
 
 
 def main():

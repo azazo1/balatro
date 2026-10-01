@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """把 game/ 装进官方 LÖVE 11.5 Android 运行时, 用本地密钥签名, 产出可安装的 APK.
 
-这条流程不编译任何原生代码: liblove.so 直接用官方发行包里编译好的, 只替换游戏负载,
-改写 AndroidManifest, 换图标并重新签名. 因此不需要 NDK, 也不需要 gradle.
+liblove.so 直接用官方发行包里编译好的, 只替换游戏负载, 改写 AndroidManifest, 换图标并重新签名,
+不需要 gradle. 原版包不编译任何原生代码; 带 mod 的包会顺带编译 bbnet (见 bbnet_replacements),
+需要 NDK, cargo-ndk 与对应的 rust target, 不需要时加 --no-native.
 
 用法:
     python3 scripts/package_android.py
@@ -21,6 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from lib import (android_manifest, archive, gamezip, layout, log, modding, pngutil, runtime,
                  version as versionlib)
+import build_native  # noqa: E402  打包带 mod 的版本时顺带编译 bbnet
 
 log.set_prefix("android")
 
@@ -36,9 +38,9 @@ ICON_RESOURCE = "love.png"
 
 KEYSTORE_DEFAULT_ALIAS = "balatro"
 
-# just native build android 的输出, 每个 ABI 一个子目录.
-BBNET_DIST = os.path.join(layout.DIST_DIR, "native", "android")
 BBNET_LIB = "libbbnet.so"
+# 带 mod 的包必须带 bbnet 的 ABI. 几乎所有在用的设备都是 arm64; armeabi-v7a 能编就带上.
+REQUIRED_ABIS = ("arm64-v8a",)
 
 
 def parse_args():
@@ -60,6 +62,8 @@ def parse_args():
     parser.add_argument("--install", action="store_true",
                         help="打包完成后安装到已连接的设备")
     parser.add_argument("--keep-work", action="store_true", help="保留临时目录")
+    parser.add_argument("--no-native", action="store_true",
+                        help="带 mod 时不编译也不放入原生库 bbnet (内置 agent 与录像不可用), 默认必须带")
     modding.add_arguments(parser)
     return parser.parse_args()
 
@@ -83,7 +87,7 @@ def find_build_tools():
                 return path
     log.die("找不到 Android SDK 的 build-tools\n"
             "请安装 Android SDK 并设置 ANDROID_HOME, 或放入默认位置 ~/Library/Android/sdk\n"
-            "只需要 build-tools (提供 apksigner 与 zipalign), 不需要 NDK")
+            "需要 build-tools (提供 apksigner 与 zipalign); 带 mod 的包另需 NDK 编译 bbnet")
 
 
 def tool(build_tools, name):
@@ -145,25 +149,42 @@ def generate_keystore(path, alias, store_pass, key_pass, app_name):
              "此文件不应提交进仓库.")
 
 
-def bbnet_replacements(base_apk):
-    """返回要放进 APK 的 bbnet 原生库, 归档内路径 -> 本地文件.
+def bbnet_replacements(base_apk, skip):
+    """编译并返回要放进 APK 的 bbnet 原生库, 归档内路径 -> 本地文件.
+
+    没有 bbnet 时内置 agent 连不上模型 (Android 上没有 SMODS.https 的退路), 录像也拿不到 mp4,
+    而游戏照常启动, 看不出问题. 所以打包时每次都重新编译 (cargo 增量编译, 没改动时很快),
+    既不会漏带, 也不会带上改代码之前编的旧库:
+    - REQUIRED_ABIS 编不出来就报错退出.
+    - 其余 ABI 缺编译条件 (例如没装对应的 rust target) 时警告并跳过, 那类设备上没有这两项功能.
+    - skip 为真 (--no-native) 时整个跳过, 只打一条警告.
 
     只放运行时 APK 已有的 ABI: 多出一个没有 liblove.so 的 ABI 目录会让系统在该架构的设备上
     选中它, 游戏反而无法启动. 运行时里的 .so 是压缩存储的 (安装时解出), 按同样方式压缩即可.
-
-    缺 bbnet 的 ABI 只提示不报错: 网络会退回 SMODS.https, 只是 Android 录像不可用.
     """
+    if skip:
+        log.warn("--no-native: 不带 bbnet, 内置 agent 连不上模型, 录像只有时间轴")
+        return {}
     with zipfile.ZipFile(base_apk) as zf:
         abis = sorted({name.split("/")[1] for name in zf.namelist()
                        if name.startswith("lib/") and name.count("/") == 2})
-    found = {}
+    buildable = []
     for abi in abis:
-        path = os.path.join(BBNET_DIST, abi, BBNET_LIB)
-        if os.path.isfile(path):
-            found["lib/%s/%s" % (abi, BBNET_LIB)] = path
+        missing = build_native.android_missing(abi)
+        if not missing:
+            buildable.append(abi)
+        elif abi in REQUIRED_ABIS:
+            log.die("编译不了 %s 的 bbnet: %s\n确实不需要内置 agent 与录像时, 加 --no-native 打包" % (abi, missing))
         else:
-            log.info("未找到 %s, 该 ABI 不带 bbnet (先运行 just native build android)"
-                     % os.path.relpath(path, layout.ROOT_DIR))
+            log.warn("跳过 %s 的 bbnet: %s. 这类设备上内置 agent 连不上模型, 录像只有时间轴" % (abi, missing))
+    if buildable:
+        build_native.build_android(buildable)
+    found = {}
+    for abi in buildable:
+        path = build_native.android_lib(abi)
+        if not os.path.isfile(path):
+            log.die("编译后没有找到 %s" % os.path.relpath(path, layout.ROOT_DIR))
+        found["lib/%s/%s" % (abi, BBNET_LIB)] = path
     return found
 
 
@@ -254,7 +275,7 @@ def main():
 
         # bbnet 只有 mod 里的内置 agent 使用, 原版不带.
         if flavor.key == layout.MODDED.key:
-            native_libs = bbnet_replacements(base_apk)
+            native_libs = bbnet_replacements(base_apk, args.no_native)
             for name in sorted(native_libs):
                 log.info("加入原生库 %s" % name)
             replacements.update(native_libs)
