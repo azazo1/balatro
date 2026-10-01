@@ -3,7 +3,7 @@ python := if os_family() == "windows" { "python" } else { "python3" }
 
 [private]
 default:
-    @just --justfile {{ source_file() }} --list
+    @just --justfile {{ quote(source_file()) }} --list
 
 # 运行原生库的单元测试与集成测试 (本地起 TCP 服务, 不联网).
 test:

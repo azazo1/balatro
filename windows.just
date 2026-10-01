@@ -3,7 +3,7 @@ python := if os_family() == "windows" { "python" } else { "python3" }
 
 [private]
 default:
-    @just --justfile {{ source_file() }} --list
+    @just --justfile {{ quote(source_file()) }} --list
 
 # 打包 Windows 免安装版, 产出 dist/windows/Balatro-<版本>-win64.zip.
 dist:
