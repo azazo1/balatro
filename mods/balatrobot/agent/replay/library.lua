@@ -128,6 +128,21 @@ function M.duration_of(data)
   return 0
 end
 
+--- 能重做的 agent 操作数: 不算 notify (只是解说) 和人在弹窗上的选择 (manual).
+---
+--- 手动打的局只记了手动操作的次数, 没有具体操作, 回放时只剩末尾回主菜单那一步, 一开局就结束.
+---@param data table
+---@return integer
+function M.agent_steps(data)
+  local count = 0
+  for _, action in ipairs(data.actions or {}) do
+    if not action.manual and action.method ~= "notify" then
+      count = count + 1
+    end
+  end
+  return count
+end
+
 --- 解析出的回放数据转成列表项. 不能回放时 ok 为 false, reason 是中文原因.
 ---@param data table 回放文件内容 (已解码)
 ---@param supported_version integer 当前支持的版本号
@@ -161,6 +176,8 @@ function M.describe(data, supported_version)
     reason = "挑战模式的局不支持回放"
   elseif not run.resumed and not (run.deck and run.stake and run.seed) then
     reason = "只支持原版牌组的局"
+  elseif M.agent_steps(data) == 0 then
+    reason = "手动打的局, 没有 agent 操作可以重做"
   end
   entry.ok = reason == nil
   entry.reason = reason

@@ -86,6 +86,15 @@ do
     { name = "挑战模式", patch = function(d) d.run.challenge = "c_x" end, expect = "挑战" },
     { name = "非原版牌组", patch = function(d) d.run.deck = nil end, expect = "原版牌组" },
     { name = "缺少动作", patch = function(d) d.actions = nil end, expect = "格式" },
+    -- 真机上的手动教程局: 只有末尾回主菜单那一步, 回放一开局就结束
+    {
+      name = "手动打的局",
+      patch = function(d)
+        d.manual_inputs = 22
+        d.actions = { { method = "notify", ok = true }, { method = "menu", manual = true, ok = true } }
+      end,
+      expect = "手动",
+    },
   }
   for _, case in ipairs(cases) do
     local data = replay_data()
