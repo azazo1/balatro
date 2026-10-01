@@ -36,6 +36,10 @@ ICON_RESOURCE = "love.png"
 
 KEYSTORE_DEFAULT_ALIAS = "balatro"
 
+# just bbnet-android 的输出, 每个 ABI 一个子目录.
+BBNET_DIST = os.path.join(layout.DIST_DIR, "native", "android")
+BBNET_LIB = "libbbnet.so"
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="打包 Android 安装包")
@@ -141,6 +145,26 @@ def generate_keystore(path, alias, store_pass, key_pass, app_name):
              "此文件不应提交进仓库.")
 
 
+def bbnet_replacements(base_apk):
+    """返回要放进 APK 的 bbnet 原生库, 归档内路径 -> 本地文件.
+
+    只放运行时 APK 已有的 ABI: 多出一个没有 liblove.so 的 ABI 目录会让系统在该架构的设备上
+    选中它, 游戏反而无法启动. 运行时里的 .so 是压缩存储的 (安装时解出), 按同样方式压缩即可.
+    """
+    with zipfile.ZipFile(base_apk) as zf:
+        abis = sorted({name.split("/")[1] for name in zf.namelist()
+                       if name.startswith("lib/") and name.count("/") == 2})
+    found = {}
+    for abi in abis:
+        path = os.path.join(BBNET_DIST, abi, BBNET_LIB)
+        if os.path.isfile(path):
+            found["lib/%s/%s" % (abi, BBNET_LIB)] = path
+        else:
+            log.info("未找到 %s, 该 ABI 不带 bbnet (先运行 just bbnet-android)"
+                     % os.path.relpath(path, layout.ROOT_DIR))
+    return found
+
+
 def assemble_apk(base_apk, out_apk, replacements):
     """复制 base_apk 到 out_apk, 用 replacements 里的文件替换或新增同名条目.
 
@@ -208,6 +232,10 @@ def main():
         strings = {
             "org.love2d.android": package_name,
             "org.love2d.android.androidx-startup": "%s.androidx-startup" % package_name,
+            # androidx 声明的自定义权限, 名字以包名开头. 不改的话原版与 modded 两个包声明同名权限,
+            # 签名不同时第二个装不上 (INSTALL_FAILED_DUPLICATE_PERMISSION).
+            "org.love2d.android.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION":
+                "%s.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" % package_name,
             "LÖVE for Android": flavor.app_name,
             "11.5a": version,
         }
@@ -221,6 +249,13 @@ def main():
             icon_path = os.path.join(work_dir, "love-%s.png" % density)
             pngutil.scaled_copy(icon_src, icon_path, size)
             replacements["res/drawable-%s-v4/%s" % (density, ICON_RESOURCE)] = icon_path
+
+        # bbnet 只有 mod 里的内置 agent 使用, 原版不带.
+        if flavor.key == layout.MODDED.key:
+            native_libs = bbnet_replacements(base_apk)
+            for name in sorted(native_libs):
+                log.info("加入原生库 %s" % name)
+            replacements.update(native_libs)
 
         log.info("组装 APK")
         out_apk = os.path.join(work_dir, "out.apk")

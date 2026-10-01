@@ -32,6 +32,8 @@ end
 local mix = ffi.new("float[?]", BLOCK * 2)
 local pcm = ffi.new("int16_t[?]", BLOCK * 2)
 local rendered = 0 -- 已写出的采样帧数
+local flushed = 0 -- 上次 flush 时的 rendered
+local FLUSH_EVERY = RATE -- 采样帧数, 即 1 秒
 
 -- ==========================================================================
 -- 声源
@@ -218,13 +220,17 @@ local function render_block(n)
   out:write(ffi.string(pcm, n * 2 * 2))
 end
 
---- 混音到时间 t (秒).
+--- 混音到时间 t (秒). 每写满 1 秒 flush 一次, 游戏崩溃时最多丢约 1 秒声音.
 local function render_to(t)
   local target = math.floor(t * RATE)
   while rendered < target do
     local n = math.min(BLOCK, target - rendered)
     render_block(n)
     rendered = rendered + n
+  end
+  if rendered - flushed >= FLUSH_EVERY then
+    out:flush()
+    flushed = rendered
   end
 end
 

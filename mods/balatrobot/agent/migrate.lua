@@ -4,11 +4,11 @@
 1. 游戏设置: 早期版本在 agent 模式下调用 upstream 的 BB_SETTINGS.setup, 把跳过开场动画,
    关 CRT/bloom/阴影, 静音, reduced_motion, 4 倍速, 关 vsync 写进了存档.
    原版 1.0.1n 没有 skip_splash 的界面入口, 值为 "Yes" 只可能来自这里, 以此识别并恢复原版默认值.
-2. mod 配置: 记录版本号, 供以后不兼容的配置变更迁移.
+2. mod 配置: 按版本号逐步迁移, 见 migrate_config.
 ]]
 
 local LOGGER = "BB.AGENT.MIGRATE"
-local CONFIG_VERSION = 1
+local CONFIG_VERSION = 2
 
 local M = {}
 
@@ -48,8 +48,15 @@ local function migrate_config(mod)
   if version >= CONFIG_VERSION then
     return
   end
-  -- 0 -> 1: 新增 show_messages. smods 加载时会把 config.lua 的默认值合并进旧配置, 这里只记录版本.
+  -- smods 加载时先取 config.lua 的默认值, 再把存档里的旧配置覆盖上去: 新字段自动有默认值,
+  -- 存档里有而默认值里没有的字段 (例如已删除的 enabled) 原样保留, 迁移据此读取旧值.
   -- 版本号不放进 config.lua 的默认值, 否则旧配置合并后也带上版本号, 无法识别.
+  -- 0 -> 1: 新增 show_messages, 只记录版本.
+  -- 1 -> 2: 布尔开关 enabled 改为三选一的 mode (off / external / builtin), 新增内置 agent 与录像的配置.
+  if version < 2 then
+    config.mode = config.enabled == true and "external" or "off"
+    config.enabled = nil
+  end
   config.version = CONFIG_VERSION
   SMODS.save_mod_config(mod)
   sendInfoMessage("Mod config migrated from version " .. version .. " to " .. CONFIG_VERSION, LOGGER)

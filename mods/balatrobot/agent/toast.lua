@@ -68,6 +68,7 @@ local function pick_lang(text)
   end
   return lang
 end
+M.pick_lang = pick_lang
 
 ---@param lang table
 ---@param text string
@@ -77,6 +78,7 @@ local function text_width(lang, text, scale)
   local font = lang.font
   return font.FONT:getWidth(text) * font.squish * scale * font.FONTSCALE / G.TILESIZE
 end
+M.text_width = text_width
 
 -- 其后的空格是好的断行点
 local BREAK_AFTER = { [","] = true, ["."] = true, [":"] = true, [";"] = true, ["!"] = true, ["?"] = true }

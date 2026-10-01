@@ -2,10 +2,12 @@
 BalatroBot 入口, 由本仓库在 upstream v1.5.2 的基础上改写. 本仓库新增的代码在 agent/ 下.
 
 与 upstream 的区别:
-- 默认不开端口. 游戏内 Mods > BalatroBot > Config 的开关, 或启动时设 BALATROBOT_ENABLE=1, 才监听.
-- 游戏内开关只启停 HTTP 服务, 不改游戏设置. BALATROBOT_ENABLE=1 时由 agent/settings.lua
+- agent 模式三选一 (agent/mode.lua): 关闭 / 外部 (HTTP 接口) / 内置 (游戏内 loop, 见 agent/runner.lua).
+  默认关闭, 不开端口. 游戏内 模组 -> BalatroBot -> 配置 切换, 或启动时设 BALATROBOT_ENABLE=1 锁定为外部.
+- 切换模式只启停 HTTP 服务, 不改游戏设置. BALATROBOT_ENABLE=1 时由 agent/settings.lua
   处理 BALATROBOT_* 环境变量: 画面, 开场动画, 声音默认沿用存档, 显式要求的改动不写回存档.
-- 开关可在运行中切换, 状态保存在存档目录的 config/balatrobot.jkr.
+- 模式可在运行中切换, 保存在存档目录的 config/balatrobot.jkr. 设置页见 agent/ui/settings_tab.lua.
+- 内置模式: ESC 菜单的 Agent 按钮与面板, F9 暂停/继续 (agent/ui/agent_menu.lua), 顶部流式条 (agent/ui/stream_bar.lua).
 - 请求可带 reason, 另有 notify 方法, 在游戏内以原版通知的样式显示 agent 的决策消息.
 - 弹窗 (解锁通知, 胜利界面等) 打开时拦截操作, 等待中的请求先返回, 见 agent/overlay.lua.
   解锁通知用 continue 关掉, 胜利后用 endless 进入无尽模式.
@@ -52,6 +54,10 @@ BB_ENDPOINTS = {
   "agent/endpoints/notify.lua",
   "agent/endpoints/endless.lua",
   "agent/endpoints/continue.lua",
+  "agent/endpoints/docs_index.lua",
+  "agent/endpoints/docs_read.lua",
+  "agent/endpoints/docs_search.lua",
+  "agent/endpoints/lookup.lua",
   -- If debug mode is enabled, debugger.lua will load test endpoints
 }
 
@@ -70,6 +76,8 @@ BB_OVERLAY = assert(SMODS.load_file("agent/overlay.lua"))()
 BB_ACTIVITY = assert(SMODS.load_file("agent/activity.lua"))()
 local OPENRPC = assert(SMODS.load_file("agent/openrpc.lua"))()
 BB_TOAST = assert(SMODS.load_file("agent/toast.lua"))()
+BB_STREAM = assert(SMODS.load_file("agent/ui/stream_bar.lua"))()
+BB_STREAM.init({ toast = BB_TOAST })
 BB_RECORDER = assert(SMODS.load_file("agent/record/recorder.lua"))()
 
 -- 端点只能注册一次, 与服务的启停无关.
@@ -131,7 +139,16 @@ BB_REPLAY.init_early({
   game_version = GAME_VERSION,
   mod_version = MOD_VERSION,
 })
-BB_RECORDER.init({ activity = BB_ACTIVITY, toast = BB_TOAST, mod_path = MOD.path })
+BB_RECORDER.init({
+  activity = BB_ACTIVITY,
+  toast = BB_TOAST,
+  mod_path = MOD.path,
+  config_enabled = MOD.config.record == true,
+})
+-- 流式条在屏幕上时和决策消息一样算作活动, 剪辑版不剪掉.
+BB_RECORDER.add_activity_source(function()
+  return BB_STREAM.active()
+end)
 -- 回放文件与录像同名, 只在录制时写; 回放本身不再写回放文件.
 if BB_RECORDER.enabled and not BB_REPLAY.active then
   BB_REPLAY_LOG = assert(SMODS.load_file("agent/replay/log.lua"))()
@@ -147,7 +164,7 @@ if BB_RECORDER.enabled and not BB_REPLAY.active then
 end
 BB_REPLAY.init_late()
 if BB_REPLAY.active then
-  -- 讲解是回放的一部分, 不受 Config 里 "Show Agent Messages" 的影响 (只改内存, 不写回配置).
+  -- 讲解是回放的一部分, 不受设置页 "显示 agent 消息" 的影响 (只改内存, 不写回配置).
   BB_TOAST.enabled = true
 end
 
@@ -175,15 +192,100 @@ function BB_AGENT.set_enabled(on)
       sendInfoMessage("Agent API listening on " .. BB_AGENT.address, LOGGER)
       return true
     end
-    MOD.config.enabled = false
     BB_AGENT.status = "bind failed"
     sendErrorMessage("Agent API failed to start: " .. tostring(ok and "bind failed" or started), LOGGER)
     return false
   end
+  local was_listening = BB_SERVER.server_socket ~= nil
   BB_SERVER.close()
   BB_AGENT.status = "off"
-  sendInfoMessage("Agent API stopped", LOGGER)
+  if was_listening then
+    sendInfoMessage("Agent API stopped", LOGGER)
+  end
   return false
+end
+
+-- agent 模式. BALATROBOT_ENABLE=1 锁定为外部; 回放时不监听.
+local MODE = assert(SMODS.load_file("agent/mode.lua"))()
+BB_RUNNER = assert(SMODS.load_file("agent/runner.lua"))()
+BB_MODE = MODE.new({
+  initial = MOD.config.mode,
+  env_locked = env_enabled,
+  replaying = function()
+    return BB_REPLAY.active == true
+  end,
+  runner_busy = function()
+    return BB_RUNNER.is_busy()
+  end,
+  set_listening = function(on, reason)
+    if reason == "replaying" then
+      BB_AGENT.set_enabled(false)
+      BB_AGENT.status = "off (replaying)"
+      return
+    end
+    BB_AGENT.set_enabled(on)
+  end,
+  persist = function(mode)
+    MOD.config.mode = mode
+    SMODS.save_mod_config(MOD)
+  end,
+  log = function(text)
+    sendInfoMessage(text, LOGGER)
+  end,
+})
+
+local LOG_FUNCS = { debug = sendDebugMessage, info = sendInfoMessage, warn = sendWarnMessage, error = sendErrorMessage }
+BB_RUNNER.init({
+  stream = BB_STREAM,
+  can_start = function()
+    if not BB_MODE.is_builtin() then
+      return false, "当前不是内置模式"
+    end
+    if BB_REPLAY.active then
+      return false, "回放进行中"
+    end
+    return true
+  end,
+  demo_enabled = function()
+    return MOD.config.demo_stream == true
+  end,
+  demo_driver = assert(SMODS.load_file("agent/demo_driver.lua"))(),
+  token_limit = function()
+    return tonumber(MOD.config.token_limit) or 0
+  end,
+  log = function(level, text)
+    (LOG_FUNCS[level] or sendInfoMessage)(text, "BB.AGENT.RUNNER")
+  end,
+})
+-- 录像: 停止 (含出错停止) 时立即结束当前录像段; 暂停段在剪辑版里剪掉.
+BB_RUNNER.on_stop[#BB_RUNNER.on_stop + 1] = function(reason)
+  BB_RECORDER.set_paused(false, "agent_" .. reason)
+  BB_RECORDER.end_segment("agent_" .. reason)
+end
+BB_RUNNER.on_state[#BB_RUNNER.on_state + 1] = function(state, previous)
+  if state == "paused" then
+    BB_RECORDER.set_paused(true, "agent_pause")
+  elseif previous == "paused" then
+    BB_RECORDER.set_paused(false, "agent_resume")
+  end
+end
+
+-- 内置 agent 的真实 driver: 模型客户端, 进程内调用端点, 主循环. 出错时保留演示 driver 可用, 不影响其他功能.
+do
+  local ok, err = pcall(function()
+    BB_BUILTIN = assert(SMODS.load_file("agent/loop/builtin.lua"))()
+    BB_BUILTIN.install({
+      mod = MOD,
+      runner = BB_RUNNER,
+      stream = BB_STREAM,
+      dispatcher = BB_DISPATCHER,
+      server = BB_SERVER,
+      gamestate = BB_GAMESTATE,
+    })
+  end)
+  if not ok then
+    sendErrorMessage("Builtin agent unavailable: " .. tostring(err), LOGGER)
+  end
 end
 
 -- 未监听时 BB_SERVER.update 直接返回, 关闭状态下几乎没有开销.
@@ -198,7 +300,11 @@ love.update = function(dt) ---@diagnostic disable-line: duplicate-set-field
     BB_REPLAY_LOG.update()
   end
   -- fast/headless 模式下传进来的 dt 是固定步长, 通知停留时间按墙钟算.
-  BB_TOAST.update(love.timer.getDelta())
+  local wall_dt = love.timer.getDelta()
+  BB_TOAST.update(wall_dt)
+  -- 内置 loop 在游戏 update 之后推进; 菜单打开 (游戏暂停) 时也调用, 由 driver 自己看 overlay 决定是否执行动作.
+  BB_RUNNER.update(wall_dt)
+  BB_STREAM.update(wall_dt)
   BB_RECORDER.update()
 end
 
@@ -208,56 +314,39 @@ love.draw = function() ---@diagnostic disable-line: duplicate-set-field
   BB_RECORDER.draw(love_draw)
 end
 
-local function text_row(nodes)
-  return { n = G.UIT.R, config = { align = "cm", padding = 0.05 }, nodes = nodes }
-end
+-- 设置页, ESC 菜单的 Agent 按钮与面板, F9.
+local WIDGETS = assert(SMODS.load_file("agent/ui/widgets.lua"))()
+WIDGETS.init({ toast = BB_TOAST })
+local SETTINGS_TAB = assert(SMODS.load_file("agent/ui/settings_tab.lua"))()
+SETTINGS_TAB.init({
+  mod = MOD,
+  modes = MODE,
+  mode = BB_MODE,
+  runner = BB_RUNNER,
+  toast = BB_TOAST,
+  agent = BB_AGENT,
+  recorder = BB_RECORDER,
+  replay = BB_REPLAY,
+  record_env = os.getenv("BALATROBOT_RECORD"),
+  widgets = WIDGETS,
+})
+MOD.config_tab = SETTINGS_TAB.build
+-- lovely/agent_menu.toml 在 create_UIBox_options 里调用 BB_AGENT_MENU.button().
+BB_AGENT_MENU = assert(SMODS.load_file("agent/ui/agent_menu.lua"))()
+BB_AGENT_MENU.init({
+  mod = MOD,
+  mode = BB_MODE,
+  runner = BB_RUNNER,
+  stream = BB_STREAM,
+  toast = BB_TOAST,
+  widgets = WIDGETS,
+})
 
-local function label(text)
-  return { n = G.UIT.T, config = { text = text, scale = 0.35, colour = G.C.UI.TEXT_LIGHT } }
-end
-
-local function live_label(ref_table, ref_value)
-  return { n = G.UIT.T, config = { ref_table = ref_table, ref_value = ref_value, scale = 0.35, colour = G.C.UI.TEXT_LIGHT } }
-end
-
-MOD.config_tab = function()
-  return {
-    n = G.UIT.ROOT,
-    config = { align = "cm", padding = 0.2, r = 0.1, colour = G.C.BLACK, minw = 7 },
-    nodes = {
-      create_toggle({
-        label = "Enable Agent API",
-        ref_table = MOD.config,
-        ref_value = "enabled",
-        w = 4,
-        callback = BB_AGENT.set_enabled,
-      }),
-      text_row({ label(BB_AGENT.address) }),
-      text_row({ label("Status: "), live_label(BB_AGENT, "status") }),
-      create_toggle({
-        label = "Show Agent Messages",
-        ref_table = MOD.config,
-        ref_value = "show_messages",
-        w = 4,
-        callback = function(value)
-          BB_TOAST.enabled = value
-          if not value then
-            BB_TOAST.clear()
-          end
-        end,
-      }),
-      text_row({ label("Recording: "), live_label(BB_RECORDER, "status") }),
-      text_row({ label("Replay: "), live_label(BB_REPLAY, "status") }),
-    },
-  }
-end
-
--- 回放时不开端口, 只有回放驱动在操作游戏.
+-- 按模式启停 HTTP 服务. 回放时不开端口, 只有回放驱动在操作游戏.
 if BB_REPLAY.active then
-  BB_AGENT.status = "off (replaying)"
   sendInfoMessage("Replay mode: agent API not started", LOGGER)
-elseif env_enabled or MOD.config.enabled then
-  BB_AGENT.set_enabled(true)
 end
+BB_MODE.apply()
+sendInfoMessage("Agent mode: " .. BB_MODE.current .. (env_enabled and " (locked by BALATROBOT_ENABLE)" or ""), LOGGER)
 
 sendInfoMessage("BalatroBot loaded - version " .. MOD.version, LOGGER)

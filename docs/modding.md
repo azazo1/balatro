@@ -38,7 +38,9 @@ just windows dist-modded     # 打包 dist/windows/Balatro-Modded-<版本>-win64
 | Windows | `Balatro-Modded-<版本>-win64/Balatro.exe` | `%AppData%\Balatro-Modded` |
 | Android | `com.azazo1.balatro.modded` | `/storage/emulated/0/Android/data/com.azazo1.balatro.modded/files/save/Balatro-Modded` |
 
-想沿用原版进度, 把原版存档目录里的内容拷过去即可.
+想沿用原版进度, 把原版存档目录里的内容拷过去即可. 注意 Android 原版的存档目录名是 `game`
+(`.../com.azazo1.balatro/files/save/game`), 不是 `Balatro`, 见 README 的 "存档" 一节.
+两个版本都由 `game/android_storage.lua` 给存档目录补组权限, 可以用文件管理器直接拷贝.
 
 首次启动时, 包内的 mod 会释放到存档目录的 `Mods/` 下, Steamodded 从这里读取它们, mod 的配置
 也写在这里. 之后只在包内 mod 变化时重新释放. 与包内 mod 同名的文件夹会被覆盖, 其余文件夹不动,

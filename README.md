@@ -37,12 +37,16 @@ just windows dist    # 打包 Windows 免安装版
 
 产物都在 `dist/` 下按平台分目录. 每个平台另有 `dist-modded`, 打包内置 `mods/` 中 mod 的版本,
 它与原版可同时安装, 存档互不影响, 详见 [docs/modding.md](docs/modding.md). mod 版内置供 agent
-游玩的 HTTP 接口 (默认关闭), 支持在游戏内显示决策消息和按局录制, 见 [docs/agent-api.md](docs/agent-api.md). 其它 recipe:
+游玩的 HTTP 接口 (默认关闭), 支持在游戏内显示决策消息和按局录制, 见 [docs/agent-api.md](docs/agent-api.md).
+游戏内直接连接大模型的内置 agent 正在开发, 设计见 [docs/builtin-agent.md](docs/builtin-agent.md),
+它的流式网络库 `native/bbnet` 用 Rust 编写, 需要先编译 (`just bbnet-macos`, `just bbnet-android`). 其它 recipe:
 
 ```shell
 just check-lua       # 用 LuaJIT 校验 game/ 下的 lua 语法
 just check-scripts   # 校验打包脚本的 python 语法
 just test-scripts    # 运行打包脚本的单元测试
+just test-agent      # 运行 agent mod 的纯逻辑单元测试 (需要 luajit)
+just bbnet-test      # 运行网络库 bbnet 的单元测试 (需要 cargo)
 just mods-check      # 检查 mod 补丁的命中情况
 just clean           # 删除 dist/
 ```
@@ -111,13 +115,15 @@ just windows console
 | --- | --- |
 | macOS | `~/Library/Application Support/Balatro` |
 | Windows | `%AppData%\Balatro` |
-| Android | `/storage/emulated/0/Android/data/com.azazo1.balatro/files/save/Balatro` |
+| Android | `/storage/emulated/0/Android/data/com.azazo1.balatro/files/save/game` |
 
-三个平台使用同一个身份标识 `Balatro`, 因此存档可以互相拷贝迁移.
+存档内容在三个平台上格式相同, 可以互相拷贝迁移. 目录名不同: 桌面是 `Balatro`, Android 是 `game`,
+原因见下文.
 
 Android 的存档通过 `t.externalstorage` 写入外置存储, 而不是应用内部的
 `/data/user/0/com.azazo1.balatro/files/`. 前者可以用文件管理器或 `adb pull` 直接取出备份,
-后者无 root 权限无法访问.
+后者无 root 权限无法访问. PhysicsFS 建的目录和文件只有属主权限, 外部工具只能看到空目录,
+`game/android_storage.lua` 会补上组权限, 与其他应用在 `Android/data` 下的权限一致.
 
 目录内容:
 
@@ -130,8 +136,9 @@ Android 的存档通过 `t.externalstorage` 写入外置存储, 而不是应用�
 | `<槽位>/unlock_notify.jkr` | 待显示的解锁通知队列 |
 | `<槽位>/save.jkr` | 进行中的对局, 中途退出后用于继续 |
 
-存档目录名取自 `.love` 归档去掉扩展名后的文件名, 也就是打包脚本中的 `APP_NAME`. 当前为
-`Balatro`. 若改动该变量重新打包, 游戏会认到一个空目录, 需要把旧目录改名或搬迁过去.
+存档目录名取自 `.love` 归档去掉扩展名后的文件名. 桌面上是打包脚本中的 `APP_NAME`, 当前为
+`Balatro`; Android 运行时固定从 `assets/game.love` 读取游戏, 所以是 `game`. 若改动 `APP_NAME`
+重新打包, 桌面版会认到一个空目录, 需要把旧目录改名或搬迁过去.
 
 `.jkr` 是 deflate 压缩后的 Lua 表序列化结果, 不是纯文本, 无法直接当 JSON 编辑.
 
@@ -169,6 +176,7 @@ Android 的存档通过 `t.externalstorage` 写入外置存储, 而不是应用�
   失败则按无 Steam 模式继续运行.
 - `game/main.lua`: Android 上退出时直接把进程结束掉, 见下文 "Android 的退出处理".
 - `game/conf.lua`: 增加 `t.externalstorage = true`, 让 Android 存档写入外置存储.
+- `game/android_storage.lua` (新增, 由 `conf.lua` 加载): Android 上给存档目录补组权限, 让文件管理器能看到内容.
 
 无 Steam 模式下的行为: 成就与进度由本地存档记录, 游戏内成就通知照常显示; 通过 Steam 同步的
 统计数据不生效, 不影响玩法; 游戏内跳转商店或社区的外链按钮照常打开浏览器.
@@ -178,7 +186,9 @@ Android 的存档通过 `t.externalstorage` 写入外置存储, 而不是应用�
 `AndroidManifest.xml` 是二进制 XML, 其中字符串以 UTF-16 存储, 无法直接文本替换.
 `scripts/lib/android_manifest.py` 会解析字符串池并按索引替换, 再重建池与内部偏移, 所以新
 包名与原包名长度不同也没问题. 其中 `android:name` 指向的 `org.love2d.android.GameActivity`
-是 Java 类名, 必须保持原样, 只有 `package` 与 provider 的 `authorities` 需要跟着改.
+是 Java 类名, 必须保持原样, 只有 `package`, provider 的 `authorities` 与自定义权限
+`<包名>.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION` 需要跟着改. 权限名不改的话, 原版与 modded
+两个包会声明同名权限, 签名不同时第二个装不上.
 
 屏幕方向设为 `sensorLandscape`, 即锁定横屏但允许随手机方向左右翻转.
 

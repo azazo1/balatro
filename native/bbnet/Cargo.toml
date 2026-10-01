@@ -1,0 +1,20 @@
+[package]
+name = "bbnet"
+version = "0.1.0"
+edition = "2024"
+description = "Balatro 内置 agent 使用的原生网络库: HTTP/1.1 流式请求, TLS 与 SSE 分帧, 通过 C ABI 供 LuaJIT ffi 调用."
+publish = false
+
+[lib]
+# cdylib 供游戏加载, rlib 供集成测试直接调用导出函数.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+rustls = { version = "=0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
+webpki-roots = "=1.0.9"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = "symbols"

@@ -45,3 +45,9 @@ Android 的 `versionCode` 由两段版本折算, 保证单调递增, 否则无�
 - 不要开加速 (`run-agent on 1`), user 明确要求时才开.
 - 每次返回都看 `overlay` 字段: `unlock` 时调用 `continue` 关掉解锁通知; `win` 时已经打赢,
   按 user 的要求调用 `endless` 继续或 `menu` 回主菜单.
+- 规则和卡牌效果拿不准时, 用 `lookup` 查卡牌, 用 `docs_search`/`docs_read` 查规则手册, 不要凭印象猜.
+
+## 开发
+
+- agent mod 的纯逻辑改动后运行 `just test-agent`, 网络库 `native/bbnet` 改动后运行 `just bbnet-test`.
+- 内置 agent 的设计与进度见 `docs/builtin-agent.md`.

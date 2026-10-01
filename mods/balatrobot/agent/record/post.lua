@@ -1,8 +1,16 @@
 --[[
-局末后处理: 录制结束后在后台生成两份视频, 游戏继续运行或退出都不影响.
+合成脚本 <stem>.post.sh: 从中间文件 <stem>.video.mp4 与 <stem>.pcm 生成两份视频.
 - <stem>-full.mp4: 画面 (直接复制) + 声音, 与墙钟等长.
 - <stem>-cut.mp4: 从同一份素材剪掉 cuts 里的区间, 重新编码.
-中间文件 <stem>.video.mp4 与 <stem>.pcm 成功后删除. 失败时保留, 连同 <stem>.post.sh, 可以手动重跑.
+
+脚本有两种:
+- 草稿 (draft): 开局时写出, 剪辑区间变多时覆盖, 只写不执行. 游戏崩溃后用它补做合成
+  (sh <stem>.post.sh, 或 scripts/recordings_recover.py). 剪辑版只剪掉当时已确定的区间, 结尾的等待不剪.
+  声音在运行时按 .pcm 是否非空决定. 默认不删中间文件, 带 --clean 且全部成功时才删, 即使在录制中
+  被误执行也只会得到一份不完整的视频, 不会破坏还在写的中间文件.
+- 局末 (final): 局末用最终的剪辑区间覆盖草稿并在后台运行, 游戏继续运行或退出都不影响.
+  成功后删除中间文件与脚本自身; 失败时保留, 可以手动重跑.
+两种脚本都以退出码表示是否全部成功. 写入先写临时文件再 rename, 不会留下写了一半的脚本.
 ]]
 
 local M = {}
@@ -30,27 +38,24 @@ function M.keep_expr(cuts)
   return "not(" .. table.concat(parts, "+") .. ")"
 end
 
----@param opts {ffmpeg: string, codec_args: string, base: string, fps: integer, audio: boolean, cuts: table}
----@return string script
-function M.script(opts)
+--- 两份视频的合成命令, with_audio 表示是否混入 .pcm.
+---@return string[] lines
+local function commands(opts, with_audio)
   local ff = shell_quote(opts.ffmpeg) .. " -y -hide_banner -loglevel error"
   local video = shell_quote(opts.base .. ".video.mp4")
-  local pcm = shell_quote(opts.base .. ".pcm")
   local full = shell_quote(opts.base .. "-full.mp4")
   local cut = shell_quote(opts.base .. "-cut.mp4")
   local log = shell_quote(opts.base .. ".ffmpeg.txt")
-  local audio_in = opts.audio and (" -f s16le -ar 44100 -ac 2 -i " .. pcm) or ""
-  local lines = {
-    "#!/bin/sh",
-    "# 由 agent/record/post.lua 生成: 合成完整版与剪辑版视频. 失败时可以手动重跑.",
-    "trap '' INT HUP TERM",
-    "sleep 1", -- 等游戏退出时编码线程写完最后几帧
-    "ok=1",
-  }
+  local audio_in = with_audio and (" -f s16le -ar 44100 -ac 2 -i " .. shell_quote(opts.base .. ".pcm")) or ""
+  -- 崩溃后画面只到最后一个完整的分片 (约 2 秒一个), 声音每秒落盘, 通常更长; 草稿按短的一方截齐.
+  -- 局末两者等长, 不需要.
+  local shortest = (with_audio and opts.draft) and " -shortest" or ""
+  local lines = {}
   -- 完整版: 画面直接复制, 只编码声音
-  if opts.audio then
+  if with_audio then
     lines[#lines + 1] = ff .. " -i " .. video .. audio_in
-      .. " -map 0:v -map 1:a -c:v copy -c:a aac -b:a 160k -movflags +faststart " .. full .. " 2>>" .. log .. " || ok=0"
+      .. " -map 0:v -map 1:a -c:v copy -c:a aac -b:a 160k" .. shortest .. " -movflags +faststart " .. full
+      .. " 2>>" .. log .. " || ok=0"
   else
     lines[#lines + 1] = ff .. " -i " .. video .. " -c copy -movflags +faststart " .. full .. " 2>>" .. log .. " || ok=0"
   end
@@ -61,34 +66,98 @@ function M.script(opts)
   else
     local graph = "[0:v]select='" .. expr .. "',setpts=N/FRAME_RATE/TB[v]"
     local maps = " -map '[v]'"
-    if opts.audio then
+    if with_audio then
       local samples = math.floor(44100 / opts.fps + 0.5)
       graph = graph .. ";[1:a]asetnsamples=n=" .. samples .. ":p=0,aselect='" .. expr .. "',asetpts=N/SR/TB[a]"
-      maps = maps .. " -map '[a]' -c:a aac -b:a 160k"
+      maps = maps .. " -map '[a]' -c:a aac -b:a 160k" .. shortest
     end
     lines[#lines + 1] = ff .. " -i " .. video .. audio_in .. " -filter_complex " .. shell_quote(graph) .. maps
       .. " " .. opts.codec_args .. " -pix_fmt yuv420p -r " .. opts.fps .. " -movflags +faststart " .. cut
       .. " 2>>" .. log .. " || ok=0"
   end
-  lines[#lines + 1] = "if [ $ok = 1 ]; then"
+  return lines
+end
+
+--- 生成合成脚本.
+--- audio: true/false 在生成时确定; "auto" 在运行时按 .pcm 是否非空决定 (草稿用, 写脚本时录音还没结束).
+---@param opts {ffmpeg: string, codec_args: string, base: string, fps: integer, audio: boolean|"auto", cuts: table, draft: boolean?}
+---@return string script
+function M.script(opts)
+  local video = shell_quote(opts.base .. ".video.mp4")
+  local pcm = shell_quote(opts.base .. ".pcm")
+  local log = shell_quote(opts.base .. ".ffmpeg.txt")
+  local lines = { "#!/bin/sh" }
+  if opts.draft then
+    lines[#lines + 1] = "# bb-post: draft"
+    lines[#lines + 1] = "# 由 agent/record/post.lua 在录制中写出, 游戏崩溃时用于补做合成: sh <本文件> [--clean]."
+    lines[#lines + 1] = "# 剪辑版只剪掉写出时已确定的区间. 默认保留中间文件, 带 --clean 且全部成功时删除."
+  else
+    lines[#lines + 1] = "# bb-post: final"
+    lines[#lines + 1] = "# 由 agent/record/post.lua 在局末写出并运行: 合成完整版与剪辑版视频. 失败时可以手动重跑."
+    lines[#lines + 1] = "trap '' INT HUP TERM"
+    lines[#lines + 1] = "sleep 1" -- 等游戏退出时编码线程写完最后几帧
+  end
+  lines[#lines + 1] = "ok=1"
+  if opts.audio == "auto" then
+    lines[#lines + 1] = "if [ -s " .. pcm .. " ]; then"
+    for _, line in ipairs(commands(opts, true)) do
+      lines[#lines + 1] = "  " .. line
+    end
+    lines[#lines + 1] = "else"
+    for _, line in ipairs(commands(opts, false)) do
+      lines[#lines + 1] = "  " .. line
+    end
+    lines[#lines + 1] = "fi"
+  else
+    for _, line in ipairs(commands(opts, opts.audio == true)) do
+      lines[#lines + 1] = line
+    end
+  end
+  -- 草稿只在显式要求时清理: 录制中被误执行也不会删掉还在写的中间文件
+  lines[#lines + 1] = opts.draft and "if [ $ok = 1 ] && [ \"${1:-}\" = --clean ]; then" or "if [ $ok = 1 ]; then"
   lines[#lines + 1] = "  rm -f " .. video .. " " .. pcm .. " \"$0\""
-  lines[#lines + 1] = "  [ -s " .. log .. " ] || rm -f " .. log
   lines[#lines + 1] = "fi"
+  lines[#lines + 1] = "[ $ok = 1 ] && { [ -s " .. log .. " ] || rm -f " .. log .. "; }"
+  lines[#lines + 1] = "[ $ok = 1 ]"
   return table.concat(lines, "\n") .. "\n"
 end
 
---- 写出脚本并在后台运行. 用 perl 的 setsid 脱离游戏的进程组, 终端里按 Ctrl-C 或关掉游戏都不会打断它.
+--- 写出 <base>.post.sh (先写临时文件再 rename), 不运行.
 ---@param opts table 同 M.script
----@return boolean ok
+---@return string? path
 ---@return string? err
-function M.spawn(opts)
+function M.write(opts)
   local path = opts.base .. ".post.sh"
-  local file, err = io.open(path, "wb")
+  local tmp = path .. ".tmp"
+  local file, err = io.open(tmp, "wb")
   if not file then
-    return false, tostring(err)
+    return nil, tostring(err)
   end
   file:write(M.script(opts))
   file:close()
+  local renamed, rename_err = os.rename(tmp, path)
+  if not renamed then
+    os.remove(tmp)
+    return nil, tostring(rename_err)
+  end
+  return path
+end
+
+--- 写出局末脚本 (覆盖草稿) 并在后台运行. 用 perl 的 setsid 脱离游戏的进程组,
+--- 终端里按 Ctrl-C 或关掉游戏都不会打断它.
+---@param opts table 同 M.script, draft 被忽略
+---@return boolean ok
+---@return string? err
+function M.spawn(opts)
+  local final = {}
+  for k, v in pairs(opts) do
+    final[k] = v
+  end
+  final.draft = false
+  local path, err = M.write(final)
+  if not path then
+    return false, err
+  end
   local quoted = shell_quote(path)
   local detach = "if command -v perl >/dev/null 2>&1; then "
     .. "perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV' /bin/sh " .. quoted .. " </dev/null >/dev/null 2>&1 & "

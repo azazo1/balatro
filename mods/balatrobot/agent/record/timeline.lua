@@ -64,6 +64,22 @@ function Timeline:sync_cuts(cuts, wall)
   self.data.duration = { full = round(wall), cut = round(wall - cuts.removed), removed = round(cuts.removed) }
 end
 
+--- 重算 wall 不早于 from 的事件在剪辑版里的时间. 暂停期间记下的事件当时剪辑区间还没确定,
+--- 恢复 (或结束) 后用它改正.
+---@param cuts table record/cuts 实例
+---@param from number 墙钟时间
+function Timeline:refresh_cut(cuts, from)
+  for _, event in ipairs(self.data.events) do
+    if event.wall >= from then
+      event.cut = round(cuts:cut_time(event.wall))
+    end
+    if event.wall_end and event.wall_end >= from then
+      event.cut_end = round(cuts:cut_time(event.wall_end))
+    end
+  end
+  self.dirty = true
+end
+
 --- 写入文件. force 为 false 时最多每 FLUSH_INTERVAL 秒写一次.
 ---@param now number love.timer 时间
 ---@param force boolean?

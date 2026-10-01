@@ -68,6 +68,11 @@ replay file pacing="tight": dist-modded
     # 退出码: 0 回放完成, 1 跑偏, 2 中止, 3 文件无法回放
     dist/macos/Balatro-Modded.app/Contents/MacOS/love 2>&1 | tee "$log"
 
+# just macos recordings-recover [--run] [--clean] [录像目录]
+# 扫描 recordings/ 里崩溃后残留的中间文件并补做合成, 默认只列出, --run 执行, --clean 成功后删中间文件.
+recordings-recover *args:
+    {{ python }} scripts/recordings_recover.py {{ args }}
+
 # 用指定 png 作为应用图标打包, 例如: just macos icon 图标.png
 icon path:
     {{ python }} scripts/package_macos.py --icon {{ path }}

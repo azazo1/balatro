@@ -1,6 +1,10 @@
 -- 录制剪辑点与消息的单元测试, 用 luajit 在仓库根目录运行: just test-agent
 local Cuts = dofile("mods/balatrobot/agent/record/cuts.lua")
 local Post = dofile("mods/balatrobot/agent/record/post.lua")
+package.preload.json = function() -- 时间线只在 flush 时用到, 测试不写文件
+  return { encode = function() return "{}" end }
+end
+local Timeline = dofile("mods/balatrobot/agent/record/timeline.lua")
 local Toast = dofile("mods/balatrobot/agent/toast.lua")
 
 local failures = 0
@@ -19,6 +23,39 @@ end
 
 local function new_cuts()
   return Cuts.new({ pre = 0.5, post = 1, min_gap = 1.5 })
+end
+
+local function write_file(path, content)
+  local f = assert(io.open(path, "wb"))
+  f:write(content)
+  f:close()
+end
+
+local function read_file(path)
+  local f = io.open(path, "rb")
+  if not f then
+    return ""
+  end
+  local s = f:read("*a")
+  f:close()
+  return s
+end
+
+local function exists(path)
+  local f = io.open(path, "rb")
+  if f then
+    f:close()
+  end
+  return f ~= nil
+end
+
+-- 在墙钟时间 w 记一个操作事件 (按当时的剪辑区间算剪辑版时间), 操作在 30.5 结束
+local function timeline_with_event(cuts, w)
+  local tl = Timeline.new("/nonexistent/timeline.json", {})
+  local event = tl:event(w, cuts:cut_time(w), "action", {})
+  event.wall_end = 30.5
+  event.cut_end = cuts:cut_time(30.5)
+  return { tl = tl, event = event }
 end
 
 -- 以 0.1 秒为步长, 在 [from, to) 内每一步都标记活动
@@ -68,6 +105,67 @@ do -- 剪辑版的 select 表达式: 半开区间, 与 cut_time 一致
   check("没有剪辑区间时不需要表达式", Post.keep_expr({}) == nil)
   local expr = Post.keep_expr({ { start = 2, stop = 4 }, { start = 6.5, stop = 8 } })
   check("select 表达式", expr == "not(gte(t,2.000)*lt(t,4.000)+gte(t,6.500)*lt(t,8.000))", expr)
+end
+
+do -- 暂停: 期间的活动不算, 整段按等待剪掉; 期间记下的事件在恢复后改正剪辑版时间
+  local c = new_cuts()
+  active(c, 0, 2)
+  c:pause(2)
+  local during = timeline_with_event(c, 10)
+  active(c, 2, 30) -- 暂停期间的手动操作, 动画等
+  c:resume(30)
+  active(c, 30, 31)
+  check("暂停段被剪掉", #c.list == 1 and near(c.list[1].start, 3) and near(c.list[1].stop, 29.5),
+    #c.list .. " " .. tostring(c.list[1] and (c.list[1].start .. "~" .. c.list[1].stop)))
+  during.tl:refresh_cut(c, 2)
+  check("暂停期间的事件对应剪辑点", near(during.event.cut, 3), tostring(during.event.cut))
+  check("暂停期间开始的操作, 结束时间也改正", near(during.event.cut_end, 30.5 - 26.5), tostring(during.event.cut_end))
+
+  local c2 = new_cuts()
+  active(c2, 0, 2)
+  active(c2, 2, 30)
+  check("不暂停时同样的活动不剪", #c2.list == 0, tostring(#c2.list))
+end
+
+do -- 草稿脚本不删中间文件 (带 --clean 才删), 局末脚本成功后删; 声音在运行时按 .pcm 是否为空决定
+  local dir = os.tmpname()
+  os.remove(dir)
+  assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
+  -- 假的 ffmpeg: 记下参数, 创建最后一个参数 (输出文件)
+  local fake = dir .. "/ffmpeg"
+  write_file(fake, '#!/bin/sh\necho "$*" >> "' .. dir .. '/calls.txt"\nfor a; do last=$a; done\necho x > "$last"\n')
+  os.execute("chmod +x '" .. fake .. "'")
+  local base = dir .. "/run"
+  local opts = { ffmpeg = fake, codec_args = "-c:v libx264", base = base, fps = 30, audio = "auto",
+    cuts = { { start = 2, stop = 4 } }, draft = true }
+  local function reset()
+    write_file(base .. ".video.mp4", "v")
+    write_file(base .. ".pcm", "")
+    os.remove(base .. "-full.mp4")
+    os.remove(dir .. "/calls.txt")
+  end
+
+  reset()
+  local path = assert(Post.write(opts))
+  local ok = os.execute("/bin/sh '" .. path .. "'") == 0
+  check("草稿脚本合成成功", ok and exists(base .. "-full.mp4"))
+  check("草稿脚本默认保留中间文件与脚本", exists(base .. ".video.mp4") and exists(path))
+  check("pcm 为空时不混声音", not read_file(dir .. "/calls.txt"):find("s16le", 1, true))
+
+  reset()
+  write_file(base .. ".pcm", "\0\0\0\0")
+  os.execute("/bin/sh '" .. path .. "' --clean")
+  check("pcm 非空时混入声音", read_file(dir .. "/calls.txt"):find("s16le", 1, true) ~= nil)
+  check("草稿脚本带 --clean 时删除中间文件", not exists(base .. ".video.mp4") and not exists(path))
+
+  reset()
+  opts.draft = false
+  opts.audio = false
+  path = assert(Post.write(opts))
+  os.execute("/bin/sh '" .. path .. "'")
+  check("局末脚本成功后删除中间文件", exists(base .. "-full.mp4") and not exists(base .. ".video.mp4") and not exists(path))
+
+  os.execute("rm -rf '" .. dir .. "'")
 end
 
 do -- 消息截断按 UTF-8 字符, 不切断多字节字符

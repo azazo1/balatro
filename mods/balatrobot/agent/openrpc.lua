@@ -1,4 +1,4 @@
--- 把本仓库新增的接口写进 rpc.discover 返回的 OpenRPC 文档: notify 方法, 以及各方法的可选 reason 参数.
+-- 把本仓库新增的接口写进 rpc.discover 返回的 OpenRPC 文档: notify 等方法, 手册查询方法, 以及各方法的可选 reason 参数.
 
 local json = require("json")
 
@@ -71,6 +71,212 @@ local CONTINUE = {
   errors = { { ["$ref"] = "#/components/errors/InvalidState" } },
 }
 
+-- 手册查询: 4 个只读方法, 任何状态与弹窗期间都可调用. 实现见 agent/knowledge/.
+local KNOWLEDGE_TAG = { name = "knowledge", description = "游戏手册查询 (docs/game/ 的规则, 机制与卡牌目录), 只读" }
+local KNOWLEDGE_ERRORS = {
+  { ["$ref"] = "#/components/errors/BadRequest" },
+  { ["$ref"] = "#/components/errors/InternalError" },
+}
+local STRINGS = { type = "array", items = { type = "string" } }
+
+local DOCS_INDEX = {
+  name = "docs_index",
+  summary = "列出游戏手册的文件与按决策查阅表",
+  description = "游戏手册是本版本 (1.0.1n) 的规则, 机制与卡牌目录, 以源码为准. 查规则前先调用 docs_index 看目录: "
+    .. "返回每个文件的路径, 标题和行数, 以及 README 的 \"按决策查阅\" 表 (guide), 按当前要做的决策挑文件读. "
+    .. "手册不存在 (未经打包直接运行 game/) 时返回 InternalError.",
+  tags = { KNOWLEDGE_TAG },
+  params = {},
+  result = {
+    name = "docs_index",
+    schema = {
+      type = "object",
+      properties = {
+        files = {
+          type = "array",
+          items = {
+            type = "object",
+            properties = {
+              path = { type = "string", description = "相对手册根目录的路径, 例如 rules/scoring.md" },
+              title = { type = "string", description = "一级标题" },
+              lines = { type = "integer" },
+            },
+            required = { "path", "title", "lines" },
+          },
+        },
+        guide = { type = "string", description = "README 的 \"按决策查阅\" 表 (markdown)" },
+        hint = { type = "string", description = "用法提示" },
+      },
+      required = { "files" },
+    },
+  },
+  errors = { { ["$ref"] = "#/components/errors/InternalError" } },
+}
+
+local DOCS_READ = {
+  name = "docs_read",
+  summary = "读取手册文件, 带行号, 按章节或分页",
+  description = "读取一个手册文件, 内容每行形如 \"行号: 文本\". 超过 300 行的大文件不带 section 或 offset 时只返回大纲 "
+    .. "(outline, 每行 \"行号: # 标题 {#锚点}\"), 先看大纲再按 section 读需要的一节. section 可以写标题文字 (全文或唯一的子串), "
+    .. "也可以写锚点 id, 例如 cards/jokers.md 的 j-blueprint; path 也可以直接写成 \"cards/jokers.md#j-blueprint\". "
+    .. "单次最多 200 行或约 8KB, 没读完时返回 next_offset, 带同样的 path/section 和 offset=next_offset 接着读. "
+    .. "内容里的 [文字](<路径#锚点>) 是手册内的链接, 路径可直接传给 docs_read; \"文字 (路径)\" 形式的是手册以外的源码位置, 读不到. "
+    .. "按卡牌 id 或名称查询时优先用 lookup.",
+  tags = { KNOWLEDGE_TAG },
+  params = {
+    {
+      name = "path",
+      required = true,
+      description = "相对手册根目录的路径 (来自 docs_index 或文中链接), 可带 #锚点. 不接受 .. 与绝对路径",
+      schema = { type = "string", minLength = 1 },
+    },
+    {
+      name = "section",
+      required = false,
+      description = "标题文字或锚点 id. 子串匹配到多个标题时报错并列出候选",
+      schema = { type = "string", minLength = 1 },
+    },
+    {
+      name = "offset",
+      required = false,
+      description = "起始行号, 从 1 开始; 带 section 时须在该节范围内",
+      schema = { type = "integer", minimum = 1 },
+    },
+    {
+      name = "limit",
+      required = false,
+      description = "最多读取的行数, 默认且最多 200",
+      schema = { type = "integer", minimum = 1, maximum = 200 },
+    },
+  },
+  result = {
+    name = "docs_read",
+    schema = {
+      type = "object",
+      properties = {
+        path = { type = "string" },
+        title = { type = "string" },
+        total_lines = { type = "integer" },
+        section = {
+          type = "object",
+          description = "命中的章节 (带 section 时)",
+          properties = {
+            title = { type = "string" },
+            line = { type = "integer" },
+            end_line = { type = "integer" },
+          },
+        },
+        outline = { type = "string", description = "只返回大纲时出现, 此时没有 content" },
+        hint = { type = "string" },
+        start_line = { type = "integer" },
+        end_line = { type = "integer" },
+        content = { type = "string", description = "带行号的内容" },
+        next_offset = { type = "integer", description = "没读完时下一次的 offset" },
+      },
+      required = { "path", "title", "total_lines" },
+    },
+  },
+  errors = KNOWLEDGE_ERRORS,
+}
+
+local DOCS_SEARCH = {
+  name = "docs_search",
+  summary = "在手册里搜索子串",
+  description = "纯子串搜索, 不区分英文大小写 (不是正则, 不分词). 结果每条形如 \"路径:行号: 内容\", 过长的行只保留命中附近. "
+    .. "找到位置后用 docs_read 的 offset 读上下文. 可用 path 限定文件或目录 (例如 mechanics). "
+    .. "truncated 为 true 表示还有更多命中, 缩小 path 或换更具体的词.",
+  tags = { KNOWLEDGE_TAG },
+  params = {
+    { name = "query", required = true, schema = { type = "string", minLength = 1 } },
+    {
+      name = "path",
+      required = false,
+      description = "限定文件或目录, 相对手册根目录",
+      schema = { type = "string", minLength = 1 },
+    },
+    {
+      name = "limit",
+      required = false,
+      description = "最多返回的条数, 默认 20, 最多 100",
+      schema = { type = "integer", minimum = 1, maximum = 100 },
+    },
+  },
+  result = {
+    name = "docs_search",
+    schema = {
+      type = "object",
+      properties = {
+        query = { type = "string" },
+        matches = STRINGS,
+        total = { type = "integer", description = "命中总数" },
+        truncated = { type = "boolean" },
+      },
+      required = { "query", "matches", "total", "truncated" },
+    },
+  },
+  errors = KNOWLEDGE_ERRORS,
+}
+
+local LOOKUP = {
+  name = "lookup",
+  summary = "按 id 或名称查卡牌与对象",
+  description = "按内部 id (例如 j_blueprint, c_fool, v_overstock_norm), 中文名或英文名 (不区分大小写) 查小丑, 消耗牌, 优惠券, "
+    .. "牌组, 标签, 补充包, 盲注, 增强, 版本, 蜡封, 赌注, 贴纸和挑战. 每个 key 返回精简记录: 名称, 类别, 稀有度 (小丑), 基价, "
+    .. "中文卡面效果, 能否被蓝图复制 (小丑), 目录位置 doc (可传给 docs_read), 以及 mechanics/ 文档中提到这个 id 的行. "
+    .. "卡面效果不一定完整反映实现, 以 mechanics 行为准; 方括号是需要从当前局读取的动态值. "
+    .. "同名对象 (例如 4 个外观不同的秘术包) 都会返回; 找不到时 cards 为空并给出候选. 一次最多 30 个 key.",
+  tags = { KNOWLEDGE_TAG },
+  params = {
+    {
+      name = "keys",
+      required = true,
+      description = "id, 中文名或英文名的数组",
+      schema = { type = "array", items = { type = "string" }, minItems = 1, maxItems = 30 },
+    },
+  },
+  result = {
+    name = "lookup",
+    schema = {
+      type = "object",
+      properties = {
+        results = {
+          type = "array",
+          description = "与 keys 一一对应",
+          items = {
+            type = "object",
+            properties = {
+              key = { type = "string" },
+              cards = {
+                type = "array",
+                items = {
+                  type = "object",
+                  properties = {
+                    id = { type = "string" },
+                    name_zh = { type = "string" },
+                    name_en = { type = "string" },
+                    category = { type = "string", description = "Joker, Tarot, Planet, Spectral, Voucher, Back, Tag, Booster, Blind, Enhanced, Edition, Seal, Stake, Other, Challenge" },
+                    rarity = { type = "string", enum = { "普通", "罕见", "稀有", "传奇" }, description = "只有小丑有" },
+                    base_cost = { type = "integer", description = "原型基价, 不是实际售价" },
+                    effect_zh = { type = "string", description = "中文卡面效果, 连成一行" },
+                    blueprint_compat = { type = "boolean", description = "只有小丑有" },
+                    doc = { type = "string", description = "目录中的位置, 例如 cards/jokers.md#j-blueprint" },
+                    mechanics = STRINGS,
+                  },
+                  required = { "id", "category" },
+                },
+              },
+              candidates = { type = "array", items = { type = "string" }, description = "找不到时名称相近的候选" },
+            },
+            required = { "key", "cards" },
+          },
+        },
+      },
+      required = { "results" },
+    },
+  },
+  errors = KNOWLEDGE_ERRORS,
+}
+
 -- 没有弹窗时字段不出现 (Lua 的 nil 不会被编码).
 local OVERLAY = {
   type = "string",
@@ -96,6 +302,10 @@ function M.extend(spec_text, passive)
   table.insert(spec.methods, NOTIFY)
   table.insert(spec.methods, ENDLESS)
   table.insert(spec.methods, CONTINUE)
+  table.insert(spec.methods, DOCS_INDEX)
+  table.insert(spec.methods, DOCS_READ)
+  table.insert(spec.methods, DOCS_SEARCH)
+  table.insert(spec.methods, LOOKUP)
   local schemas = spec.components and spec.components.schemas
   if schemas and schemas.GameState and schemas.GameState.properties then
     schemas.GameState.properties.overlay = OVERLAY

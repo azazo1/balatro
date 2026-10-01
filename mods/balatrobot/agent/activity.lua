@@ -24,6 +24,11 @@ M.PASSIVE = {
   ["gamestate"] = true,
   ["rpc.discover"] = true,
   ["screenshot"] = true,
+  -- 手册查询只读, 不算活动, 也不能清掉弹窗期间挂起的原请求 (见 overlay.lua).
+  ["docs_index"] = true,
+  ["docs_read"] = true,
+  ["docs_search"] = true,
+  ["lookup"] = true,
 }
 
 ---@type table<string, function[]>

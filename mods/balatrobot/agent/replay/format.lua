@@ -21,6 +21,10 @@ local NOT_RECORDED = {
   ["gamestate"] = true,
   ["rpc.discover"] = true,
   ["screenshot"] = true,
+  ["docs_index"] = true,
+  ["docs_read"] = true,
+  ["docs_search"] = true,
+  ["lookup"] = true,
 }
 
 ---@param method string

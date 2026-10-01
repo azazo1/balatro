@@ -27,6 +27,11 @@ local ALLOWED = {
   ["menu"] = true,
   ["endless"] = true,
   ["continue"] = true,
+  -- 手册查询, 只读
+  ["docs_index"] = true,
+  ["docs_read"] = true,
+  ["docs_search"] = true,
+  ["lookup"] = true,
 }
 
 -- continue 等原请求结果的上限, 超时后返回当前状态.

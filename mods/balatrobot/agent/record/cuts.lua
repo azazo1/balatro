@@ -6,6 +6,8 @@
 - 活动由调用方判断: agent 请求处理中, 通知在屏幕上, 动画还没停下.
 - 活动结束 (动画完全停下) 后再保留 post 秒, 下一次活动前提前 pre 秒开始保留, 中间的部分剪掉.
 - 剪掉的部分不足 min_gap 秒时不剪, 避免画面频繁跳动.
+- 暂停期间 (pause 到 resume) 的 mark 一律忽略, 这一段按等待处理, 与 agent 思考时的等待一样剪掉
+  (前后各留 post/pre). 完整版不受影响.
 ]]
 
 local Cuts = {}
@@ -19,13 +21,17 @@ function Cuts.new(opts)
     min_gap = opts.min_gap,
     last = 0, -- 最近一次活动的墙钟时间
     removed = 0, -- 已确定剪掉的总时长
+    paused = false,
     list = {}, -- {start, stop}, 墙钟时间, 按时间顺序
   }, Cuts)
 end
 
---- 在墙钟时间 w 标记活动. 距上次活动足够久时, 中间的部分记为一个剪辑区间.
+--- 在墙钟时间 w 标记活动. 距上次活动足够久时, 中间的部分记为一个剪辑区间. 暂停期间忽略.
 ---@param w number
 function Cuts:mark(w)
+  if self.paused then
+    return
+  end
   local start, stop = self.last + self.post, w - self.pre
   if stop - start >= self.min_gap then
     self.list[#self.list + 1] = { start = start, stop = stop }
@@ -54,7 +60,21 @@ function Cuts:cut_time(w)
   return w - removed
 end
 
---- 录制结束: 末尾的等待也剪掉 (只保留 post).
+--- 在墙钟时间 w 暂停: 这一刻算作活动, 之后的 mark 忽略, 直到 resume.
+---@param w number
+function Cuts:pause(w)
+  self:mark(w)
+  self.paused = true
+end
+
+--- 在墙钟时间 w 恢复: 这一刻算作活动, 暂停的那一段在这里确定为剪辑区间.
+---@param w number
+function Cuts:resume(w)
+  self.paused = false
+  self:mark(w)
+end
+
+--- 录制结束: 末尾的等待也剪掉 (只保留 post). 暂停中结束时, 暂停的部分同样剪掉.
 ---@param w number 结束时的墙钟时间
 function Cuts:finish(w)
   local start = self.last + self.post

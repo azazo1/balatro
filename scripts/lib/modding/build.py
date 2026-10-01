@@ -17,7 +17,7 @@ import re
 import shutil
 from dataclasses import dataclass, field
 
-from .. import log
+from .. import layout, log
 from . import loader, metadata, targets
 from .patches import (Outcome, PatchError, apply_all, ordered_for_target, rust_lines,
                       rust_trim)
@@ -33,6 +33,13 @@ LOVELY_VERSION = "0.10.0"
 MANIFEST_FORMAT = 1
 # 标记目录由本工具生成, 允许下次构建时整体替换.
 TREE_MARKER = ".lovely-shim-tree"
+
+# 游戏手册: 复制进 balatrobot mod 的 knowledge/ 目录, 供 docs_read 等方法查询.
+# 范围与 mods/balatrobot/agent/knowledge/docs.lua 的 ROOT_FILES / DIR_ORDER 一致, 不含开发文档.
+KNOWLEDGE_SOURCE = os.path.join(layout.ROOT_DIR, "docs", "game")
+KNOWLEDGE_MOD = "balatrobot"
+KNOWLEDGE_DIR = "knowledge"
+KNOWLEDGE_ITEMS = ("README.md", "rules", "mechanics", "cards", "data/README.md", "data/catalog.json")
 
 _SENTINEL_RE = re.compile(rb"@@LOVELY_SHIM_MOD_DIR_[0-9]+@@")
 _TEXT_EXTS = (".lua", ".toml", ".json", ".txt", ".fs", ".vs", ".glsl", ".frag", ".vert", ".md")
@@ -135,6 +142,39 @@ def bundle_hash(mods_root, files):
     return digest.hexdigest()
 
 
+def copy_knowledge(source, mods_root):
+    """把游戏手册复制进 balatrobot mod 的 knowledge/, 返回复制的文件数.
+
+    只在 balatrobot mod 存在时复制. 复制发生在计算清单之前, 手册文件随 mod 一起释放并计入 bundle_hash.
+    手册里的 data/catalog.json 在 mod 目录下第 4 层, Steamodded 扫描 mod 元数据只到第 3 层, 不会被当成 mod.
+    """
+    mod_dir = os.path.join(mods_root, KNOWLEDGE_MOD)
+    if not os.path.isdir(mod_dir):
+        log.debug("没有 %s mod, 不复制游戏手册" % KNOWLEDGE_MOD)
+        return 0
+    if not os.path.isdir(source):
+        raise PatchError("找不到游戏手册目录: %s" % source)
+    dest_root = os.path.join(mod_dir, KNOWLEDGE_DIR)
+    if os.path.exists(dest_root):
+        raise PatchError("%s mod 里已有 %s 目录, 与打包的游戏手册冲突" % (KNOWLEDGE_MOD, KNOWLEDGE_DIR))
+    count = 0
+    for item in KNOWLEDGE_ITEMS:
+        src = os.path.join(source, *item.split("/"))
+        dest = os.path.join(dest_root, *item.split("/"))
+        if os.path.isdir(src):
+            # 只复制内容, 不带源文件的权限位 (仓库里个别文件是 0600)
+            shutil.copytree(src, dest, ignore=loader._ignore, copy_function=shutil.copyfile)
+            count += len(list_files(dest))
+        elif os.path.isfile(src):
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            shutil.copyfile(src, dest)
+            count += 1
+        else:
+            raise PatchError("游戏手册缺少 %s" % item)
+    log.info("复制游戏手册 %d 个文件到 %s/%s" % (count, KNOWLEDGE_MOD, KNOWLEDGE_DIR))
+    return count
+
+
 # ---------------------------------------------------------------- 报告
 
 @dataclass
@@ -197,8 +237,12 @@ def _module_entries(patches):
     return entries
 
 
-def build_tree(game_dir, mods_dir, out_dir, identity, build_version, strict=False):
-    """在 out_dir 生成带 mod 的游戏源码树, 返回 Report. out_dir 必须不存在."""
+def build_tree(game_dir, mods_dir, out_dir, identity, build_version, strict=False,
+               knowledge_dir=KNOWLEDGE_SOURCE):
+    """在 out_dir 生成带 mod 的游戏源码树, 返回 Report. out_dir 必须不存在.
+
+    knowledge_dir 为游戏手册目录, 复制进 balatrobot mod; 为 None 时不复制.
+    """
     if os.path.exists(out_dir):
         raise PatchError("输出目录已存在: %s" % out_dir)
     report = Report()
@@ -217,6 +261,8 @@ def build_tree(game_dir, mods_dir, out_dir, identity, build_version, strict=Fals
     report.mods = [s.folder for s in sources]
     if not sources:
         log.warn("mod 目录里没有任何 mod")
+    if knowledge_dir is not None:
+        copy_knowledge(knowledge_dir, mods_root)
 
     patches, variables = loader.load_patches(sources)
     report.patches = len(patches)

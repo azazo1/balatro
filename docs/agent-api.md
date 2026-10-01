@@ -9,11 +9,13 @@ JSON-RPC 2.0 over HTTP 接口, 外部程序 (agent, 脚本) 可以读取完整�
 | 方式 | 做法 | 存档 | 游戏设置 |
 | --- | --- | --- | --- |
 | 终端启动 | `just macos run-agent`, 默认正常速度并录像, 见下方 "录制" | 独立的 `Balatro-Agent` 目录 | 跳过教程, 其余沿用存档 |
-| 游戏内开关 | Mods > BalatroBot > Config, 打开 Enable Agent API | 当前存档 | 不改 |
+| 游戏内切换 | 模组 > BalatroBot > 配置, agent 模式选 "外部" | 当前存档 | 不改 |
 
-- 游戏内开关可以随时切换, 状态保存在存档目录的 `config/balatrobot.jkr`, 下次启动沿用.
+- agent 模式三选一: 关闭, 外部 (本文的 HTTP 接口), 内置 (游戏内直接连接大模型, 见 [builtin-agent.md](<builtin-agent.md>)).
+  外部与内置互斥, 两者之间要经过关闭; 内置 agent 运行中不能切换.
+- 模式可以随时切换, 保存在存档目录的 `config/balatrobot.jkr`, 下次启动沿用.
 - 配置页会显示监听地址和状态 (`listening` / `off` / `bind failed`), 还有决策消息的开关和录制状态.
-- 终端启动时, 开关界面仍显示存档里保存的值, 实际状态以 Status 为准.
+- 终端启动 (`BALATROBOT_ENABLE=1`) 时模式锁定为外部, 模式按钮变灰, 不写回配置.
 - 终端启动时画面, 开场动画, 声音, 游戏速度都沿用存档, 与正常游玩一样. 下面的环境变量只在本次运行
   生效, 不会写回存档:
 
@@ -107,8 +109,50 @@ MENU -> BLIND_SELECT -> SELECTING_HAND -> ROUND_EVAL -> SHOP -+
 
 完整的参数和返回结构:
 
-- 调用 `rpc.discover` 取得 OpenRPC 描述, 基于 `mods/balatrobot/src/lua/utils/openrpc.json`, 加上本仓库新增的 `notify` 与 `reason`.
+- 调用 `rpc.discover` 取得 OpenRPC 描述, 基于 `mods/balatrobot/src/lua/utils/openrpc.json`, 加上本仓库新增的
+  `notify`, `endless`, `continue`, 手册查询 4 个方法与 `reason`.
 - upstream 文档: <https://coder.github.io/balatrobot/api/>
+
+## 手册查询
+
+`docs_index`, `docs_read`, `docs_search`, `lookup` 查询随 mod 打包的游戏手册, 内容是 `docs/game/` 的 README,
+`rules/`, `mechanics/`, `cards/`, `data/`. 这 4 个方法只读, 任何游戏状态和弹窗期间都能调用, 不算 agent 活动,
+也不写进回放文件.
+
+用法: 先 `docs_index` 看目录, 大文件先读大纲再按 `section` 读; 按卡牌 id 或名称查询时直接用 `lookup`.
+
+```shell
+just agent-call lookup '{"keys":["j_blueprint","蓝色小丑"]}'
+just agent-call docs_read '{"path":"cards/jokers.md","section":"j-blueprint"}'
+just agent-call docs_search '{"query":"xmult","path":"mechanics"}'
+```
+
+| 方法 | 参数 | 返回 |
+| --- | --- | --- |
+| `docs_index` | 无 | `{files: [{path, title, lines}], guide, hint}`, `guide` 是 README "按决策查阅" 表 |
+| `docs_read` | `path`, 可选 `section`, `offset`, `limit` | `{path, title, total_lines, section?, start_line, end_line, content, next_offset?}` |
+| `docs_search` | `query`, 可选 `path`, `limit` | `{query, matches: ["路径:行号: 内容"], total, truncated}` |
+| `lookup` | `keys`: id, 中文名或英文名的数组 | `{results: [{key, cards: [...], candidates?}]}`, 与 `keys` 一一对应 |
+
+- `docs_read`:
+  - `path` 相对手册根目录, 可以带 `#锚点`, 不接受 `..` 和绝对路径.
+  - `section` 可以写锚点 id (例如 `j-blueprint`), GitHub 风格的标题链接, 标题全文或唯一的标题子串.
+    匹配到多个标题时返回 `BAD_REQUEST`, 错误信息里列出候选.
+  - `content` 每行形如 `行号: 文本`. 单次最多 200 行或 8KB, 没读完时带 `next_offset`,
+    用同样的 `path`/`section` 加 `offset` 接着读.
+  - 超过 300 行的文件不带 `section`/`offset` 时, 只返回 `{path, title, total_lines, outline, hint}`,
+    `outline` 每行形如 `行号: ### 标题 {#锚点}`.
+- `docs_search`: 纯子串, 英文不区分大小写. `path` 可以是文件或目录 (例如 `mechanics`). `limit` 默认 20, 最多 100.
+  过长的行只保留命中位置附近约 200 字节.
+- `lookup`: 最多 30 个 key, 名称不区分大小写, 忽略空格和标点. 同名对象全部返回, 最多 8 个.
+  - 每张卡的字段: `id`, `name_zh`, `name_en`, `category`, `rarity` (只有小丑有), `base_cost`, `effect_zh`,
+    `blueprint_compat` (只有小丑有), `doc` (目录位置, 可以直接传给 `docs_read`), `mechanics` (`mechanics/` 中提到这个 id 的行, 最多 5 条).
+  - 找不到时 `cards` 为空数组, `candidates` 给出最多 5 个 "id 中文名 / 英文名".
+  - 覆盖卡牌, 修饰和挑战, 不包括扑克牌和牌型. `catalog.json` 只供 `lookup` 使用, 不能用 `docs_read` 读.
+- 链接: 返回内容里 `[文字](<路径#锚点>)` 形式的是手册内链接, 路径可以直接传给 `docs_read`.
+  `文字 (路径)` 形式的是手册以外的源码位置, 读不到.
+- 直接用 `game/` 运行 (没有打包) 时没有手册, 调用返回 `INTERNAL_ERROR`. 开发时可以设 `BALATROBOT_KNOWLEDGE_DIR`
+  指向仓库的 `docs/game/`.
 
 ## 决策消息
 
@@ -149,8 +193,13 @@ just macos run-agent on 1     # 10 倍速, 仅在需要时使用
 
 - 一局从开局 (或读档) 开始, 到回主菜单, 开下一局或退出为止. 游戏结束后停留在结算界面的部分也会录.
 - 输出在仓库根目录的 `recordings/`. 两份视频在局末由后台进程生成, 一般几秒到十几秒, 游戏可以继续玩或退出.
-  ffmpeg 的报错在同名 `.ffmpeg.txt`. 生成失败时留下中间文件 `.video.mp4`, `.pcm` 和脚本 `.post.sh`,
-  可以 `sh <文件名>.post.sh` 重跑. 每次启动的游戏日志 (含崩溃信息) 在 `recordings/<启动时间>-game.log`.
+  ffmpeg 的报错在同名 `.ffmpeg.txt`. 每次启动的游戏日志 (含崩溃信息) 在 `recordings/<启动时间>-game.log`.
+- 录制中只写中间文件: `.video.mp4` (约 2 秒一个分片, 写完即落盘), `.pcm` (每秒落盘) 和合成脚本 `.post.sh`.
+  脚本开局时就写出, 剪辑区间变多时更新, 局末换成最终版并运行, 成功后删除中间文件.
+- 游戏崩溃时画面最多丢约 2 秒, 声音约 1 秒. `just macos recordings-recover` 列出残留的局, 加 `--run` 补做合成
+  (剪辑版只剪掉崩溃前已确定的区间, 结尾的等待不剪), 再加 `--clean` 在成功后删除中间文件.
+  游戏在运行时, 中间文件 30 秒内还在变化的局会跳过. 局末合成失败时同样保留中间文件, 用同一条命令或
+  `sh <文件名>.post.sh` 重跑.
 - 剪辑版保留的部分: agent 请求处理中, 决策消息在屏幕上, 状态变化, 手动操作, 以及之后动画完全停下之前
   (发牌, 计分, 翻牌等). 每段前留 0.6 秒, 动画停下后留 0.8 秒, 中间的等待剪掉; 不足 1.5 秒的停顿不剪.
   只查询状态和截图的请求 (`gamestate`, `health`, `screenshot`, `rpc.discover`) 不算活动.
@@ -198,12 +247,15 @@ JSON 的时间都是秒. `wall` 为开局起的实际时间, 即完整版里的�
 | --- | --- |
 | `cuts` | 剪辑版去掉的区间, `start`/`stop` 为完整版里的时间, `at` 为剪辑版里对应的剪辑点 |
 | `duration.removed` | 剪掉的总时长 |
-| `result.reason` | 结束原因: `menu`, `restart` (开了下一局), `quit` |
+| `result.reason` | 结束原因: `menu`, `restart` (开了下一局), `quit`, `stop` (内置 agent 停止) |
+| `result.paused` | 暂停中结束时为 true |
+| `pause`, `resume` | 内置 agent 暂停与恢复, 带 `reason`. 两者之间在剪辑版里剪掉, 期间事件的 `cut` 为对应的剪辑点 |
 | `action` | agent 的操作, `wall_end`/`cut_end` 为操作完成的时间, 失败时带 `error` |
 | `message` | `notify` 发的消息 (`reason` 已记在对应的 `action` 里) |
 | `blind` | 进入盲注 |
 | `state` | 进入选盲注, 结算, 商店, 卡包等状态, 带 `ante`, `round`, `money` |
 | `game_over`, `won`, `run_end` | 游戏结束, 打过第 8 底注, 录制结束 |
+| `run_start` | 录制开始. 同一局里重新开一段时带 `reason` |
 
 ## 回放
 

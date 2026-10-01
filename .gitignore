@@ -19,4 +19,8 @@ dist/
 __pycache__/
 *.pyc
 
+# bbnet 原生库的编译目录与复制进 mod 的产物
+/native/bbnet/target/
+/mods/balatrobot/native/
+
 .DS_Store

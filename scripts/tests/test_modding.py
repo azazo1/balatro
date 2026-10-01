@@ -194,6 +194,39 @@ class BuildTreeTest(unittest.TestCase):
         with self.assertRaises(PatchError):
             build.build_tree(self.game, self.mods, os.path.join(self.tmp.name, "out"), None, "t")
 
+    def build_with_knowledge(self, name, knowledge):
+        out = os.path.join(self.tmp.name, name)
+        build.build_tree(self.game, self.mods, out, None, "t", knowledge_dir=knowledge)
+        return out
+
+    def test_knowledge_copied_into_balatrobot_and_hashed(self):
+        knowledge = os.path.join(self.tmp.name, "docs-game")
+        for rel in ("README.md", "rules/a.md", "mechanics/b.md", "cards/c.md",
+                    "data/README.md", "data/catalog.json"):
+            self.write(knowledge, rel, "x\n")
+        self.write(knowledge, "sources.md", "dev only\n")
+        self.write(self.mods, "Demo/main.lua", "\n")
+
+        # 没有 balatrobot mod 时不复制
+        out = self.build_with_knowledge("out0", knowledge)
+        self.assertFalse(os.path.exists(os.path.join(out, "lovely_shim/mods/Demo/knowledge")))
+
+        self.write(self.mods, "balatrobot/balatrobot.lua", "\n")
+        out = self.build_with_knowledge("out1", knowledge)
+        files = build.list_files(os.path.join(out, "lovely_shim/mods/balatrobot/knowledge"))
+        self.assertEqual(files, ["README.md", "cards/c.md", "data/README.md", "data/catalog.json",
+                                 "mechanics/b.md", "rules/a.md"])
+        manifest = self.read(out, "lovely_shim/manifest.lua")
+        self.assertIn('"balatrobot/knowledge/data/catalog.json"', manifest)
+
+        # 手册内容变化时 bundle_hash 随之变化, 运行时才会重新释放
+        def hash_of(tree):
+            text = self.read(tree, "lovely_shim/manifest.lua")
+            return text.split('["bundle_hash"] = "', 1)[1].split('"', 1)[0]
+        self.write(knowledge, "rules/a.md", "y\n")
+        out2 = self.build_with_knowledge("out2", knowledge)
+        self.assertNotEqual(hash_of(out), hash_of(out2))
+
 
 if __name__ == "__main__":
     unittest.main()
