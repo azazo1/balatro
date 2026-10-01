@@ -18,8 +18,10 @@ local FLUSH_INTERVAL = 3
 
 local M = {}
 
-local deps = {} -- activity, recorder, overlay, gamestate, format, snapshot, game_version, mod_version
+local deps = {} -- activity, recorder, overlay, gamestate, format, snapshot, game_version, mod_version, replaying
 local log = nil -- 当前一局
+local pending = nil -- 开局时录像还没开始的一段, 见 M.update 里的补写
+local PENDING_LIMIT = 2 -- 等录像段出现的时间上限
 
 local function now()
   return love.timer.getTime()
@@ -109,8 +111,15 @@ end
 ---@param resumed_save string? 读档开局时序列化的存档
 ---@param snap table 开局前取的存档进度
 local function begin(resumed_save, snap)
+  if deps.replaying and deps.replaying() then
+    -- 回放自己的一局不再写回放文件 (录制仍然照常).
+    return
+  end
   local session = deps.recorder.current()
   if not session then
+    -- 录像段还没开始: 游戏内回放是运行中才打开录制的, 录制器装的 start_run 钩子在最外层, 它的录像段
+    -- 要等真正的 start_run 返回之后才建立, 这里会先跑. 记下来, 由 M.update 在短时间里补上.
+    pending = { resumed_save = resumed_save, snap = snap, until_at = now() + PENDING_LIMIT }
     return
   end
   local game = G.GAME or {}
@@ -243,6 +252,17 @@ end
 
 function M.update()
   flush(false)
+  if not pending then
+    return
+  end
+  if deps.recorder.current() then
+    local waiting = pending
+    pending = nil
+    begin(waiting.resumed_save, waiting.snap)
+  elseif now() > pending.until_at then
+    sendWarnMessage("录像没有开始, 这一局不写回放文件", LOGGER)
+    pending = nil
+  end
 end
 
 return M

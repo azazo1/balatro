@@ -56,10 +56,12 @@ function M.capture()
   }
 end
 
---- 恢复到当前档位. 只在回放的临时存档里调用.
+--- 恢复到当前档位.
 ---@param snap table
+---@param opts {write_notify: boolean?}? write_notify 为 false 时不写待弹的解锁通知文件 (游戏内回放用,
+---  回放期间不落盘, 磁盘上原有的通知文件保持原样)
 ---@return string[] warnings
-function M.apply(snap)
+function M.apply(snap, opts)
   local warnings = {}
   local profile_num = G.SETTINGS.profile or 1
 
@@ -91,13 +93,15 @@ function M.apply(snap)
     profile[k] = v
   end
 
-  -- 待显示的解锁通知, 与原局开局时相同
-  love.filesystem.createDirectory(tostring(profile_num))
-  local notify_path = profile_num .. "/unlock_notify.jkr"
-  if snap.unlock_notify ~= "" then
-    compress_and_save(notify_path, snap.unlock_notify)
-  else
-    love.filesystem.remove(notify_path)
+  -- 待显示的解锁通知, 与原局开局时相同. 游戏内回放不写盘 (写入本身就丢弃, 磁盘上的文件保持原样).
+  if opts == nil or opts.write_notify ~= false then
+    love.filesystem.createDirectory(tostring(profile_num))
+    local notify_path = profile_num .. "/unlock_notify.jkr"
+    if snap.unlock_notify ~= "" then
+      compress_and_save(notify_path, snap.unlock_notify)
+    else
+      love.filesystem.remove(notify_path)
+    end
   end
 
   for key, value in pairs(snap.settings or {}) do

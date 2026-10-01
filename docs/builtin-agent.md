@@ -50,9 +50,10 @@ loop 留在 Lua 里, 因为动作本来就在游戏的 Lua 里执行, 调用动�
 
 - agent 模式.
 - 内置模式的配置: endpoint, 模型名, 鉴权方式 (Bearer 或 `x-api-key`, 默认 Bearer), key.
+- 防失控: 单局 token 上限, 默认不限; 赢下一局之后回主菜单并停止, 还是继续无尽模式.
 - 录像: 开关, 保留方式 (skip/keep), 分辨率和帧率. Android 没有环境变量, 只能在这里设置. 桌面端设置了 `BALATROBOT_RECORD*` 环境变量时以环境变量为准.
-- 防失控: 单局 token 上限, 默认不限.
-- 状态行: 外部模式显示监听地址, 内置模式显示 loop 状态和最近一次错误.
+  开关与保留方式改完立刻生效; 分辨率与帧率下一次启动才生效.
+- 状态行: 外部模式显示监听地址, 内置模式显示 loop 状态和最近一次错误, 以及录像与回放的当前状态.
 - 原有的消息显示开关.
 
 输入: 原版文本框的字符表里没有 `/`, 并且会把 `0` 改成 `o`, URL 和 key 输不进去. 因此 endpoint, key 和模型名都用 "从剪贴板粘贴" 按钮输入, 读取 `love.system.getClipboardText()`. key 在界面上只显示掩码.
@@ -345,6 +346,26 @@ Android:
 
 命令行回放仍然以退出码结束进程.
 
+实现:
+
+| 文件 | 职责 |
+|---|---|
+| `agent/replay/library.lua` | 扫描 `*.replay.json`, 解析列表字段, 判断能不能回放, 缓存与分页 |
+| `agent/replay/session.lua` | 等存档线程写完, 装上写入拦截, 结束后读回进度与设置 |
+| `agent/replay/player.lua` | 两种入口共用的回放驱动, 游戏内以回调结束而不是退出进程 |
+| `agent/replay/input_lock.lua` | 输入锁, 中止的按住时长与进度 |
+| `agent/ui/replay_menu.lua` | 选项菜单里的回放入口, 列表页与确认页 |
+
+- 列表用 `SMODS.NFS` 按目录取一次信息 (`getDirectoryItemsInfo`), 只解析文件名, 大小与修改时间有变化的
+  文件; 解析出的 `snapshot` 与 `actions` 不留着, 真正开始时由 player 重新读一遍文件.
+- 写入拦截换的是 `G.SAVE_MANAGER.channel` 与全局的 `compress_and_save`, 不碰录像输出 (录像不走存档写入).
+  读档开局的临时存档文件在这里放行并登记, 结束时删掉.
+- 恢复分两步: 先 `load_profile` 从磁盘读回当前档位 (磁盘没被改动, 读到的就是回放前的状态), 再按开始前
+  取的内存快照把解锁, 发现, 累计数据与设置放回去. 这两步都在拦截还装着的时候做, 期间游戏标脏的保存请求
+  会被丢掉, 之后才按恢复后的状态落盘.
+- 互斥: 回放期间 `BB_REPLAY.active` 为真, mode 的 `apply()` 因此停掉外部监听并锁定切换; 内置 loop 的
+  `can_start` 也据此拒绝启动. 开始前若内置 loop 在运行, 确认页的开始按钮不可点.
+
 ## Android
 
 ### 存储位置
@@ -358,19 +379,35 @@ Android:
 
 所以不需要迁移.
 
-外部工具看不到内容, 是权限问题, 不是位置问题:
+外部工具看不到内容, 是权限问题, 不是位置问题. 真机 (小米 23013RK75C, Android 14) 上查清的三件事:
 
-- PhysicsFS 建目录用 0700, 建文件用 0600, 没有组权限.
-- 系统给 `Android/data` 下的内容用 `ext_data_rw` 组管理访问. 其他应用的目录是 0770/2770, 文件是 0660.
-- MT 管理器, adb shell 这类工具靠这个组权限读取, 因此只能看到一个空的 `save/`.
+1. PhysicsFS 建目录用 0700, 建文件用 0600, 组位全是 0; 而且它的 mkdir 不补父目录, 新装的包第一次
+   启动时 `files/save` 还不存在, 存档目录直接建失败 (日志 `Could not create save directory`),
+   于是连存档目录都没有.
+2. 应用的 umask 是 `0077`, 所以自己 mkdir 时请求的组位同样会被削掉 (`2770` 落成 `2700`); chmod 本身
+   有效, 所以先 mkdir 再 chmod 是可行的. chmod 只能改 mode, 改不了属组.
+3. 应用建的条目属组是应用自己 (`u0_aXXX`), 而系统给 `Android/data/<包名>` 与 vold 建的内容用的属组是
+   `ext_data_rw`. adb shell, MT 管理器这类工具都在 `ext_data_rw` 组里, 所以属组不匹配时, 0660 的组位
+   对它们没有意义; 而且普通应用不在 `ext_data_rw` 组里, `chown` 到该组会 `EPERM`.
 
-`game/android_storage.lua` 负责补上组权限 (目录 2770, 文件 0660), 时机有三个:
+`game/android_storage.lua` 因此做三件事:
+
+- 缺的目录层级补建 (`mkdir` 逐级), 再 chmod, 让 PhysicsFS 的存档目录能建成功.
+- 补权限: 目录 2770, 文件 0660; 每次都先试把属组改成从 `Android/data/<包名>` 读出来的
+  `ext_data_rw`; 改不动就用 other 位兜底 (目录 0777, 文件 0666). 兜底在真机上让 `settings.jkr` 等
+  存档能被 adb shell 读到, 而 `Android/data/<包名>` 本身由系统的 FUSE 拦着: 能进来读的只有本应用,
+  adb shell 和有存储权限的文件管理器.
+- 修正存档目录与包目录之间那几级 (`files`, `save`, 存档目录本身): 它们很少被写, 扫描 (从存档目录
+  往下) 够不到, 不修的话外部工具连进都进不去.
+
+时机有三个:
 
 - 存档目录确定时, 整棵树扫一遍.
 - 主线程经 `love.filesystem` 写入之后, 立即修正.
 - 失去焦点或切到后台时, 再扫一遍.
 
-有一个例外: 内置 agent 的配置文件含 key, 写入后要改回 0600, 不给组权限.
+有一个例外: 内置 agent 的配置文件含 key, 写入后要改回 0600, 不给组权限也不给 other 位, 兜底时同样
+不参与 (`PRIVATE_FILES`). 真机上核对过: 目录可以被 shell 进入, `config/balatrobot.jkr` 的内容读不到.
 
 要求所有写入都经过存档目录, 不写应用内部目录:
 
@@ -386,8 +423,10 @@ Android:
 
 安全: key 以明文存在外部存储.
 
-- 配置文件保持 0600, MT 管理器这类靠组权限的工具读不到.
+- 配置文件保持 0600, 靠组权限的 MT 管理器读不到 (真机已核对).
 - Android 10 及以前, 有存储权限的应用可能仍能读到.
+- 存档, 录像与回放文件没有秘密, 兜底时是 other 可读可写; 但能进到 `Android/data/<包名>` 的工具本来
+  就只有本应用, adb shell 和有存储权限的文件管理器.
 
 设置页要注明这一点.
 
@@ -435,16 +474,25 @@ Android:
 进度:
 
 - 1~3 已实现, 有单测, 未在游戏里实际运行过 (界面外观, F9, 流式条位置, 真实模型请求都待实机验证).
+- 4 已实现: 主菜单 选项 -> 回放 (列表, 确认页, 存档写入拦截, 结束收尾) 在 `agent/replay/library.lua`,
+  `agent/replay/session.lua`, `agent/replay/player.lua` 与 `agent/ui/replay_menu.lua`; 列表的解析, 缓存,
+  分页有单测. 界面外观和真机上的长按中止待验证.
 - 5 完成了一部分: `bbnet` 的 arm64-v8a 交叉编译与 APK 打包 (`just android dist-modded` 已验证 .so 进入
   `lib/arm64-v8a/`), 切到后台自动暂停, 运行中防熄屏. armeabi-v7a 缺 rust target; 真机上的触摸流程未验证.
-- 4 和 6 未开始.
+- 6 未开始.
+
+录制器的开关与文件名前缀改成运行时可设 (`agent/record/recorder.lua` 的 `set_enabled` / `set_prefix`):
+游戏内回放选了录像时按 `replay-` 前缀录, 结束或开始失败时回滚. 录像本来关着时, 这一步才装载编码相关的
+模块并挂上钩子; 回放文件 (`<stem>.replay.json`) 由 `agent/replay/log.lua` 补写, 因为录制器的开局钩子在这种
+情况下装得比它晚, 开局那一刻录像段还没建立.
 
 每一步同步更新 [agent-api.md](<agent-api.md>) 和 AGENTS.md. 测试只覆盖关键逻辑: SSE 分帧, tool call 累积, 手册的路径校验与分页, 错误分类, 回放期间的存档写入拦截.
 
 ## 待定与待核实
 
 - 是否适配 Responses API. OpenAI 的 reasoning summary 只在 Responses API 里返回, 走 chat completions 拿不到.
-- 内置 agent 赢下一局后的默认处理: 先按回主菜单并停止实现 (配置 `after_win`, 可设 `endless`), 待 user 确认.
+- 内置 agent 赢下一局后的默认处理: 默认回主菜单并停止, 设置页可以改成继续无尽模式 (`after_win`).
+  命令行与自动化场景没有界面, 就用配置文件的默认值.
 - 顶部居中的流式条在商店和补充包界面是否被原版 UI 占用, 实现后截图确认.
 - 桌面的 `libbbnet.dylib` 在 `mods/balatrobot/native/macos/` 下, 随 mod 进入所有平台的包 (APK 里多约 1.4MB).
   按平台剔除要同时改 mod 清单与 bundle hash, 暂不处理.
@@ -452,5 +500,11 @@ Android:
 - 手机上逐帧读回画面的性能能否撑住 540p 24fps, 需要真机测试.
 - 回放时是否重现内置 agent 的思考流. 转录带时间戳, original 节奏可以原样重放; tight 节奏要压缩时间.
 - 在桌面录下的回放文件拿到 Android 上能否得到同样的结果 (游戏和 mod 版本相同的前提下).
-- `load_profile` 重新读档后, 内存里被回放改过的部分是否全部恢复, 要逐项核对 (解锁, 发现, profile, 待弹解锁通知).
-- `android_storage.lua` 失去焦点时的补扫: 切到后台时 SDL 会不会先把失去焦点的事件交给主循环, 再挂起; 以及 MT 管理器在只有组权限时能否读到, 需要真机确认.
+- 游戏内回放结束后的恢复只做了两级 (从磁盘重读档位 + 放回开始前的内存快照), 内存里还有哪些被回放改过的
+  部分没覆盖到, 要逐项核对 (解锁, 发现, profile, 待弹解锁通知, 存档线程里排队的请求).
+- 游戏内回放的触发路径要求 `G.E_MANAGER` 在开局期间能跑完 (回放的 `start` 走端点, 等状态完成),
+  在手机上触摸开局时是否同样顺利, 需要真机确认.
+- `android_storage.lua` 失去焦点时的补扫: 切到后台时 SDL 会不会先把失去焦点的事件交给主循环, 再挂起,
+  还没核实. 权限本身已在真机上核对过 (adb shell 能进存档目录并读到 `settings.jkr`; MT 管理器在只有
+  组权限时的读取仍未实测). SDL 在 Android 上把存档线程的写入放在 `files/save/<存档名>` 下, 这些文件
+  由扫描补权限.

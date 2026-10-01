@@ -40,7 +40,10 @@ just windows dist-modded     # 打包 dist/windows/Balatro-Modded-<版本>-win64
 
 想沿用原版进度, 把原版存档目录里的内容拷过去即可. 注意 Android 原版的存档目录名是 `game`
 (`.../com.azazo1.balatro/files/save/game`), 不是 `Balatro`, 见 README 的 "存档" 一节.
-两个版本都由 `game/android_storage.lua` 给存档目录补组权限, 可以用文件管理器直接拷贝.
+两个版本都由 `game/android_storage.lua` 处理存档目录的权限与补建, 可以用文件管理器直接拷贝:
+目录 2770, 文件 0660, 属组尽量改成 `ext_data_rw` (普通应用不在该组里, 改不动就退回 other 位),
+含内置 agent 密钥的 `config/balatrobot.jkr` 始终 0600. 细节与真机核实过的现象见
+[builtin-agent.md](<builtin-agent.md>) 的 "Android" 一节.
 
 首次启动时, 包内的 mod 会释放到存档目录的 `Mods/` 下, Steamodded 从这里读取它们, mod 的配置
 也写在这里. 之后只在包内 mod 变化时重新释放. 与包内 mod 同名的文件夹会被覆盖, 其余文件夹不动,

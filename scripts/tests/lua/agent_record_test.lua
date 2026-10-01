@@ -165,6 +165,17 @@ do -- 草稿脚本不删中间文件 (带 --clean 才删), 局末脚本成功后
   os.execute("/bin/sh '" .. path .. "'")
   check("局末脚本成功后删除中间文件", exists(base .. "-full.mp4") and not exists(base .. ".video.mp4") and not exists(path))
 
+  -- 保留方式为 keep: 合成成功也留着中间文件, 只删脚本自身
+  reset()
+  opts.keep = true
+  path = assert(Post.write(opts))
+  os.execute("/bin/sh '" .. path .. "'")
+  check(
+    "keep 时保留中间文件",
+    exists(base .. "-full.mp4") and exists(base .. ".video.mp4") and exists(base .. ".pcm") and not exists(path)
+  )
+  opts.keep = nil
+
   os.execute("rm -rf '" .. dir .. "'")
 end
 

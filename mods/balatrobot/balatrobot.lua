@@ -122,7 +122,10 @@ local GAME_VERSION = manifest_ok and type(manifest) == "table" and manifest.buil
 local MOD_VERSION = MOD.version .. " / smods " .. tostring(SMODS.version)
 local REPLAY_FORMAT = assert(SMODS.load_file("agent/replay/format.lua"))()
 local REPLAY_SNAPSHOT = assert(SMODS.load_file("agent/replay/snapshot.lua"))()
+local REPLAY_SESSION = assert(SMODS.load_file("agent/replay/session.lua"))()
 BB_REPLAY = assert(SMODS.load_file("agent/replay/player.lua"))()
+BB_REPLAY_LIBRARY = assert(SMODS.load_file("agent/replay/library.lua"))()
+REPLAY_SESSION.init({ recorder = BB_RECORDER, toast = BB_TOAST, snapshot = REPLAY_SNAPSHOT })
 
 -- 顺序: 回放的 start_run 钩子要在录制之内 (先改好 seeded 再开始录制);
 -- 回放文件的钩子在录制之外 (开局前取存档进度); 输入锁在所有输入钩子之外.
@@ -133,8 +136,10 @@ BB_REPLAY.init_early({
   gamestate = BB_GAMESTATE,
   recorder = BB_RECORDER,
   toast = BB_TOAST,
+  stream = BB_STREAM,
   format = REPLAY_FORMAT,
   snapshot = REPLAY_SNAPSHOT,
+  session = REPLAY_SESSION,
   input_lock = assert(SMODS.load_file("agent/replay/input_lock.lua"))(),
   game_version = GAME_VERSION,
   mod_version = MOD_VERSION,
@@ -144,13 +149,14 @@ BB_RECORDER.init({
   toast = BB_TOAST,
   mod_path = MOD.path,
   config_enabled = MOD.config.record == true,
+  config_keep = MOD.config.record_keep,
 })
 -- 流式条在屏幕上时和决策消息一样算作活动, 剪辑版不剪掉.
 BB_RECORDER.add_activity_source(function()
   return BB_STREAM.active()
 end)
--- 回放文件与录像同名, 只在录制时写; 回放本身不再写回放文件.
-if BB_RECORDER.enabled and not BB_REPLAY.active then
+-- 回放文件与录像同名, 只在录制时写; 回放自己的一局不写回放文件 (录制器运行中才打开时, 由 log.lua 补上).
+if not BB_REPLAY.active then
   BB_REPLAY_LOG = assert(SMODS.load_file("agent/replay/log.lua"))()
   BB_REPLAY_LOG.init({
     activity = BB_ACTIVITY,
@@ -160,6 +166,9 @@ if BB_RECORDER.enabled and not BB_REPLAY.active then
     snapshot = REPLAY_SNAPSHOT,
     game_version = GAME_VERSION,
     mod_version = MOD_VERSION,
+    replaying = function()
+      return BB_REPLAY.active == true
+    end,
   })
 end
 BB_REPLAY.init_late()
@@ -339,6 +348,23 @@ BB_AGENT_MENU.init({
   runner = BB_RUNNER,
   stream = BB_STREAM,
   toast = BB_TOAST,
+  widgets = WIDGETS,
+})
+-- 主菜单 选项 -> 回放: 列表, 确认页, 存档隔离与结束收尾.
+BB_REPLAY_MENU = assert(SMODS.load_file("agent/ui/replay_menu.lua"))()
+BB_REPLAY_MENU.init({
+  mod = MOD,
+  agent_menu = BB_AGENT_MENU,
+  runner = BB_RUNNER,
+  mode = BB_MODE,
+  recorder = BB_RECORDER,
+  replay = BB_REPLAY,
+  session = REPLAY_SESSION,
+  library = BB_REPLAY_LIBRARY,
+  snapshot = REPLAY_SNAPSHOT,
+  format = REPLAY_FORMAT,
+  toast = BB_TOAST,
+  stream = BB_STREAM,
   widgets = WIDGETS,
 })
 

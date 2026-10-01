@@ -44,8 +44,11 @@ local Cuts, Timeline, Audio, Post -- 在 init 中加载
 
 local M = {
   enabled = false,
+  ready = false,
   status = "off",
 }
+
+local setup_done = false
 
 local cfg = {}
 local deps = {} -- activity, toast, mod_path
@@ -61,6 +64,18 @@ local activity_sources = {} -- 额外的活动来源, 见 M.add_activity_source
 
 local function now()
   return love.timer.getTime()
+end
+
+--- 通知存档目录的权限模块修正一个路径 (Android 上用; 别的平台或模块不在时什么都不做).
+--- 录像的输出与合成都不走 love.filesystem 的写包装 (编码线程, 后台脚本), 所以要单独通知一次;
+--- 之后仍由失去焦点时的整树扫描兜底.
+---@param path string
+local function fix_permissions(path)
+  local ok, storage = pcall(require, "android_storage")
+  if not ok or type(storage) ~= "table" or type(storage.fix_path) ~= "function" then
+    return
+  end
+  pcall(storage.fix_path, path)
 end
 
 local function env_number(name, default)
@@ -497,6 +512,7 @@ local function start_session(resumed, reason)
     won = game.won or false,
     draft_cuts = 0, -- 上次写草稿脚本时的剪辑区间数
   }
+  fix_permissions(base)
   log_event(session, "run_start", { resumed = resumed, reason = reason })
   if paused then
     pause_session(session, "carried")
@@ -532,6 +548,7 @@ local function start_session(resumed, reason)
         codec_args = codec_args(cfg.codec, cfg.fps, false),
         base = base,
         fps = cfg.fps,
+        keep = cfg.keep,
       }
     else
       sendErrorMessage("Failed to start encoder: " .. tostring(thread), LOGGER)
@@ -795,23 +812,18 @@ end
 
 ---@param options {activity: table, toast: table, mod_path: string, config_enabled: boolean?}
 --- config_enabled: 设置页的录像开关. 设了 BALATROBOT_RECORD 环境变量时以环境变量为准 (Android 没有环境变量).
-function M.init(options)
-  deps = options
-  local mode = os.getenv("BALATROBOT_RECORD")
-  local wanted
-  if mode ~= nil and mode ~= "" then
-    wanted = ENABLE_VALUES[mode] == true
-  else
-    wanted = options.config_enabled == true
+--- 装载模块, 定下输出参数, 装全局钩子. 录像本来关着但游戏内回放要录一段时, 由 M.set_enabled 调用.
+---@return boolean ok 可以录制
+local function setup()
+  if setup_done then
+    return M.ready
   end
-  if not wanted then
-    M.status = "off"
-    return
-  end
+  setup_done = true
   if BB_SETTINGS.headless or BB_SETTINGS.render_on_api then
     M.status = "unavailable (headless/render_on_api)"
     sendWarnMessage("Recording disabled: headless and render_on_api modes have no frames to capture", LOGGER)
-    return
+    M.ready = false
+    return false
   end
 
   Cuts = assert(SMODS.load_file("agent/record/cuts.lua"))()
@@ -823,25 +835,25 @@ function M.init(options)
   cfg.height = math.floor(env_number("BALATROBOT_RECORD_HEIGHT", 720))
   cfg.pre = env_number("BALATROBOT_RECORD_PRE", 0.6)
   cfg.post = env_number("BALATROBOT_RECORD_POST", 0.8)
-  -- 文件名前缀, 回放时为 "replay-", 与原局的录像区分.
+  -- 文件名前缀, 回放时为 "replay-", 与原局的录像区分 (游戏内回放用 M.set_prefix 设定).
   cfg.prefix = (os.getenv("BALATROBOT_RECORD_PREFIX") or ""):gsub("[^%w%-_]", "")
   local dir = os.getenv("BALATROBOT_RECORD_DIR")
   cfg.dir = (dir and dir ~= "") and dir:gsub("/+$", "") or (love.filesystem.getSaveDirectory() .. "/recordings")
   local created, err = SMODS.NFS.createDirectory(cfg.dir)
+  if created then
+    fix_permissions(cfg.dir)
+  end
   if not created then
     M.status = "unavailable (output dir)"
     sendErrorMessage("Recording disabled: " .. tostring(err), LOGGER)
-    return
+    M.ready = false
+    return false
   end
   cfg.ffmpeg = find_ffmpeg()
   if cfg.ffmpeg then
     cfg.codec = pick_codec(cfg.ffmpeg)
   end
-  M.enabled = true
-  M.status = cfg.ffmpeg and "on" or "on, ffmpeg not found (json only)"
-  if not cfg.ffmpeg then
-    sendWarnMessage("ffmpeg not found, recording writes timeline JSON only. Set BALATROBOT_FFMPEG to its path", LOGGER)
-  end
+  M.ready = true
 
   love.graphics.setCanvas = wrapped_set_canvas
 
@@ -911,7 +923,7 @@ function M.init(options)
 
   sendInfoMessage(
     string.format(
-      "Recording enabled: %d fps, height %d, padding %.1f/%.1fs, dir %s, ffmpeg %s, codec %s",
+      "Recording ready: %d fps, height %d, padding %.1f/%.1fs, dir %s, ffmpeg %s, codec %s",
       cfg.fps,
       cfg.height,
       cfg.pre,
@@ -922,6 +934,89 @@ function M.init(options)
     ),
     LOGGER
   )
+  if not cfg.ffmpeg then
+    sendWarnMessage("ffmpeg not found, recording writes timeline JSON only. Set BALATROBOT_FFMPEG to its path", LOGGER)
+  end
+  return true
+end
+
+---@param options {activity: table, toast: table, mod_path: string, config_enabled: boolean?, config_keep: string?}
+--- config_enabled: 设置页的录像开关. 设了 BALATROBOT_RECORD 环境变量时以环境变量为准 (Android 没有环境变量).
+--- config_keep: 设置页的保留方式, "keep" 时合成成功后保留中间文件. 设了 BALATROBOT_RECORD_KEEP 时以它为准.
+function M.init(options)
+  deps = options
+  local mode = os.getenv("BALATROBOT_RECORD")
+  local wanted
+  if mode ~= nil and mode ~= "" then
+    wanted = ENABLE_VALUES[mode] == true
+  else
+    wanted = options.config_enabled == true
+  end
+  -- 保留方式与是否开启无关, 先记下来, 之后由 M.set_enabled 装载时使用.
+  local keep = os.getenv("BALATROBOT_RECORD_KEEP")
+  if keep == nil or keep == "" then
+    keep = options.config_keep
+  end
+  cfg.keep = keep == "keep"
+  if not wanted then
+    -- 录像关着: 不装载也不挂钩子, 需要时 (游戏内回放选了录像) 由 M.set_enabled 补上.
+    M.status = "off"
+    return
+  end
+  M.set_enabled(true, "startup")
+end
+
+--- 运行时开关录制. 打开时如果启动时判定为关 (或未准备好), 现补上初始化; 关闭时结束当前录像段.
+---@param value boolean
+---@param reason string?
+---@return boolean enabled
+function M.set_enabled(value, reason)
+  value = value and true or false
+  if value then
+    if not setup() then
+      return false
+    end
+    M.enabled = true
+    M.status = cfg.ffmpeg and "on" or "on, ffmpeg not found (json only)"
+    if reason then
+      sendInfoMessage("Recording enabled by " .. reason, LOGGER)
+    end
+    return true
+  end
+  if M.enabled then
+    sendInfoMessage("Recording disabled by " .. tostring(reason or "request"), LOGGER)
+  end
+  M.enabled = false
+  M.status = "off"
+  M.end_segment("disabled")
+  return false
+end
+
+--- 运行时改保留方式: "keep" 时合成成功后保留中间文件. 只影响之后结束的录像段.
+---@param mode string?
+function M.set_keep(mode)
+  cfg.keep = mode == "keep"
+end
+
+---@return boolean
+function M.keep_intermediates()
+  return cfg.keep == true
+end
+
+--- 运行时改输出文件名前缀 (游戏内回放录成 replay-*, 与原局录像区分). 只影响之后开始的录像段.
+---@param prefix string
+function M.set_prefix(prefix)
+  cfg.prefix = tostring(prefix or ""):gsub("[^%w%-_]", "")
+end
+
+---@return string
+function M.get_prefix()
+  return cfg.prefix or ""
+end
+
+---@return boolean 编码相关的模块已装载, 可以录制 (与当前是否开着无关)
+function M.available()
+  return setup_done and M.ready == true
 end
 
 --- 每帧在游戏 update 之后调用.

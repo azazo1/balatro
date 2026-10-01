@@ -80,7 +80,8 @@ end
 
 --- 生成合成脚本.
 --- audio: true/false 在生成时确定; "auto" 在运行时按 .pcm 是否非空决定 (草稿用, 写脚本时录音还没结束).
----@param opts {ffmpeg: string, codec_args: string, base: string, fps: integer, audio: boolean|"auto", cuts: table, draft: boolean?}
+--- keep: true 时合成成功也保留中间文件 (设置页的 "保留方式: keep"), 只删脚本自身.
+---@param opts {ffmpeg: string, codec_args: string, base: string, fps: integer, audio: boolean|"auto", cuts: table, draft: boolean?, keep: boolean?}
 ---@return string script
 function M.script(opts)
   local video = shell_quote(opts.base .. ".video.mp4")
@@ -94,6 +95,9 @@ function M.script(opts)
   else
     lines[#lines + 1] = "# bb-post: final"
     lines[#lines + 1] = "# 由 agent/record/post.lua 在局末写出并运行: 合成完整版与剪辑版视频. 失败时可以手动重跑."
+    if opts.keep then
+      lines[#lines + 1] = "# 保留方式为 keep: 成功后不删中间文件."
+    end
     lines[#lines + 1] = "trap '' INT HUP TERM"
     lines[#lines + 1] = "sleep 1" -- 等游戏退出时编码线程写完最后几帧
   end
@@ -113,10 +117,19 @@ function M.script(opts)
       lines[#lines + 1] = line
     end
   end
-  -- 草稿只在显式要求时清理: 录制中被误执行也不会删掉还在写的中间文件
-  lines[#lines + 1] = opts.draft and "if [ $ok = 1 ] && [ \"${1:-}\" = --clean ]; then" or "if [ $ok = 1 ]; then"
-  lines[#lines + 1] = "  rm -f " .. video .. " " .. pcm .. " \"$0\""
-  lines[#lines + 1] = "fi"
+  -- 草稿只在显式要求时清理: 录制中被误执行也不会删掉还在写的中间文件.
+  -- 局末默认清理; 保留方式为 keep 时只删脚本自身, 中间文件留着供事后重跑.
+  if opts.draft then
+    lines[#lines + 1] = "if [ $ok = 1 ] && [ \"${1:-}\" = --clean ]; then"
+    lines[#lines + 1] = "  rm -f " .. video .. " " .. pcm .. " \"$0\""
+    lines[#lines + 1] = "fi"
+  elseif opts.keep then
+    lines[#lines + 1] = "[ $ok = 1 ] && rm -f \"$0\""
+  else
+    lines[#lines + 1] = "if [ $ok = 1 ]; then"
+    lines[#lines + 1] = "  rm -f " .. video .. " " .. pcm .. " \"$0\""
+    lines[#lines + 1] = "fi"
+  end
   lines[#lines + 1] = "[ $ok = 1 ] && { [ -s " .. log .. " ] || rm -f " .. log .. "; }"
   lines[#lines + 1] = "[ $ok = 1 ]"
   return table.concat(lines, "\n") .. "\n"

@@ -282,9 +282,27 @@ local function mode_column()
         save()
       end, { minw = 1.05, scale = 0.28 }),
     }),
+    W.row({ W.text("赢下一局之后", SCALE) }, { padding = 0.04 }),
+    W.row({
+      W.radio({ { "menu", "回主菜单并停止" }, { "endless", "继续无尽模式" } }, function()
+        return config().after_win
+      end, function(value)
+        config().after_win = value
+        save()
+      end, { minw = 2.2, scale = 0.28 }),
+    }),
     W.row({ W.live(view, "action_note", 0.27, G.C.UI.TEXT_INACTIVE) }),
     W.row({ W.text("endpoint 填 chat completions 的完整地址, 从剪贴板粘贴.", 0.26, G.C.UI.TEXT_INACTIVE) }),
     W.row({ W.text("key 以明文保存在本机存档目录 (config/balatrobot.jkr).", 0.26, G.C.UI.TEXT_INACTIVE) }),
+    W.row({
+      W.text(
+        love._os == "Android"
+            and "Android: 该文件权限为 0600, 靠组权限的文件管理器读不到; Android 10 及以前有存储权限的应用仍可能读到."
+          or "配置文件权限为 0600, 只允许本应用读写.",
+        0.26,
+        G.C.UI.TEXT_INACTIVE
+      ),
+    }),
   }, { minw = COL_W, padding = 0.05 })
 end
 
@@ -296,8 +314,11 @@ local function side_column()
     }
   else
     record_nodes = {
-      toggle("录制对局", "record"),
-      W.row({ W.text("重启游戏后生效", 0.26, G.C.UI.TEXT_INACTIVE) }),
+      toggle("录制对局", "record", function(value)
+        -- 开关立即生效: 打开时补装载编码模块, 关闭时结束当前录像段 (分辨率与帧率仍按启动时的值).
+        deps.recorder.set_enabled(value, "settings")
+      end),
+      W.row({ W.text("分辨率与帧率下次启动生效", 0.26, G.C.UI.TEXT_INACTIVE) }),
     }
   end
   record_nodes[#record_nodes + 1] = W.row({
@@ -306,6 +327,9 @@ local function side_column()
       return config().record_keep
     end, function(value)
       config().record_keep = value
+      if deps.recorder.set_keep then
+        deps.recorder.set_keep(value)
+      end
       save()
     end, { minw = 1.1, scale = SCALE }),
   })

@@ -1,9 +1,13 @@
 --[[
-回放: 用临时存档恢复原局开局时的进度, 以同一个种子开局, 再按顺序重做每一步操作. 游戏照常运行,
-画面, 动画和声音都由游戏自己产生, 录制照常进行. 由 BALATROBOT_REPLAY=<回放文件> 开启,
-用 just macos replay 启动.
+回放: 用同一个种子开局, 恢复原局开局时的存档进度, 再按顺序重做每一步操作. 游戏照常运行,
+画面, 动画和声音都由游戏自己产生, 录制照常进行.
 
-节奏 (BALATROBOT_REPLAY_PACING):
+两种入口:
+- 命令行: 由 BALATROBOT_REPLAY=<回放文件> 开启, 用 just macos replay 启动. 结束后以退出码结束进程.
+- 游戏内: 主菜单的 选项 -> 回放 选一个文件, 见 agent/ui/replay_menu.lua. 存档隔离与收尾交给
+  agent/replay/session.lua (丢弃存档写入, 结束后读回进度并恢复设置), 结束后回调给界面显示结果.
+
+节奏 (BALATROBOT_REPLAY_PACING, 游戏内由确认页选):
 - tight: 上一步完成且动画停下后, 稍等 TIGHT_GAP 秒就做下一步, 去掉原局里 agent 思考的时间.
   讲解 (notify) 仍按阅读时长等.
 - original: 按原局里两步之间的实际间隔回放, 包括思考的时间; 动画没停时也会等它停下.
@@ -14,7 +18,8 @@
 - 胜利界面: Jimbo 出现后再停 WIN_HOLD 秒, 然后按原局的选择 (endless 或 menu) 继续.
 
 每步完成后比对状态摘要, 不一致时在 VERIFY_WINDOW 秒内反复确认, 仍不一致就停止回放, 录像保留到这里.
-回放期间锁定输入, 按住 Esc 1 秒中止. 回放完成退出码为 0, 跑偏为 1, 中止为 2, 文件无法回放为 3.
+回放期间锁定输入, 按住 Esc 1 秒中止 (触摸是长按 1.5 秒). 命令行回放完成退出码为 0, 跑偏为 1,
+中止为 2, 文件无法回放为 3; 游戏内以同样的数字回调给界面, 用来显示结果.
 ]]
 
 local json = require("json")
@@ -24,6 +29,8 @@ local LOGGER = "BB.AGENT.REPLAY"
 local M = {
   active = false,
   status = "off",
+  ---@type "cli"|"ingame"? 游戏内回放时由界面设置
+  entry = nil,
 }
 
 local function env_number(name, default)
@@ -73,10 +80,68 @@ local function toast(title, text, duration)
   end
 end
 
-local function quit_later(code, hold)
+--- 读一个回放文件并校验, 返回内容或中文的不可回放原因.
+---@param path string
+---@return table? data
+---@return string? problem
+local function read_data(path)
+  local file = io.open(path, "rb")
+  local text = file and file:read("*a")
+  if file then
+    file:close()
+  end
+  if not text then
+    return nil, "读不到回放文件 " .. path
+  end
+  local ok, decoded = pcall(json.decode, text)
+  if not ok or type(decoded) ~= "table" or type(decoded.actions) ~= "table" or type(decoded.run) ~= "table" then
+    return nil, "回放文件格式不对"
+  end
+  if decoded.version ~= deps.format.VERSION then
+    return nil, string.format("回放文件版本 %s, 当前只支持 %d", tostring(decoded.version), deps.format.VERSION)
+  end
+  if decoded.run.challenge then
+    return nil, "挑战模式的局不支持回放"
+  end
+  if not decoded.run.resumed and not (decoded.run.deck and decoded.run.stake and decoded.run.seed) then
+    return nil, "只支持原版牌组的局"
+  end
+  return decoded
+end
+
+--- 结束回放: 命令行按退出码结束进程, 游戏内把结果交回界面, 由它收尾.
+local function finish_later(code, hold)
   st.exit_code = code
   st.quit_at = now() + (hold or cfg.end_hold)
   set_phase("ending")
+end
+
+--- 游戏内回放的收尾: 结束录像段, 恢复存档进度与设置, 把结果交给界面.
+---@return string 结果说明
+local function finish_ingame()
+  local code = st.exit_code or 0
+  local result = code == 0 and "完成" or (code == 1 and "跑偏" or "已中止")
+  deps.recorder.end_segment("replay")
+  local warnings = {}
+  if deps.session then
+    for _, text in ipairs(deps.session.finish()) do
+      warnings[#warnings + 1] = text
+    end
+  else
+    sendWarnMessage("没有装载存档隔离, 回放可能改动了磁盘上的存档", LOGGER)
+  end
+  M.active = false
+  M.status = "off"
+  st.phase = "off"
+  local on_finish = deps.on_finish
+  deps.on_finish = nil
+  if on_finish then
+    local ok, err = pcall(on_finish, code, result, warnings)
+    if not ok then
+      sendErrorMessage("Replay finish handler failed: " .. tostring(err), LOGGER)
+    end
+  end
+  return result
 end
 
 local function update_status()
@@ -105,7 +170,7 @@ local function diverge(detail, index)
     method = action and action.method,
     detail = detail,
   })
-  quit_later(1, 6)
+  finish_later(1, 6)
 end
 
 ---@param method string
@@ -169,7 +234,7 @@ local function finish_replay()
   if deps.overlay.kind() == "win" or G.STATE == G.STATES.GAME_OVER then
     hold = hold + cfg.win_hold
   end
-  quit_later(0, hold)
+  finish_later(0, hold)
 end
 
 --- 处理一步的响应.
@@ -335,54 +400,13 @@ local function run_tick(t)
   end
 end
 
----@param options table
-function M.init_early(options)
-  deps = options
-  local path = os.getenv("BALATROBOT_REPLAY")
-  if not path or path == "" then
+--- 开局钩子与响应钩子只装一次, 两种入口共用. 钩子内部都看 data 是否存在, 不激活时没有影响.
+local hooks_installed = false
+local function install_hooks()
+  if hooks_installed then
     return
   end
-  M.active = true
-  st = { phase = "boot", phase_at = now(), index = 1, prev_done = now(), last_busy = now(), reference = 0 }
-
-  local pacing = os.getenv("BALATROBOT_REPLAY_PACING")
-  if pacing == "tight" or pacing == "original" then
-    cfg.pacing = pacing
-  end
-  cfg.unlock_hold = env_number("BALATROBOT_REPLAY_UNLOCK_HOLD", cfg.unlock_hold)
-  cfg.win_hold = env_number("BALATROBOT_REPLAY_WIN_HOLD", cfg.win_hold)
-  cfg.end_hold = env_number("BALATROBOT_REPLAY_END_HOLD", cfg.end_hold)
-  cfg.tight_gap = env_number("BALATROBOT_REPLAY_GAP", cfg.tight_gap)
-
-  local file = io.open(path, "rb")
-  local text = file and file:read("*a")
-  if file then
-    file:close()
-  end
-  local ok, decoded = pcall(json.decode, text or "")
-  local problem
-  if not text then
-    problem = "读不到回放文件 " .. path
-  elseif not ok or type(decoded) ~= "table" or type(decoded.actions) ~= "table" or type(decoded.run) ~= "table" then
-    problem = "回放文件格式不对"
-  elseif decoded.version ~= deps.format.VERSION then
-    problem = string.format("回放文件版本 %s, 当前只支持 %d", tostring(decoded.version), deps.format.VERSION)
-  elseif decoded.run.challenge then
-    problem = "挑战模式的局不支持回放"
-  elseif not decoded.run.resumed and not (decoded.run.deck and decoded.run.stake and decoded.run.seed) then
-    problem = "只支持原版牌组的局"
-  end
-  if problem then
-    sendErrorMessage("Replay unavailable: " .. problem, LOGGER)
-    st.problem = problem
-    data = nil
-  else
-    data = decoded
-    sendInfoMessage(
-      string.format("Replay loaded: %s, %d actions, pacing %s", path, #data.actions, cfg.pacing),
-      LOGGER
-    )
-  end
+  hooks_installed = true
 
   -- 原局没有指定种子时, 回放用同一个种子开局后把 seeded 改回去: 它影响解锁, 发现与界面上的种子框.
   local start_run = Game.start_run
@@ -398,6 +422,41 @@ function M.init_early(options)
       st.result = { ok = ok, error = message, response = response }
     end
   end)
+end
+
+---@param options table
+function M.init_early(options)
+  deps = options
+  install_hooks()
+  local path = os.getenv("BALATROBOT_REPLAY")
+  if not path or path == "" then
+    return
+  end
+  M.active = true
+  M.entry = "cli"
+  st = { phase = "boot", phase_at = now(), index = 1, prev_done = now(), last_busy = now(), reference = 0 }
+
+  local pacing = os.getenv("BALATROBOT_REPLAY_PACING")
+  if pacing == "tight" or pacing == "original" then
+    cfg.pacing = pacing
+  end
+  cfg.unlock_hold = env_number("BALATROBOT_REPLAY_UNLOCK_HOLD", cfg.unlock_hold)
+  cfg.win_hold = env_number("BALATROBOT_REPLAY_WIN_HOLD", cfg.win_hold)
+  cfg.end_hold = env_number("BALATROBOT_REPLAY_END_HOLD", cfg.end_hold)
+  cfg.tight_gap = env_number("BALATROBOT_REPLAY_GAP", cfg.tight_gap)
+
+  local decoded, problem = read_data(path)
+  if problem then
+    sendErrorMessage("Replay unavailable: " .. problem, LOGGER)
+    st.problem = problem
+    data = nil
+  else
+    data = decoded
+    sendInfoMessage(
+      string.format("Replay loaded: %s, %d actions, pacing %s", path, #data.actions, cfg.pacing),
+      LOGGER
+    )
+  end
   update_status()
 end
 
@@ -435,8 +494,11 @@ local function start_run_request()
   -- 先切阶段: start_run 钩子据此判断这次开局是回放发起的.
   set_phase("starting")
   if run.resumed then
-    -- 读档开局: 存档写进临时存档目录, 走 load 方法.
+    -- 读档开局: 把存档写成一个临时文件交给 load, 用完即删 (回放期间写入本身是被丢弃的, 这个文件要放行).
     local name = "replay_resume.jkr"
+    if deps.session then
+      deps.session.allow_temp(name)
+    end
     love.filesystem.write(name, run.save)
     dispatch("load", { path = love.filesystem.getSaveDirectory() .. "/" .. name }, nil, false)
   else
@@ -444,16 +506,79 @@ local function start_run_request()
   end
 end
 
+--- 游戏内开始一次回放. 由 选项 -> 回放 的确认页调用, 此时人在主菜单上.
+---@param options {path: string, pacing: string?, record: boolean?, on_finish: fun(code: integer, result: string, warnings: string[])?, session: table?}
+---@return boolean ok
+---@return string? reason
+function M.start(options)
+  if M.active then
+    return false, "回放已经在进行"
+  end
+  local decoded, problem = read_data(options.path)
+  if problem then
+    return false, problem
+  end
+  cfg.pacing = options.pacing == "original" and "original" or "tight"
+  M.entry = "ingame"
+  deps.on_finish = options.on_finish
+  deps.session = options.session
+  data = decoded
+  st = {
+    phase = "warn",
+    phase_at = now(),
+    index = 1,
+    prev_done = now(),
+    last_busy = now(),
+    reference = 0,
+    warn_until = now(),
+    ingame = true,
+  }
+  -- 回放期间不写盘: 待弹的解锁通知也保持磁盘上的原样, 回放里没有的通知就跳过对应步骤.
+  local ok, result = pcall(deps.snapshot.apply, data.snapshot, { write_notify = false })
+  if not ok then
+    data = nil
+    deps.on_finish = nil
+    return false, "恢复存档进度失败: " .. tostring(result)
+  end
+  local list = warnings()
+  for _, text in ipairs(result or {}) do
+    list[#list + 1] = text
+  end
+  for _, text in ipairs(list) do
+    sendWarnMessage("Replay warning: " .. text, LOGGER)
+    toast("回放警告", text, 4)
+    st.warn_until = st.warn_until + deps.toast.duration_for(text) + 0.5
+  end
+  M.active = true
+  deps.input_lock.install()
+  deps.recorder.annotate("replay", { source = data.source, file = options.path, pacing = cfg.pacing, entry = "ingame" })
+  sendInfoMessage(string.format("游戏内回放开始: %s, %d 步, 节奏 %s", options.path, #data.actions, cfg.pacing), LOGGER)
+  -- 中止方法要在屏幕上说明一次: 桌面按住 Esc 1 秒, 触摸长按 1.5 秒.
+  toast("回放中", "要中止回放: 按住 Esc 1 秒; 触摸时长按屏幕 1.5 秒", deps.toast.duration_for("要中止回放: 按住 Esc 1 秒; 触摸时长按屏幕 1.5 秒"))
+  update_status()
+  return true
+end
+
+--- 中止提示的进度 (0~1), 供流式条显示.
+local function abort_progress()
+  return deps.input_lock.abort_progress and deps.input_lock.abort_progress() or 0
+end
+
 function M.update()
   if not M.active then
     return
   end
   local t = now()
+  local progress = abort_progress()
+  if progress > 0 and st.phase ~= "ending" and st.phase ~= "quit" and deps.stream then
+    -- 按住期间显示进度, 松手后按下一次刷新 (0.3 秒) 收起.
+    deps.stream.show_status(string.format("松开: 中止回放 (%d%%)", math.floor(progress * 100 + 0.5)), 0.3)
+  end
   if deps.input_lock.abort_requested() and st.phase ~= "ending" and st.phase ~= "quit" then
-    sendWarnMessage("Replay aborted by user (Esc)", LOGGER)
-    toast("回放中止", "按住 Esc 中止了回放", 3)
+    sendWarnMessage("Replay aborted by user", LOGGER)
+    toast("回放中止", "用户中止了回放", 3)
     deps.recorder.annotate("replay", { source = data and data.source, pacing = cfg.pacing, ok = false, aborted = true, step = st.index })
-    quit_later(2, 1)
+    finish_later(2, 1)
   end
   if deps.recorder.animating() then
     st.last_busy = t
@@ -469,7 +594,7 @@ function M.update()
     if G.STATE == G.STATES.MENU and G.MAIN_MENU_UI and not G.OVERLAY_MENU and t - st.phase_at > 1 then
       if st.problem then
         toast("无法回放", st.problem, 6)
-        quit_later(3, 6)
+        finish_later(3, 6)
         return
       end
       local ok, result = pcall(deps.snapshot.apply, data.snapshot)
@@ -477,7 +602,7 @@ function M.update()
         st.problem = "恢复存档进度失败: " .. tostring(result)
         sendErrorMessage(st.problem, LOGGER)
         toast("无法回放", st.problem, 6)
-        quit_later(3, 6)
+        finish_later(3, 6)
         return
       end
       local list = warnings()
@@ -520,7 +645,11 @@ function M.update()
     if t >= st.quit_at then
       set_phase("quit")
       deps.input_lock.release()
-      love.event.quit(st.exit_code or 0)
+      if st.ingame then
+        finish_ingame()
+      else
+        love.event.quit(st.exit_code or 0)
+      end
     end
   end
   update_status()
