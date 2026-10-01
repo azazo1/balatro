@@ -114,6 +114,16 @@ chat completions 协议兼容:
 - 回填历史时, 同一条 assistant 消息里同时放 `reasoning_content` 和 `tool_calls`, 只有工具调用时 `content` 为 null. DeepSeek 思考模式下漏回填会返回 400.
 - usage 规范化: 缓存命中同时兼容 `prompt_tokens_details.cached_tokens` 和 `prompt_cache_hit_tokens`.
 
+文本截断 (都走 `agent/text.lua`):
+
+- 请求体里的字符串是原样发出去的 (编码器只转义控制字符, 非 ASCII 字节直接写进请求体). 用 `string.sub`
+  按字节截断时, 切点落在一个汉字中间就会写出非法 UTF-8, 服务端会拒掉**整个**请求并让 agent 停下
+  (实测 400: `invalid unicode code point at line 1 column 22458`, 出现在手册内容超过上限被截断时).
+  因此截断一律按字符边界切 (末尾不留半个字符), 哪一项都一样: 查询结果 (6000 字节, `driver.lua`),
+  错误说明 (120 字节), 服务端返回的错误文本 (300 字节, 也会写进转录, 切一半会让那行 JSONL 不合法).
+- 请求体编码前还有一层兜底: 内容里若出现非法字节 (例如有的卡牌文本来自模组), 换成 U+FFFD, 而不是让
+  服务端拒掉整条请求. 纯 ASCII 直接跳过, 合法文本只扫一遍不重建.
+
 转录与日志:
 
 - 每局写一份 `<录像同名>-agent.jsonl`, 放在录像的那一局文件夹里, 带时间戳, 能和录像的时间轴对上. 不含 key.

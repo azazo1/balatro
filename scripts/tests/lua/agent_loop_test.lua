@@ -7,6 +7,7 @@ local Tools = dofile(DIR .. "tools.lua")
 local Prompt = dofile(DIR .. "prompt.lua")
 local History = dofile(DIR .. "history.lua")
 local Summary = dofile(DIR .. "summary.lua")
+local Text = dofile("mods/balatrobot/agent/text.lua")
 local Driver = dofile(DIR .. "driver.lua")
 
 local failures = 0
@@ -61,6 +62,7 @@ local function harness()
     prompt = Prompt,
     history = History,
     summary = Summary,
+    text = Text,
     json = json,
     now = function()
       return env.t
@@ -455,6 +457,28 @@ do -- 只有解说没有动作时, 下一轮不重复附状态
   env.settle()
   local msgs = env.requests[2] or {}
   check("只解说后不追加状态", #env.requests == 2 and msgs[#msgs].role == "tool", msgs[#msgs] and msgs[#msgs].role)
+end
+
+do -- 超长查询结果截断后必须仍是合法 UTF-8: 裸切半个汉字会让服务端拒掉整个请求
+  -- (实测 400: invalid unicode code point, 手册内容超过 6000 字节时就会走到这里).
+  local env = harness()
+  -- 中文内容按 JSON 编码后每字 3 字节, 每 7 字节一个循环: 6000 正好落在汉字中间
+  local big = string.rep("中文a", 2000)
+  env.responder = function(method)
+    if method == "lookup" then
+      return { cards = { { id = "j_test", effect_zh = big } } }
+    end
+    return env.gs
+  end
+  env.driver.start()
+  env.tick()
+  env.reply({ { "lookup", { keys = { "j_test" } } } })
+  env.settle()
+  local tool = env.requests[2][#env.requests[2]]
+  check("查询结果按上限截断", tool.role == "tool" and #tool.content < 6400, tostring(#tool.content))
+  local ok, at = Text.valid_utf8(tool.content)
+  check("截断后的内容仍是合法 UTF-8", ok, at and ("非法字节在第 " .. at .. " 字节") or nil)
+  check("截断后带提示尾巴", tool.content:find("已截断", 1, true) ~= nil)
 end
 
 do -- 失败: 剩余调用不执行; 同一调用连续失败 3 次停下

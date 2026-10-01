@@ -65,7 +65,15 @@ local function escape_char(c)
   return ESCAPES[c] or string.format("\\u%04x", c:byte())
 end
 
+-- 请求体的兜底: 非 ASCII 字符串原样写进请求体, 一个非法字节就会让服务端拒掉整个请求
+-- (400: invalid unicode code point) 并让 agent 停下. 模块由 client.init 注入 (见 agent/text.lua);
+-- 单独加载本模块的测试没有它, 那就只做原来的转义.
+M.text = nil
+
 local function encode_string(s)
+  if M.text then
+    s = M.text.sanitize_utf8(s)
+  end
   return '"' .. s:gsub('[%z\1-\31"\\]', escape_char) .. '"'
 end
 
@@ -669,7 +677,9 @@ local function truncate(s, n)
   if #s <= n then
     return s
   end
-  return s:sub(1, n) .. "..."
+  -- 服务端返回的错误文本也会写进转录 (JSONL), 截断要落在字符边界上, 免得切出半个汉字.
+  local head = M.text and M.text.cut(s, n) or s:sub(1, n)
+  return head .. "..."
 end
 
 local function prefixed(status, phrase)

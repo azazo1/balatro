@@ -22,6 +22,7 @@ deps:
   on_done(message, usage), on_error(reason, detail)
 - call(method, params, reason, cb) -> ok, err: 进程内调用端点, cb(response)
 - abandon(): 放弃等待中的调用
+- text: agent/text.lua (UTF-8 安全的截断), 查询结果超长时用它切.
 - gamestate() -> table; overlay() -> "unlock"|"win"|"other"|nil; busy() -> boolean (动画或游戏暂停)
 - config() -> {endpoint, model, api_key, auth, after_win, strategy, context_limit, seed, reasoning_effort}
   seed 非空时 start 一律用它开局, 覆盖模型给的种子.
@@ -63,6 +64,7 @@ function M.new(deps)
   local prompt = deps.prompt or assert(deps.load("prompt"))
   local history_mod = deps.history or assert(deps.load("history"))
   local summary_mod = deps.summary or assert(deps.load("summary"))
+  local text = deps.text or assert(deps.load("text"))
 
   local self = {
     state = "stopped",
@@ -251,20 +253,15 @@ function M.new(deps)
       return
     end
     -- 配置错误这类原因太笼统, 带上具体说明 user 才知道改哪里.
-    local text = tostring(reason)
-    if type(detail) == "string" and detail ~= "" and not text:find(detail, 1, true) then
+    local message = tostring(reason)
+    if type(detail) == "string" and detail ~= "" and not message:find(detail, 1, true) then
       local short = detail:gsub("%s+", " ")
       if #short > 120 then
-        -- 按字节截断, 退回到 UTF-8 字符边界, 免得切出半个汉字
-        local cut = 120
-        while cut > 1 and short:byte(cut + 1) and short:byte(cut + 1) >= 0x80 and short:byte(cut + 1) < 0xC0 do
-          cut = cut - 1
-        end
-        short = short:sub(1, cut) .. "..."
+        short = text.cut(short, 120) .. "..."
       end
-      text = text .. ": " .. short
+      message = message .. ": " .. short
     end
-    halt(text)
+    halt(message)
   end
 
   ---@param usage table
@@ -466,15 +463,18 @@ function M.new(deps)
     return "计分过程:\n" .. record.text .. "\n\n"
   end
 
+  --- 查询结果按 JSON 交给模型, 超过上限时截断.
+  --- 截断必须落在 UTF-8 字符边界上: 请求体里的字符串是原样发出去的 (编码器只转义控制字符),
+  --- 切出半个汉字会让整个请求被服务端拒绝 (400: invalid unicode code point).
   ---@param value any
   ---@return string
   local function encode_query(value)
-    local ok, text = pcall(deps.json.encode, value)
-    text = ok and text or tostring(value)
-    if #text > QUERY_RESULT_MAX then
-      text = text:sub(1, QUERY_RESULT_MAX) .. "...(已截断, 用 offset 或更具体的 section 继续读)"
+    local ok, encoded = pcall(deps.json.encode, value)
+    local body = ok and encoded or tostring(value)
+    if #body > QUERY_RESULT_MAX then
+      body = text.cut(body, QUERY_RESULT_MAX) .. "...(已截断, 用 offset 或更具体的 section 继续读)"
     end
-    return text
+    return body
   end
 
   --- 执行队列里的下一个工具调用.

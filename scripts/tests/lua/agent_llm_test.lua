@@ -103,6 +103,27 @@ do -- 请求: endpoint 规则, stream_options, 空 schema 编码为对象, 鉴�
   check("默认 Bearer", bearer.Authorization == "Bearer k")
 end
 
+do -- 请求体兜底: 内容里有非法 UTF-8 时换成替换字符, 不让服务端拒掉整个请求
+  local Text = dofile("mods/balatrobot/agent/text.lua")
+  local broken = "正常的字" .. string.char(0xE6) .. "后面还有"
+  local cfg = { endpoint = "https://api.test/v1", model = "m" }
+  -- 没注入 text 模块时按原样编码 (单独加载本模块的用法)
+  Chat.text = nil
+  local _, _, raw = Chat.build_request(cfg, { { role = "user", content = broken } })
+  check("没注入时不做修复", not Text.valid_utf8(raw))
+  Chat.text = Text
+  local _, _, body = Chat.build_request(cfg, { { role = "user", content = broken } })
+  check("注入后请求体是合法 UTF-8", Text.valid_utf8(body) == true)
+  check("前后正常内容都保留", body:find("正常的字", 1, true) ~= nil and body:find("后面还有", 1, true) ~= nil)
+  local ok, decoded = pcall(json.decode, body)
+  check(
+    "修完仍能解析, 坏字节变成替换字符",
+    ok and decoded.messages[1].content == "正常的字\239\191\189后面还有",
+    ok and decoded.messages[1].content or nil
+  )
+  Chat.text = nil
+end
+
 do -- usage 规范化
   local u = Chat.normalize_usage({ prompt_tokens = 100, completion_tokens = 20, prompt_tokens_details = { cached_tokens = 30 },
     completion_tokens_details = { reasoning_tokens = 7 } })
@@ -166,7 +187,16 @@ do -- client: 流在中途断开时清空并整个重发, 重发成功后完成
     end,
   }
   local Client = dofile("mods/balatrobot/agent/llm/client.lua")
-  Client.init({ bbnet = fake, chat = Chat, sse = Sse, json = json, log = function() end, now = function() return clock end })
+  -- text 也注入: client.init 会把它接到请求体编码上 (没有 SMODS 时它没法自己加载)
+  Client.init({
+    bbnet = fake,
+    chat = Chat,
+    sse = Sse,
+    text = dofile("mods/balatrobot/agent/text.lua"),
+    json = json,
+    log = function() end,
+    now = function() return clock end,
+  })
   local ev = {}
   local req = Client.start({ endpoint = "http://127.0.0.1:1/v1", model = "m" }, { { role = "user", content = "hi" } }, nil, {
     on_delta = function(kind, text) ev[#ev + 1] = kind .. ":" .. text end,

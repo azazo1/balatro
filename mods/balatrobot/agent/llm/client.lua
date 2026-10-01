@@ -52,7 +52,7 @@ end
 local log = default_log
 
 --- 加载依赖与原生库. 返回 bbnet 是否可用 (不可用时请求走 SMODS.https 退路, 不能流式).
----@param options {mod_path: string?, bbnet: table?, chat: table?, sse: table?, json: table?, log: fun(level: string, msg: string)?, now: (fun(): number)?}?
+---@param options {mod_path: string?, bbnet: table?, chat: table?, sse: table?, text: table?, json: table?, log: fun(level: string, msg: string)?, now: (fun(): number)?}?
 ---@return boolean streaming
 ---@return string? err bbnet 加载失败的原因
 function M.init(options)
@@ -60,6 +60,9 @@ function M.init(options)
   Bbnet = options.bbnet or assert(SMODS.load_file("agent/net/bbnet.lua", MOD_ID))()
   Chat = options.chat or assert(SMODS.load_file("agent/llm/chat.lua", MOD_ID))()
   Sse = options.sse or assert(SMODS.load_file("agent/llm/sse.lua", MOD_ID))()
+  local text = options.text or assert(SMODS.load_file("agent/text.lua", MOD_ID))()
+  -- 请求体拼装时用它把非法 UTF-8 字节修掉 (见 agent/text.lua): 一个坏字节会让服务端拒掉整个请求.
+  Chat.text = text
   json = options.json or require("json")
   now = options.now or love.timer.getTime
   log = options.log or default_log
