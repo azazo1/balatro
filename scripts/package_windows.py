@@ -22,7 +22,7 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from lib import archive, gamezip, layout, log, modding, runtime, version as versionlib
+from lib import archive, gamezip, layout, log, modding, runtime, version as versionlib, win_icon
 import build_native  # noqa: E402  打包带 mod 的版本时顺带编译 bbnet
 
 log.set_prefix("windows")
@@ -80,6 +80,9 @@ def main():
             base = os.path.join(src_dir, base_name)
             if not os.path.isfile(base):
                 log.die("运行时里找不到 %s" % base_name)
+            # 官方 love.exe 自带的图标是 LÖVE 的, 换成游戏自己的图标后再融合 (见 lib/win_icon.py).
+            sizes = win_icon.replace(base, layout.icon_path())
+            log.info("%s 图标已替换: %s" % (base_name, ", ".join(str(s) for s in sizes)))
             target = os.path.join(bundle_dir, target_name)
             size = archive.fuse_executable(base, love_payload, target)
             log.info("已融合 %s (%s)" % (target_name, archive.human_size(size)))

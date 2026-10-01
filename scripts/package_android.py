@@ -268,7 +268,8 @@ def main():
         replacements = {ASSET_PATH: love_path}
         for density, size in ICON_DENSITIES:
             icon_path = os.path.join(work_dir, "love-%s.png" % density)
-            pngutil.scaled_copy(icon_src, icon_path, size)
+            # 图标是像素风格, 用最近邻缩放, 免得区域平均把色块边界糊掉.
+            pngutil.scaled_copy(icon_src, icon_path, size, nearest=True)
             replacements["res/drawable-%s-v4/%s" % (density, ICON_RESOURCE)] = icon_path
 
         # bbnet 只有 mod 里的内置 agent 使用, 原版不带.

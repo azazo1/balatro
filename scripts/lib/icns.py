@@ -30,7 +30,10 @@ class IcnsError(Exception):
 
 
 def build(src_png, dst_icns, types=None):
-    """把一张正方形 PNG 转成 .icns, 返回写入的各尺寸列表."""
+    """把一张正方形 PNG 转成 .icns, 返回写入的各尺寸列表.
+
+    图标是像素风格, 各尺寸一律最近邻缩放, 免得区域平均把色块边界糊掉.
+    """
     width, height, rgba = pngutil.load_rgba(src_png)
     if width != height:
         raise IcnsError("图标源图必须是正方形, 当前为 %dx%d" % (width, height))
@@ -38,7 +41,7 @@ def build(src_png, dst_icns, types=None):
     blocks = []
     written = []
     for tag, size in (types or ICON_TYPES):
-        resized = pngutil.resize_rgba(width, height, rgba, size, size)
+        resized = pngutil.resize_rgba(width, height, rgba, size, size, nearest=True)
         blocks.append((tag, pngutil.encode_png(size, size, resized)))
         written.append(size)
 

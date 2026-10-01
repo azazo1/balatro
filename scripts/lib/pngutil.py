@@ -182,11 +182,14 @@ def save_rgba(path, width, height, rgba):
         fh.write(encode_png(width, height, rgba))
 
 
-def resize_rgba(width, height, rgba, new_width, new_height):
+def resize_rgba(width, height, rgba, new_width, new_height, nearest=False):
     """把 RGBA 图像缩放到新尺寸.
 
     缩小用区域平均, 放大用最近邻. 平均前先按 alpha 预乘, 平均后再还原,
     这样透明边缘不会因为混入透明像素的黑色而发暗.
+
+    像素风格的美术不该插值: 区域平均会把硬边抹成渐变, 因此这类图要传 nearest=True,
+    全程取最近邻, 原图的色块边界能保持不变.
     """
     if (width, height) == (new_width, new_height):
         return rgba
@@ -194,7 +197,7 @@ def resize_rgba(width, height, rgba, new_width, new_height):
         raise PngError("目标尺寸必须为正数")
 
     out = bytearray(new_width * new_height * 4)
-    if new_width <= width and new_height <= height:
+    if new_width <= width and new_height <= height and not nearest:
         for dy in range(new_height):
             y0 = dy * height // new_height
             y1 = max(y0 + 1, (dy + 1) * height // new_height)
@@ -231,8 +234,8 @@ def resize_rgba(width, height, rgba, new_width, new_height):
     return bytes(out)
 
 
-def scaled_copy(src_path, dst_path, size):
+def scaled_copy(src_path, dst_path, size, nearest=False):
     """读取源图, 缩放为 size x size 的正方形后写出."""
     width, height, rgba = load_rgba(src_path)
-    out = resize_rgba(width, height, rgba, size, size)
+    out = resize_rgba(width, height, rgba, size, size, nearest)
     save_rgba(dst_path, size, size, out)
