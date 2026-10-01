@@ -14,7 +14,11 @@ return {
   description = "Show a short agent message in game (vanilla notification style)",
 
   schema = {
-    message = { type = "string", required = true, description = "Message text, up to 200 characters" },
+    message = {
+      type = "string",
+      required = true,
+      description = "Message text, shown in up to 12 lines (about 180 Chinese or 300 ASCII characters), longer text is cut off",
+    },
     title = { type = "string", required = false, description = "Title line, defaults to 'Agent'" },
     duration = {
       type = "number",

@@ -230,7 +230,10 @@ do -- 消息截断按 UTF-8 字符, 不切断多字节字符
   check("截断保留完整字符", cut == "中中...", cut)
   check("未超长不截断", Toast.truncate("abc", 5) == "abc")
   check("阅读时长下限", Toast.duration_for("hi") == 2.5)
-  check("阅读时长上限", Toast.duration_for(string.rep("中", 500)) == 12)
+  check("阅读时长上限", Toast.duration_for(string.rep("中", 500)) == 36)
+  -- 提示词允许的最长消息 (180 字) 要能读完, 加上停留不超过墙钟上限.
+  local longest = Toast.duration_for(string.rep("中", 180))
+  check("180 字的中文读得完", longest >= 180 * 0.18 and longest + 2 <= 40, tostring(longest))
   check("显式时长", Toast.duration_for("hi", 12) == 12)
   -- 同样字数的中文要比英文读得久, 否则连续消息会在观众读完前被顶掉.
   check("中文按字计时", Toast.duration_for(string.rep("中", 20)) > Toast.duration_for(string.rep("a", 20)) + 2)

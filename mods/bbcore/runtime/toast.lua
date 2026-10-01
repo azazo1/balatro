@@ -14,22 +14,27 @@ local M = {
 }
 
 local MAX_ITEMS = 3
-local MAX_CHARS = 200
-local MAX_LINES = 4
+-- 中文一行约 17 字, 12 行约 200 字; 提示词里写的上限 (180 字) 要留在这以内.
+-- 英文一行约 31 字符, 字符数上限先到.
+local MAX_CHARS = 300
+local MAX_LINES = 12
 local LINE_WIDTH = 5.2 -- 游戏单位
 local TITLE_SCALE = 0.32
 local TEXT_SCALE = 0.36
 local GAP = 0.12
 local ENTER_DELAY = 0.1 -- 等 UIBox 算出尺寸再滑入, 与原版一致
 local LEAVE_TIME = 0.6 -- 滑出后再移除
-local MAX_WALL = 30
+local MAX_WALL = 40
 local LINGER = 2 -- 读完后再停留的秒数
 -- 阅读速度: 中文约每秒 5~6 字, 英文与数字按每秒约 15 字符.
 local READ_BASE = 1.2
 local READ_WIDE = 0.18
 local READ_NARROW = 0.06
 local READ_MIN = 2.5
-local READ_MAX = 12
+-- 180 字的中文约 34 秒读完; 加上 LINGER 不超过 MAX_WALL.
+local READ_MAX = 36
+-- 叠起来的通知底边离屏幕下沿至少留这么多, 再往下的旧通知提前滑出.
+local BOTTOM_MARGIN = 0.3
 
 ---@type table[]
 local items = {}
@@ -305,6 +310,13 @@ function M.update(dt)
       end
       -- 最新的在最上面, 旧的依次往下排. 从屏幕中线往上 2.6 开始, 两三条时也尽量不压到手牌.
       local h = box.T.h
+      -- 长消息叠在一起会超出屏幕下沿: 最新一条总留着, 放不下的旧通知提前滑出.
+      local bottom = G.ROOM.T.h / 2 - BOTTOM_MARGIN
+      if #kept > 0 and not item.leave_at and -2.6 + y + h > bottom then
+        item.leave_at = item.age
+        fire_read(item)
+        offset.x = 20
+      end
       offset.y = -2.6 + y + h / 2
       y = y + h + GAP
       kept[#kept + 1] = item

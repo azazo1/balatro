@@ -17,7 +17,12 @@ local NOTIFY = {
   description = "Shows a short message in the vanilla notification style. Works in any game state. "
     .. "By default returns after the estimated reading time, so consecutive calls show messages one by one.",
   params = {
-    { name = "message", required = true, schema = { type = "string", minLength = 1, maxLength = 200 } },
+    {
+      name = "message",
+      required = true,
+      description = "Shown in up to 12 lines: about 180 Chinese characters or 300 ASCII characters, longer text is cut off",
+      schema = { type = "string", minLength = 1, maxLength = 300 },
+    },
     { name = "title", required = false, schema = { type = "string", maxLength = 40 } },
     {
       name = "duration",

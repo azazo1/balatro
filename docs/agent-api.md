@@ -172,7 +172,7 @@ just agent-call discard '{"cards":[0,3,5],"reason":"弃 3 张杂牌追同花"}'
 
 解说的内容与节奏见 [agent-commentary.md](agent-commentary.md).
 
-消息最长 200 字符, 超出截断. 不想看消息时在 Config 页关掉 Show Agent Messages.
+消息最多显示 12 行, 约 180 个汉字或 300 个英文字符, 超出截断. 不想看消息时在 Config 页关掉 Show Agent Messages.
 
 ## 录制
 
