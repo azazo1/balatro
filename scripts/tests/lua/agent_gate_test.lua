@@ -1,5 +1,6 @@
 -- 讲解门槛的单元测试, 用 luajit 在仓库根目录运行: just test-agent
--- 覆盖 bbcore 的端点派发: 讲解还在屏幕上时, 改状态的操作挂起等它退去; 只读方法与 notify/start/menu 不等.
+-- 覆盖 bbcore 的端点派发: 讲解还在屏幕上时, 改状态的操作挂起等它退去; 只读方法与 start/menu 不等,
+-- notify 不是只读, 它也等前一条讲解退去.
 
 -- dispatcher 用 socket.gettime 计时, 测试里给一个可推进的假时钟.
 local clock = 0
@@ -104,19 +105,29 @@ do -- 没有讲解时直接执行, 有讲解时挂起
   check("执行后有响应", #responses == 1)
 end
 
-do -- 只读方法与 notify/start/menu 不等讲解
+do -- 只读方法与 start/menu 不等讲解
   reset()
   toast.id = 7
   G.STATE = G.STATES.MENU -- start 只在主菜单可用
-  for _, method in ipairs({ "gamestate", "notify", "start", "menu" }) do
+  for _, method in ipairs({ "gamestate", "start", "menu" }) do
     dispatch(method)
   end
   G.STATE = G.STATES.SHOP
   check(
-    "只读与 notify/start/menu 立刻执行",
-    #executed == 4 and table.concat(executed, ",") == "gamestate,notify,start,menu",
+    "只读与 start/menu 立刻执行",
+    #executed == 3 and table.concat(executed, ",") == "gamestate,start,menu",
     table.concat(executed, ",")
   )
+end
+
+do -- notify 不是只读: 前一条讲解还没退去时它也要等, 消息一条条来
+  reset()
+  toast.id = 7
+  dispatch("notify")
+  check("讲解还在时 notify 先不执行", #executed == 0, table.concat(executed, ","))
+  toast.id = nil
+  BB_DISPATCHER.update()
+  check("前一条退去后 notify 才执行", #executed == 1 and executed[1] == "notify", table.concat(executed, ","))
 end
 
 do -- 多个挂起的请求按到达顺序执行, 队首还在等时后面的不抢先

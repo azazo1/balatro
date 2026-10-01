@@ -13,10 +13,12 @@ local socket = require("socket")
 ---@type table<integer, string>?
 local STATE_NAME_CACHE = nil
 
--- 本仓库修改: 讲解 (agent 的 notify) 还在屏幕上或队里时, 改状态的操作等它退去再执行, 这样观众总是
--- 先看到文字再看到动作. 只读方法 (BB_ACTIVITY.PASSIVE: 查询状态, 查手册等), notify 自己, 以及
--- start 与 menu 不等. 排队与退去的判断在 runtime/toast.lua (gate_id / gate_open).
-local GATE_EXEMPT = { ["notify"] = true, ["start"] = true, ["menu"] = true }
+-- 本仓库修改: 讲解 (agent 的 notify) 还在屏幕上或队里时, 后面的请求等它退去再执行, 这样观众总是
+-- 先看到文字再看到动作. 不等讲解的只有两类: 只读方法 (BB_ACTIVITY.PASSIVE: 查询状态, 查手册等),
+-- 以及 start 与 menu (它们会把画面整个换掉, 与当前讲解无关).
+-- notify 不是只读 (它要往屏幕上放东西), 所以它也要等前一条讲解退去, 消息一条条来.
+-- 排队与退去的判断在 runtime/toast.lua (gate_id / gate_open).
+local GATE_EXEMPT = { ["start"] = true, ["menu"] = true }
 -- 等讲解退去的上限. 正常的等待是一两条讲解 (每条读完加停留约 10~40 秒), 这里给足余量;
 -- 它只是显示异常时的兜底 (例如通知被别的东西弄没了), 到点就执行, 免得请求一直挂着.
 local GATE_TIMEOUT = 120
