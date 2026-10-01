@@ -20,16 +20,19 @@ def alpha_at(rgba, size, x, y):
 
 
 class RoundRectTest(unittest.TestCase):
-    def test_corners_cut_edges_kept(self):
+    def test_corners_and_outer_edges_cut(self):
         size = 64
         rgba = pngutil.apply_round_rect_mask(size, size, solid(size))
         self.assertEqual(alpha_at(rgba, size, 0, 0), 0)
         self.assertEqual(alpha_at(rgba, size, size - 1, 0), 0)
         self.assertEqual(alpha_at(rgba, size, 0, size - 1), 0)
         self.assertEqual(alpha_at(rgba, size, size - 1, size - 1), 0)
+        self.assertEqual(alpha_at(rgba, size, size // 2, 0), 0)
+        self.assertEqual(alpha_at(rgba, size, 0, size // 2), 0)
         self.assertEqual(alpha_at(rgba, size, size // 2, size // 2), 255)
-        self.assertEqual(alpha_at(rgba, size, size // 2, 0), 255)
-        self.assertEqual(alpha_at(rgba, size, 0, size // 2), 255)
+        inset = pngutil.macos_icon_inset(size)
+        self.assertEqual(alpha_at(rgba, size, size // 2, inset + 1), 255)
+        self.assertEqual(alpha_at(rgba, size, inset + 1, size // 2), 255)
 
     def test_center_rgb_unchanged(self):
         size = 32
@@ -67,6 +70,7 @@ class IcnsBuildTest(unittest.TestCase):
         width, height, rgba = pngutil.load_rgba(png_path)
         self.assertEqual((width, height), (128, 128))
         self.assertEqual(alpha_at(rgba, 128, 0, 0), 0)
+        self.assertEqual(alpha_at(rgba, 128, 64, 0), 0)
         self.assertEqual(alpha_at(rgba, 128, 64, 64), 255)
 
     @unittest.skipUnless(shutil.which("iconutil"), "需要 macOS 的 iconutil")

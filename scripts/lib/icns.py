@@ -75,10 +75,9 @@ def iter_blocks(path):
 
 
 def _pixels_at(width, height, rgba, size, round_rect):
-    resized = pngutil.resize_rgba(width, height, rgba, size, size, nearest=True)
     if round_rect:
-        resized = pngutil.apply_round_rect_mask(size, size, resized)
-    return resized
+        return pngutil.fit_macos_app_icon(width, height, rgba, size)
+    return pngutil.resize_rgba(width, height, rgba, size, size, nearest=True)
 
 
 def _write_python_icns(blocks, dst_icns):

@@ -243,45 +243,60 @@ def scaled_copy(src_path, dst_path, size, nearest=False):
     save_rgba(dst_path, size, size, out)
 
 
-# 接近 iOS / macOS 图标模板的圆角半径 (228 / 1024).
+# 接近 iOS / macOS 图标模板的圆角半径, 相对于内框边长 (228 / 1024).
 ROUND_RECT_RATIO = 228 / 1024.0
+# 系统应用 (Safari / Mail / Notes) 在 1024 画布上大约留 72px 边,
+# 顶满画布的圆角方图在 Dock 里会比周围图标大一圈.
+ICON_INSET_RATIO = 72 / 1024.0
 
 
-def _round_rect_coverage(x, y, width, height, radius):
+def macos_icon_inset(size, inset_ratio=ICON_INSET_RATIO):
+    """macOS 图标内框相对画布的单边留白像素."""
+    inset = int(size * float(inset_ratio) + 0.5)
+    if inset * 2 >= size:
+        inset = max(0, (size - 1) // 2)
+    return inset
+
+
+def _round_rect_coverage(x, y, left, top, right, bottom, radius):
     """像素 (x, y) 落在圆角矩形内的覆盖率, 1 为完全在内, 0 为完全在外."""
-    if radius <= 0:
-        return 1.0
     cx = x + 0.5
     cy = y + 0.5
-    if cx < radius and cy < radius:
-        dist = math.hypot(cx - radius, cy - radius)
-    elif cx > width - radius and cy < radius:
-        dist = math.hypot(cx - (width - radius), cy - radius)
-    elif cx < radius and cy > height - radius:
-        dist = math.hypot(cx - radius, cy - (height - radius))
-    elif cx > width - radius and cy > height - radius:
-        dist = math.hypot(cx - (width - radius), cy - (height - radius))
-    else:
-        return 1.0
-    return max(0.0, min(1.0, radius + 0.5 - dist))
+    half_w = (right - left) / 2.0
+    half_h = (bottom - top) / 2.0
+    if half_w <= 0 or half_h <= 0:
+        return 0.0
+    ox = cx - (left + right) / 2.0
+    oy = cy - (top + bottom) / 2.0
+    rad = min(float(radius), half_w, half_h)
+    qx = abs(ox) - half_w + rad
+    qy = abs(oy) - half_h + rad
+    dist = math.hypot(max(qx, 0.0), max(qy, 0.0)) + min(max(qx, qy), 0.0) - rad
+    return max(0.0, min(1.0, 0.5 - dist))
 
 
-def apply_round_rect_mask(width, height, rgba, radius_ratio=ROUND_RECT_RATIO):
-    """给 RGBA 图像套一层抗锯齿圆角矩形遮罩, 四角变透明.
+def apply_round_rect_mask(width, height, rgba, radius_ratio=ROUND_RECT_RATIO,
+                          inset_ratio=ICON_INSET_RATIO):
+    """给 RGBA 图像套一层抗锯齿圆角矩形遮罩, 四角和外圈留白变透明.
 
     在目标尺寸上切圆角, 而不是先切再缩放, 这样像素风色块仍走最近邻,
     只有外轮廓带一层平滑过渡. 完全透明的像素把 RGB 清零, 方便 PNG 压缩.
+    默认按 macOS 图标网格留边, 避免 Dock 里显得比系统应用大一圈.
     """
     if len(rgba) != width * height * 4:
         raise PngError("像素数据长度与尺寸不符")
     if width < 1 or height < 1:
         raise PngError("目标尺寸必须为正数")
-    radius = min(width, height) * float(radius_ratio)
-    radius = min(radius, width / 2.0, height / 2.0)
+    left = macos_icon_inset(width, inset_ratio)
+    top = macos_icon_inset(height, inset_ratio)
+    right = width - left
+    bottom = height - top
+    inner = min(right - left, bottom - top)
+    radius = inner * float(radius_ratio)
     out = bytearray(rgba)
     for y in range(height):
         for x in range(width):
-            cov = _round_rect_coverage(x, y, width, height, radius)
+            cov = _round_rect_coverage(x, y, left, top, right, bottom, radius)
             if cov >= 1.0:
                 continue
             i = (y * width + x) * 4
@@ -295,3 +310,30 @@ def apply_round_rect_mask(width, height, rgba, radius_ratio=ROUND_RECT_RATIO):
                 out[i + 1] = 0
                 out[i + 2] = 0
     return bytes(out)
+
+
+def fit_macos_app_icon(width, height, rgba, size, radius_ratio=ROUND_RECT_RATIO,
+                       inset_ratio=ICON_INSET_RATIO):
+    """把源图缩进 macOS 图标内框, 再套圆角, 返回 size x size 的 RGBA.
+
+    先最近邻缩到内框再贴到画布中心, 而不是顶满后再裁边, 帽檐和嘴这些贴边细节还在.
+    """
+    inset = macos_icon_inset(size, inset_ratio)
+    inner = size - 2 * inset
+    if inner < 1:
+        inner = size
+        inset = 0
+    art = resize_rgba(width, height, rgba, inner, inner, nearest=True)
+    if inset == 0:
+        canvas = art
+    else:
+        canvas = bytearray(size * size * 4)
+        row_bytes = inner * 4
+        for y in range(inner):
+            src = y * row_bytes
+            dst = ((y + inset) * size + inset) * 4
+            canvas[dst:dst + row_bytes] = art[src:src + row_bytes]
+        canvas = bytes(canvas)
+    return apply_round_rect_mask(
+        size, size, canvas, radius_ratio=radius_ratio, inset_ratio=inset_ratio,
+    )
