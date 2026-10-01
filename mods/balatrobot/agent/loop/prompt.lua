@@ -3,6 +3,7 @@
 
 内容取自 docs/agent-commentary.md (解说规范) 与 docs/game/README.md 的 "Agent 必须区分的概念",
 "每次动作前的规则检查" 两节, 压缩成模型用的版本. 那两份文档改动时同步这里.
+通关条件与无尽模式取自 docs/game/rules/run-flow.md.
 ]]
 
 local M = {}
@@ -34,24 +35,40 @@ M.SYSTEM = [[
 - 筹码 (Chips) 和倍率 (Mult) 相乘得分; 乘倍率 (XMult) 乘当前倍率, 不能和 +倍率 无序合并, 小丑从左到右结算.
 - 出牌次数 (Hands) 是这一回合能出几次牌, 手牌上限是补牌到几张, 一次最多出 5 张. 非计分牌也会被打出并进入弃牌堆.
 - 底注 (Ante) 每轮有小盲注, 大盲注, Boss. 跳过盲注得到标签, 但不进入该盲注后的商店.
+- 打完底注 8 的 Boss 即通关, 胜利界面弹出; 之后按本局设置继续无尽模式或回主菜单, 界面, 结算与后续由 loop 自动处理, 不用自己点.
 - 每次动作前: 确认阶段, 目标分与分数差, 剩余出牌/弃牌, 金钱, 容量, 小丑当前成长值; 先确认动作合法, 再比较收益.
 - 期望分不是保证分, 要区分确定能过关和概率能过关.
 ]]
 
---- 系统提示词: 默认部分, 有 user 的策略时在末尾单独加一节.
+-- 通关之后怎么走由设置页的 "赢下一局之后" 决定, 和策略一样在开始时拼进去.
+local AFTER_WIN = {
+  endless = [[
+本局通关 (打完底注 8 的 Boss) 之后继续无尽模式, 底注 9 起目标分增长更快. 所以第 8 底注不是结束: 按 "一直打下去" 规划, 留住能继续成长的筹码与倍率来源, 保住经济和利息, 不要为了眼前过关丢掉手牌上限, 出牌次数, 成长型小丑这类长期收益.
+]],
+  menu = [[
+本局通关 (打完底注 8 的 Boss) 之后回主菜单并停止, 不进无尽模式. 目标是稳稳打完第 8 底注的 Boss, 不用为底注 9 以后留余量, 中期起可以把手里的资源换成当下的战力.
+]],
+}
+
+--- 系统提示词: 默认部分, 之后按设置补上本局的通关走向与 user 的策略.
 --- 策略只管打法; 规则要点和解说要求仍按上面的默认, 避免策略里一句 "少说话" 把解说关掉.
----@param strategy string? 设置页里的策略文字
+--- 两者都只在从停止状态开始时重建, 运行中改设置不影响这一次.
+---@param cfg {strategy: string?, after_win: string?}? 设置页里与本局有关的字段
 ---@return string
-function M.system(strategy)
-  if type(strategy) ~= "string" or not strategy:find("%S") then
-    return M.SYSTEM
+function M.system(cfg)
+  cfg = cfg or {}
+  local out = { M.SYSTEM }
+  local after_win = AFTER_WIN[cfg.after_win] or AFTER_WIN.menu
+  out[#out + 1] = "\n## 本局设置\n" .. after_win
+  local strategy = cfg.strategy
+  if type(strategy) == "string" and strategy:find("%S") then
+    out[#out + 1] = "\n## 玩家指定的策略\n"
+      .. "下面是玩家给的打法要求. 选牌, 弃牌, 买卖, 经济这些决策按它来, 和上面的打法建议冲突时以它为准;\n"
+      .. "规则要点和解说要求仍按上面的写法.\n\n"
+      .. strategy
+      .. "\n"
   end
-  return M.SYSTEM
-    .. "\n## 玩家指定的策略\n"
-    .. "下面是玩家给的打法要求. 选牌, 弃牌, 买卖, 经济这些决策按它来, 和上面的打法建议冲突时以它为准;\n"
-    .. "规则要点和解说要求仍按上面的写法.\n\n"
-    .. strategy
-    .. "\n"
+  return table.concat(out)
 end
 
 --- 模型只回了文字没有调用工具时, 追加的提醒.

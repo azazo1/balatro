@@ -25,6 +25,7 @@ deps:
 - gamestate() -> table; overlay() -> "unlock"|"win"|"other"|nil; busy() -> boolean (动画或游戏暂停)
 - config() -> {endpoint, model, api_key, auth, after_win, strategy, context_limit, seed, reasoning_effort}
   seed 非空时 start 一律用它开局, 覆盖模型给的种子.
+  after_win 与 strategy 只在从停止状态开始时拼进系统提示, 运行中改动不影响这一次.
   reasoning_effort 非空时每次请求 (含写摘要) 都带上, 经 client.start 的 opts.extra 写进请求体.
 - json {encode, decode}; now() -> 秒
 - bar: begin_request(label?), push(kind, text), reset(), finish(), show_error(text 或 fun(): string, hold), show_status(text, hold)
@@ -69,10 +70,10 @@ function M.new(deps)
     last_error = nil,
   }
 
-  -- 系统提示词带 user 的策略, 每次从停止状态开始时按当时的配置重建, 运行中改了策略不影响这一次.
+  -- 系统提示词带 user 的策略与本局的通关走向, 每次从停止状态开始时按当时的配置重建, 运行中改了不影响这一次.
   local function system_prompt()
     local cfg = deps.config and deps.config() or {}
-    return prompt.system and prompt.system(cfg.strategy) or prompt.SYSTEM
+    return prompt.system and prompt.system(cfg) or prompt.SYSTEM
   end
   local history = history_mod.new(system_prompt())
   local summarizer = summary_mod.new(deps.describe)

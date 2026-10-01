@@ -291,6 +291,7 @@ do -- 策略: 开始时拼进系统提示词, 运行中改了不影响这一次,
     "策略拼在系统提示词末尾",
     system:sub(1, #Prompt.SYSTEM) == Prompt.SYSTEM and system:find("主打同花", #Prompt.SYSTEM, true) ~= nil
   )
+  check("本局设置排在策略之前", system:find("## 本局设置", 1, true) < system:find("## 玩家指定的策略", 1, true))
   env.cfg.strategy = "主打对子"
   env.reply({ { "notify", { message = "先看看" } } })
   env.settle()
@@ -301,7 +302,40 @@ do -- 策略: 开始时拼进系统提示词, 运行中改了不影响这一次,
   env.driver.start()
   env.tick()
   local fresh = env.requests[#env.requests][1].content
-  check("清除策略后再开始, 系统提示词与默认一致", fresh == Prompt.SYSTEM)
+  check("清除策略后再开始, 只剩默认与本局设置", fresh == Prompt.system(env.cfg))
+end
+
+do -- 本局设置: 通关之后继续无尽还是停下, 在胜利之前就要让模型知道
+  local env = harness()
+  env.cfg.after_win = "endless"
+  env.driver.start()
+  env.tick()
+  local endless = env.requests[1][1].content
+  check("开无尽时提醒要为长线规划", endless:find("之后继续无尽模式", 1, true) ~= nil, endless)
+  check("两种设置都提到通关条件", endless:find("打完底注 8 的 Boss 即通关", 1, true) ~= nil)
+
+  env.cfg.after_win = "menu"
+  env.reply({ { "notify", { message = "先看看" } } })
+  env.settle()
+  check(
+    "运行中改设置不影响这一次",
+    (env.requests[2] and env.requests[2][1].content or ""):find("之后继续无尽模式", 1, true) ~= nil
+  )
+  env.driver.stop()
+  env.driver.start()
+  env.tick()
+  local menu = env.requests[#env.requests][1].content
+  check("重新开始后换成停下那一段", menu:find("之后回主菜单并停止", 1, true) ~= nil, menu)
+  check("停下的那一段不再提无尽规划", not menu:find("一直打下去", 1, true))
+
+  local plain = harness()
+  plain.cfg.after_win = nil
+  plain.driver.start()
+  plain.tick()
+  check(
+    "设置缺省时按停下写",
+    (plain.requests[1][1].content):find("之后回主菜单并停止", 1, true) ~= nil
+  )
 end
 
 do -- 固定种子: 设置了就覆盖模型给的种子 (没给也补上), 结果里告诉模型
