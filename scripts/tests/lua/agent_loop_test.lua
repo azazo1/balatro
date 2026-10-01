@@ -210,6 +210,24 @@ do -- 摘要: 下标从 0 开始, 效果只在第一次出现时附上
   check("forget 后重新介绍", s:render(hand_state()):find("+4 倍率", 1, true))
 end
 
+do -- 摘要: 牌型行带打出次数 (超新星要看它, 卡面上没有); 没打过的牌型只写等级与数值
+  local s = Summary.new()
+  local gs = hand_state({
+    hands = {
+      ["Flush"] = { order = 7, level = 2, chips = 50, mult = 6, played = 12, played_this_round = 2 },
+      ["Pair"] = { order = 11, level = 1, chips = 10, mult = 2, played = 8, played_this_round = 0 },
+      ["Three of a Kind"] = { order = 9, level = 3, chips = 40, mult = 5, played = 0, played_this_round = 0 },
+      -- 没打过也没升级的不列
+      ["High Card"] = { order = 12, level = 1, chips = 5, mult = 1, played = 0, played_this_round = 0 },
+    },
+  })
+  local text = s:render(gs)
+  check("打过时给本赛局与本回合次数", text:find("同花 Lv2 50x6 已打12(本回合2)", 1, true) ~= nil, text)
+  check("本回合没打过时次数为 0", text:find("对子 Lv1 10x2 已打8(本回合0)", 1, true) ~= nil, text)
+  check("升级但没打过时只给等级与数值", text:find("三条 Lv3 40x5", 1, true) ~= nil and not text:find("三条 Lv3 40x5 已打", 1, true), text)
+  check("没打过也没升级的不出现", not text:find("高牌", 1, true), text)
+end
+
 do -- 摘要: 手册文本还剩占位的牌 (认牌目标, 成长值) 每次都用实时文本, 不拿占位糊弄模型
   local s = Summary.new(function(key)
     if key == "j_castle" then

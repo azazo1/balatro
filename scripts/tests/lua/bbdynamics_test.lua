@@ -1,6 +1,7 @@
 -- 动态值端点 (bbcore/runtime/endpoints/dynamics.lua) 的单元测试, 用 luajit 在仓库根目录运行: just test-agent
--- 端点只在 execute 里读全局, 所以这里搭一个最小假游戏.
+-- 端点只在 execute 里读全局, 所以这里搭一个最小假游戏, 并用真的 gamestate 取效果文本 (端点是它的调用方).
 local Dynamics = dofile("mods/bbcore/runtime/endpoints/dynamics.lua")
+BB_GAMESTATE = dofile("mods/bbcore/src/lua/utils/gamestate.lua")
 
 local failures = 0
 local function check(name, cond, detail)

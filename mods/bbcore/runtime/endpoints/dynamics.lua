@@ -4,8 +4,9 @@
 --
 -- - targets: 每回合重新抽的认牌目标 (古老小丑的花色, 偶像的花色与点数, 邮件回扣的点数, 城堡的花色,
 --   待办清单的牌型) 与盲注公牛要用的 "最常打出的牌型".
--- - jokers / consumables: 持有卡的效果文本, 取游戏自己生成的那一份 (Card:generate_UIBox_ability_table),
---   成长值 (拉面的当前倍率, 城堡的当前筹码...) 与概率都已代入, 就是玩家悬停看到的文字.
+-- - jokers / consumables: 持有卡的效果文本, 取游戏自己生成的那一份 (与 gamestate 的 Card.value.effect 同源),
+--   成长值 (拉面的当前倍率, 公交车的当前倍率, 城堡的当前筹码...) 与概率都已代入, 就是玩家悬停看到的文字.
+--   卡面本身不显示当前值的只有超新星 (看各牌型本赛局的打出次数): 那个数在 gamestate 的 hands[].played 里.
 -- - hand: 手牌里带增强, 版本或蜡封的牌的效果文本 (玻璃牌的破碎概率等).
 --
 -- 只读, 任何阶段都能调用, 不算 agent 活动 (BB_ACTIVITY.PASSIVE), 也不写进回放文件.
@@ -16,36 +17,22 @@
 -- 取实时文本
 -- ==========================================================================
 
---- 卡牌的效果文本用游戏自己生成的那一份 (中文按游戏语言).
+--- 卡牌的效果文本用游戏自己生成的那一份 (中文按游戏语言), 取法与 gamestate 里的 Card.value.effect 相同:
+--- 生成过程会创建 DynaText 对象, 那份实现里已经清理掉, 这里不重复一份免得漏掉清理.
 ---@param card table 游戏里的卡牌对象
 ---@return string?
 local function live_effect(card)
-  -- 生成过程会往 G.I.MOVEABLE 里塞 DynaText, 游戏的 hover() 也是这么做的, 这里跟 gamestate 一样清理掉
-  local ok, text = pcall(function()
-    local ui = card:generate_UIBox_ability_table()
-    if not ui or not ui.main then
-      return nil
-    end
-    local lines = {}
-    for _, line in ipairs(ui.main) do
-      local parts = {}
-      for _, section in ipairs(line) do
-        if section.config and section.config.text then
-          parts[#parts + 1] = section.config.text
-        elseif section.nodes then
-          for _, node in ipairs(section.nodes) do
-            if node.config and node.config.text then
-              parts[#parts + 1] = node.config.text
-            end
-          end
-        end
-      end
-      lines[#lines + 1] = table.concat(parts, "")
-    end
-    local out = table.concat(lines, " "):gsub("%s+", " "):gsub("^ ", ""):gsub(" $", "")
-    return out ~= "" and out or nil
-  end)
-  return ok and text or nil
+  local describe = BB_GAMESTATE and BB_GAMESTATE.card_ui_description
+  if not describe then
+    return nil
+  end
+  local ok, text = pcall(describe, card)
+  text = ok and text or nil
+  if type(text) ~= "string" then
+    return nil
+  end
+  text = text:gsub("%s+", " "):gsub("^ ", ""):gsub(" $", "")
+  return text ~= "" and text or nil
 end
 
 ---@param card table 游戏里的卡牌对象

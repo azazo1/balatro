@@ -874,4 +874,9 @@ gamestate.suit_enum = convert_suit_to_enum
 ---Converts Balatro rank value to enum format (同上)
 gamestate.rank_enum = convert_rank_to_enum
 
+---Gets the description text of a card from its UI elements (别的模块也用它, 例如 dynamics 端点)
+---成长值, 每回合换的认牌目标与概率都在里面 (就是玩家悬停看到的文字), 用完的 DynaText 已在内部清理.
+---@type fun(card: table): string
+gamestate.card_ui_description = get_card_ui_description
+
 return gamestate

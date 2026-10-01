@@ -5,7 +5,8 @@
 - 小丑, 消耗牌, 优惠券, 商店与卡包里的牌第一次出现时附上中文名与效果, 之后只写名字,
   名字与效果来自注入的 describe(key) (游戏内由手册 catalog 提供), 查不到时用 gamestate 里的 label 与 effect.
   手册文本里还剩 [ ] 占位的是会变的值 (每回合换的花色点数, 成长值), 这类牌每次都用 gamestate 里的实时文本.
-- 整副牌只给张数, 不列出; 牌型只列出等级高于 1 或本局打过的.
+- 整副牌只给张数, 不列出; 牌型只列出等级高于 1 或本局打过的, 打过时附上本赛局与本回合的次数
+  (超新星把牌型本赛局的打出次数加成倍率, 卡面本身看不到这个数).
 ]]
 
 local M = {}
@@ -300,13 +301,20 @@ function M.new(describe)
     if #levels > 0 then
       local parts = {}
       for _, item in ipairs(levels) do
-        parts[#parts + 1] = string.format(
+        local line = string.format(
           "%s Lv%d %dx%d",
           HAND_ZH[item.name] or item.name,
           item.h.level or 1,
           item.h.chips or 0,
           item.h.mult or 0
         )
+        -- 打出过的次数: 卡面不显示, 但超新星这类要看它 (把该牌型本赛局打出次数加成倍率),
+        -- 每个牌型行附上, 模型不用另外查.
+        local played = item.h.played or 0
+        if played > 0 then
+          line = line .. string.format(" 已打%d(本回合%d)", played, item.h.played_this_round or 0)
+        end
+        parts[#parts + 1] = line
       end
       out[#out + 1] = "牌型: " .. table.concat(parts, ", ")
     end
