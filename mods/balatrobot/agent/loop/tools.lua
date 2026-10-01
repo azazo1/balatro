@@ -5,6 +5,7 @@
 这里手写一份精简的中文定义, 参数与端点的 schema 一致; 端点参数有变化时要同步修改.
 
 - 动作工具都带 reason (简短理由, 作为决策消息显示), 调用时从参数里拆出来交给 dispatcher.
+- 只读的查询工具分两类: M.KNOWLEDGE 查静态手册 (知识库没打包时不提供), M.QUERIES 是全部只读工具 (结果按 JSON 交给模型).
 - 不给模型的方法: gamestate (每次结果里已经带状态摘要), cash_out, continue, endless (loop 自动处理),
   menu, save, load, set, add, screenshot (与游玩无关或会破坏进度).
 ]]
@@ -146,8 +147,16 @@ local DEFS = {
   },
   {
     name = "lookup",
-    description = "按 id, 中文名或英文名查卡牌的效果与实际机制, 可一次查多张.",
+    description = "按 id, 中文名或英文名查卡牌的效果与实际机制, 可一次查多张. 会变的值 (成长值, 本回合认的花色点数)"
+      .. " 在这份手册里是占位, 要看当前值用 dynamics.",
     parameters = object({ keys = { type = "array", items = { type = "string" }, minItems = 1 } }, { "keys" }),
+  },
+  {
+    name = "dynamics",
+    description = "查当前局的动态值: 本回合认的花色, 点数与牌型 (古老小丑, 偶像, 邮件回扣, 城堡, 待办清单),"
+      .. " 盲注公牛要用的最常打出牌型, 以及持有小丑, 消耗牌和手牌里特殊牌的当前效果文本"
+      .. " (成长值, 概率这类会变的值). 手册里这些位置是占位, 要当前值就查它, 不要猜.",
+    parameters = object({}),
   },
 }
 
@@ -167,8 +176,17 @@ M.ACTIONS = {
   rearrange = true,
 }
 
---- 只读的查询工具.
+--- 只读的查询工具: 结果按 JSON 交给模型.
 M.QUERIES = {
+  docs_index = true,
+  docs_read = true,
+  docs_search = true,
+  lookup = true,
+  dynamics = true,
+}
+
+--- 查手册的查询工具: 手册不可用时 (知识库没打包) 不提供给模型, dynamics 不依赖手册所以不在其中.
+M.KNOWLEDGE = {
   docs_index = true,
   docs_read = true,
   docs_search = true,
@@ -180,13 +198,13 @@ for _, def in ipairs(DEFS) do
   BY_NAME[def.name] = def
 end
 
----@param opts {knowledge: boolean?}? knowledge=false 时不提供手册工具
+---@param opts {knowledge: boolean?}? knowledge=false 时不提供手册工具 (dynamics 与手册无关, 照常提供)
 ---@return table[] chat completions 的 tools 数组
 function M.definitions(opts)
   opts = opts or {}
   local out = {}
   for _, def in ipairs(DEFS) do
-    if opts.knowledge ~= false or not M.QUERIES[def.name] then
+    if opts.knowledge ~= false or not M.KNOWLEDGE[def.name] then
       out[#out + 1] = {
         type = "function",
         ["function"] = { name = def.name, description = def.description, parameters = def.parameters },

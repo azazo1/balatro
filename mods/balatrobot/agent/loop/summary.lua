@@ -4,6 +4,7 @@
 - 下标从 0 开始, 与动作参数一致, 每行开头写 [下标].
 - 小丑, 消耗牌, 优惠券, 商店与卡包里的牌第一次出现时附上中文名与效果, 之后只写名字,
   名字与效果来自注入的 describe(key) (游戏内由手册 catalog 提供), 查不到时用 gamestate 里的 label 与 effect.
+  手册文本里还剩 [ ] 占位的是会变的值 (每回合换的花色点数, 成长值), 这类牌每次都用 gamestate 里的实时文本.
 - 整副牌只给张数, 不列出; 牌型只列出等级高于 1 或本局打过的.
 ]]
 
@@ -57,6 +58,7 @@ local HAND_ZH = {
   ["High Card"] = "高牌",
 }
 local EFFECT_MAX = 60 -- 效果说明的最大字数
+local DYNAMIC_EFFECT_MAX = 110 -- 会变的效果 (成长值这类) 的上限: 要留住尾部的 "(当前为+X)"
 
 ---@param text string
 ---@param limit integer
@@ -138,7 +140,9 @@ function M.new(describe)
     self.seen = {}
   end
 
-  --- 非扑克牌的一行: 名字, 修饰, 价格, 第一次出现时附效果.
+  --- 非扑克牌的一行: 名字, 修饰, 价格, 效果.
+  --- 效果第一次出现时附上; 手册文本里还剩 [ ] 占位的牌 (每回合换的花色点数, 成长值) 值会变,
+  --- 这类牌每次都附实时文本 (游戏自己生成的那一份), 免得模型拿着占位去猜.
   ---@param card table
   ---@param price string? 例如 "$6" 或 "卖 $3"
   ---@return string
@@ -150,9 +154,15 @@ function M.new(describe)
       line = line .. " " .. price
     end
     local key = card.key or name
+    -- 手册里的动态值只能写成占位, 例如 "[本回合目标花色]", "(当前为+[当前筹码]筹码)"
+    local dynamic = type(info.effect) == "string" and info.effect:find("[", 1, true) ~= nil
+    local live = squash(card.value and card.value.effect)
+    if dynamic and live ~= "" then
+      return line .. ": " .. clip(live, DYNAMIC_EFFECT_MAX)
+    end
     if not self.seen[key] then
       self.seen[key] = true
-      local effect = squash(info.effect or (card.value and card.value.effect))
+      local effect = squash(info.effect or live)
       if effect ~= "" then
         line = line .. ": " .. clip(effect, EFFECT_MAX)
       end

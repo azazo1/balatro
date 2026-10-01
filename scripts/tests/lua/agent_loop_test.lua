@@ -184,6 +184,15 @@ do -- 工具: reason 拆出, 空参数不编码成 properties: []
   local encoded = json.encode(Tools.definitions())
   check("没有空的 properties 数组", not encoded:find('"properties":%[%]'))
   check("可以不提供手册工具", #Tools.definitions({ knowledge = false }) == #Tools.definitions() - 4)
+  check("手册不可用时仍给 dynamics", (function()
+    for _, def in ipairs(Tools.definitions({ knowledge = false })) do
+      if def["function"].name == "dynamics" then
+        return true
+      end
+    end
+    return false
+  end)())
+  check("dynamics 只读且无参数", Tools.QUERIES.dynamics == true and Tools.ACTIONS.dynamics == nil)
 end
 
 do -- 摘要: 下标从 0 开始, 效果只在第一次出现时附上
@@ -199,6 +208,36 @@ do -- 摘要: 下标从 0 开始, 效果只在第一次出现时附上
   check("第二次不再附效果", not second:find("+4 倍率", 1, true))
   s:forget()
   check("forget 后重新介绍", s:render(hand_state()):find("+4 倍率", 1, true))
+end
+
+do -- 摘要: 手册文本还剩占位的牌 (认牌目标, 成长值) 每次都用实时文本, 不拿占位糊弄模型
+  local s = Summary.new(function(key)
+    if key == "j_castle" then
+      return { name = "城堡", effect = "每弃掉一张[本回合目标花色]牌 这张小丑牌获得+3 筹码 (当前为+[当前筹码]筹码)" }
+    end
+    if key == "j_joker" then
+      return { name = "小丑", effect = "+4 倍率" }
+    end
+  end)
+  local gs = hand_state({
+    jokers = {
+      limit = 5,
+      cards = {
+        { key = "j_castle", label = "城堡", value = { effect = "每弃掉一张梅花牌 这张小丑牌获得+3筹码 (当前为+12筹码)" }, modifier = {}, state = {} },
+        { key = "j_joker", label = "小丑", value = { effect = "+4 倍率" }, modifier = {}, state = {} },
+      },
+    },
+  })
+  local first = s:render(gs)
+  check("占位换成实时文本", first:find("城堡: 每弃掉一张梅花牌 这张小丑牌获得+3筹码 (当前为+12筹码)", 1, true) ~= nil, first)
+  check("不出现占位", not first:find("[本回合目标花色]", 1, true) and not first:find("[当前筹码]", 1, true))
+  check("静态效果的牌第一次附效果", first:find("小丑: +4 倍率", 1, true) ~= nil, first)
+  local second = s:render(gs)
+  check("第二次仍给实时文本", second:find("当前为+12筹码", 1, true) ~= nil)
+  gs.jokers.cards[1].value.effect = "每弃掉一张方片牌 这张小丑牌获得+3筹码 (当前为+15筹码)"
+  local third = s:render(gs)
+  check("值变了摘要也跟着变", third:find("当前为+15筹码", 1, true) ~= nil and not third:find("当前为+12筹码", 1, true))
+  check("静态效果的牌第二次不再附效果", third:find("+4 倍率", 1, true) == nil, third)
 end
 
 do -- 正常一轮: 顺序执行多个调用, 结果按 id 写回, 下一轮不重复给状态

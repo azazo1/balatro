@@ -25,6 +25,7 @@ local NOT_RECORDED = {
   ["docs_read"] = true,
   ["docs_search"] = true,
   ["lookup"] = true,
+  ["dynamics"] = true,
 }
 
 ---@param method string

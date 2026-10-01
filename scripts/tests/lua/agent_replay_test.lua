@@ -53,6 +53,7 @@ do -- 开局参数
   check("非原版牌组不转", Format.deck_enum("b_mymod_deck") == nil)
   check("赌注转枚举", Format.stake_enum(1) == "WHITE" and Format.stake_enum(8) == "GOLD")
   check("开局与存档不写进回放", not Format.recorded("start") and not Format.recorded("save"))
+  check("只读查询不写进回放", not Format.recorded("dynamics") and not Format.recorded("lookup"))
   check("讲解写进回放", Format.recorded("notify") and Format.recorded("continue"))
 end
 

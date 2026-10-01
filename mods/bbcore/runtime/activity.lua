@@ -27,6 +27,8 @@ M.PASSIVE = {
   ["gamestate"] = true,
   ["rpc.discover"] = true,
   ["screenshot"] = true,
+  -- 当前局的动态值 (本回合认的花色点数, 小丑成长值), 只读
+  ["dynamics"] = true,
 }
 
 ---@type table<string, function[]>

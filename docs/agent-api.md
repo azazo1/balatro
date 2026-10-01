@@ -196,10 +196,35 @@ just agent-call docs_search '{"query":"xmult","path":"mechanics"}'
     `blueprint_compat` (只有小丑有), `doc` (目录位置, 可以直接传给 `docs_read`), `mechanics` (`mechanics/` 中提到这个 id 的行, 最多 5 条).
   - 找不到时 `cards` 为空数组, `candidates` 给出最多 5 个 "id 中文名 / 英文名".
   - 覆盖卡牌, 修饰和挑战, 不包括扑克牌和牌型. `catalog.json` 只供 `lookup` 使用, 不能用 `docs_read` 读.
+  - 手册是版本快照, 会随局面变化的值在里面只能写成占位 (例如古老小丑的 `[本回合目标花色]`, 城堡的
+    `(当前为+[当前筹码]筹码)`). 要看此刻的真实值, 用下面的 `dynamics`.
 - 链接: 返回内容里 `[文字](<路径#锚点>)` 形式的是手册内链接, 路径可以直接传给 `docs_read`.
   `文字 (路径)` 形式的是手册以外的源码位置, 读不到.
 - 直接用 `game/` 运行 (没有打包) 时没有手册, 调用返回 `INTERNAL_ERROR`. 开发时可以设 `BALATROBOT_KNOWLEDGE_DIR`
   指向仓库的 `docs/game/`.
+
+## 动态值
+
+`dynamics` 给出当前局里会变的值, 手册里那些占位在这里是真实值. 只读, 任何阶段和弹窗期间都能调用,
+不算 agent 活动, 也不写进回放文件.
+
+```shell
+just agent-call dynamics | jq '.result.targets, .result.jokers'
+```
+
+| 字段 | 内容 |
+| --- | --- |
+| `targets` | 每回合重抽的认牌目标: 古老小丑的花色, 偶像的花色与点数, 邮件回扣的点数, 城堡的花色, 待办清单的牌型 |
+| `most_played_poker_hand` | 本局最常打出的牌型, 盲注公牛 (The Ox) 用它, 还没打过牌时不出现 |
+| `jokers`, `consumables` | 持有的小丑与消耗牌: `{index, key, name, effect}` |
+| `hand` | 手牌里带增强, 版本或蜡封的牌, 同样三项加 `effect` |
+
+- `targets` 每项是 `{key, name, suit?, suit_name?, rank?, rank_name?, poker_hand?, poker_hand_name?}`,
+  `key` 是认牌的牌 (`j_ancient` 等), `*_name` 是游戏语言的名字 (默认简体中文, 例如 `黑桃`, `红桃Q`).
+  没有的目标不出现, 例如本局没有古老小丑时就没有 `j_ancient` 项.
+- `effect` 取游戏自己生成的那一份 (`Card:generate_UIBox_ability_table`), 就是玩家悬停看到的文字:
+  成长值 (拉面的当前倍率, 城堡的当前筹码) 与概率 (幸运牌, 玻璃牌) 都已代入.
+- `index` 与该区域在 `gamestate` 里的下标一致, 从 0 开始.
 
 ## 决策消息
 

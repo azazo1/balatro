@@ -488,8 +488,30 @@ local function get_blind_effect_from_ui(blind_config)
     return ""
   end
 
-  -- Access localization data directly (more reliable than using localize function)
-  -- Path: G.localization.descriptions.Blind[blind_key].text
+  -- 原始文本里有 #1# 这类占位 (公牛的 "打出#1#牌型时"), 与选择界面一样代入变量再交给调用方
+  -- (UI_definitions.lua 的 blind_choice 也是这么做的). 代不进去时下面退回原始文本.
+  local ok, lines = pcall(function()
+    local round = G.GAME and G.GAME.current_round
+    local most_played = round and round.most_played_poker_hand
+    return localize({ ---@diagnostic disable-line: undefined-global
+      type = "raw_descriptions",
+      key = blind_config.key,
+      set = "Blind",
+      vars = { most_played and localize(most_played, "poker_hands") or "" }, ---@diagnostic disable-line: undefined-global
+    })
+  end)
+  if ok and type(lines) == "table" then
+    local parts = {}
+    for _, line in ipairs(lines) do
+      if line and line ~= "" then
+        parts[#parts + 1] = line
+      end
+    end
+    if #parts > 0 then
+      return table.concat(parts, " ")
+    end
+  end
+
   if not G or not G.localization then ---@diagnostic disable-line: undefined-global
     return ""
   end

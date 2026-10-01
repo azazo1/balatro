@@ -57,6 +57,7 @@ BB_ENDPOINTS = {
   "runtime/endpoints/notify.lua",
   "runtime/endpoints/endless.lua",
   "runtime/endpoints/continue.lua",
+  "runtime/endpoints/dynamics.lua",
   -- If debug mode is enabled, debugger.lua will load test endpoints
 }
 

@@ -84,6 +84,72 @@ local KNOWLEDGE_ERRORS = {
 }
 local STRINGS = { type = "array", items = { type = "string" } }
 
+-- 当前局的动态值: 手册是版本快照, 会随局面变化的量在里面只能是占位, 这个方法给出此刻的真实值.
+local DYNAMIC_CARD = {
+  type = "object",
+  properties = {
+    index = { type = "integer", description = "在该区域里的下标, 从 0 开始, 与 gamestate 一致" },
+    key = { type = "string", description = "卡牌 key, 例如 j_ramen" },
+    name = { type = "string", description = "卡牌名 (游戏语言)" },
+    effect = { type = "string", description = "当前效果文本 (游戏语言), 成长值与概率已代入" },
+  },
+  required = { "index", "name" },
+}
+
+local DYNAMICS = {
+  name = "dynamics",
+  summary = "当前局的动态值 (本回合认的牌, 成长值)",
+  description = "手册 (docs_read 与 lookup) 是版本快照, 里面会变的量只能写成占位, 例如古老小丑的 [本回合目标花色], "
+    .. "城堡的 (当前为+[当前筹码]筹码). 这个方法返回此刻的真实值: targets 是每回合重抽的认牌目标 (古老小丑的花色, "
+    .. "偶像的花色与点数, 邮件回扣的点数, 城堡的花色, 待办清单的牌型), most_played_poker_hand 是盲注公牛要用的牌型, "
+    .. "jokers, consumables 与 hand 是持有卡与手牌里特殊牌的效果文本, 取游戏自己生成的那一份, 成长值与概率都已代入. "
+    .. "只读, 任何阶段都能调用, 不算 agent 活动, 也不写进回放文件.",
+  params = {},
+  result = {
+    name = "dynamics",
+    schema = {
+      type = "object",
+      properties = {
+        targets = {
+          type = "array",
+          description = "每回合重抽的认牌目标, 没有的项不出现",
+          items = {
+            type = "object",
+            properties = {
+              key = { type = "string", description = "认牌的牌, 例如 j_ancient" },
+              name = { type = "string", description = "该牌的名字 (游戏语言)" },
+              suit = { type = "string", description = "花色枚举 H/D/C/S" },
+              suit_name = { type = "string", description = "花色名 (游戏语言)" },
+              rank = { type = "string", description = "点数枚举, 例如 Q" },
+              rank_name = { type = "string", description = "点数名 (游戏语言)" },
+              poker_hand = { type = "string", description = "牌型英文名, 例如 Two Pair" },
+              poker_hand_name = { type = "string", description = "牌型名 (游戏语言)" },
+            },
+            required = { "key" },
+          },
+        },
+        most_played_poker_hand = {
+          type = "object",
+          description = "本局最常打出的牌型, 盲注公牛用它 (还没打过牌时不出现)",
+          properties = {
+            poker_hand = { type = "string" },
+            poker_hand_name = { type = "string" },
+          },
+        },
+        jokers = { type = "array", items = DYNAMIC_CARD },
+        consumables = { type = "array", items = DYNAMIC_CARD },
+        hand = {
+          type = "array",
+          description = "手牌里带增强, 版本或蜡封的牌",
+          items = DYNAMIC_CARD,
+        },
+      },
+      required = { "targets", "jokers", "consumables", "hand" },
+    },
+  },
+  errors = {},
+}
+
 local DOCS_INDEX = {
   name = "docs_index",
   summary = "列出游戏手册的文件与按决策查阅表",
@@ -311,6 +377,7 @@ function M.extend(spec_text, passive)
   table.insert(spec.methods, DOCS_READ)
   table.insert(spec.methods, DOCS_SEARCH)
   table.insert(spec.methods, LOOKUP)
+  table.insert(spec.methods, DYNAMICS)
   local schemas = spec.components and spec.components.schemas
   if schemas and schemas.GameState and schemas.GameState.properties then
     schemas.GameState.properties.overlay = OVERLAY

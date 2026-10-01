@@ -58,6 +58,7 @@ test-agent:
     luajit scripts/tests/lua/agent_gate_test.lua
     luajit scripts/tests/lua/agent_llm_test.lua
     luajit scripts/tests/lua/bbcoring_test.lua
+    luajit scripts/tests/lua/bbdynamics_test.lua
     luajit scripts/tests/lua/agent_loop_test.lua
     luajit scripts/tests/lua/agent_knowledge_test.lua
     luajit scripts/tests/lua/agent_ui_test.lua
