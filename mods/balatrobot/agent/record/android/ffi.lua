@@ -14,6 +14,9 @@ rgba_to_nv12), 免得为它单独养一个原生库和一套构建.
 
 local M = {}
 
+-- 运行时加载自己的模块要显式给出 mod id (SMODS.load_file 只在首次加载 mod 时可以省).
+local MOD_ID = "balatrobot"
+
 ---@class BBNativeMedia
 ---@field codec table MediaCodec 相关函数与常量
 ---@field format table AMediaFormat 相关函数
@@ -72,23 +75,18 @@ M.INFO = INFO
 M.KEYS = KEYS
 M.VALUE = VALUE
 
---- 需要的类型: cdef 之后逐个核对, 确认声明真的生效.
+--- 需要的类型与声明文本来自 cdef.lua, 编码线程用同一份.
+---@type table
+local Cdef
+
+--- cdef 之后逐个核对类型是否真的声明成功.
 --- 只看 cdef 的返回值不够: 模块被加载两次时重复声明会报 "attempt to redefine", 那其实说明已经声明好了;
 --- 反过来, 声明文本漏了某个类型 (例如 Android 特有的 media_status_t) 时又必须报错而不是静默跳过.
-local NEEDED_TYPES = {
-  "media_status_t",
-  "AMediaFormat",
-  "AMediaCodec",
-  "AMediaCodecBufferInfo",
-  "AMediaMuxer",
-  "AMediaExtractor",
-}
-
 ---@param lib table ffi 模块
 ---@return boolean declared
 ---@return string? missing 第一个还没声明的类型
 local function types_declared(lib)
-  for _, name in ipairs(NEEDED_TYPES) do
+  for _, name in ipairs(Cdef.NEEDED_TYPES) do
     if not pcall(lib.typeof, name) then
       return false, name
     end
@@ -96,88 +94,9 @@ local function types_declared(lib)
   return true
 end
 
---- 注册 C 声明. lib 是 ffi 模块本身 (不能依赖 upvalue: cdef 要在 ffi 赋值之前调用).
---- NdkMediaError.h: typedef int32_t media_status_t, 返回 0 为 AMEDIA_OK.
---- ssize_t 由 LuaJIT 自带, 不需要自己声明 (重复声明会报 attempt to redefine).
-local CDECL = [[
-    typedef int32_t media_status_t;
-
-    // ---- AMediaFormat ----
-    typedef struct AMediaFormat AMediaFormat;
-    AMediaFormat *AMediaFormat_new(void);
-    void AMediaFormat_delete(AMediaFormat *format);
-    void AMediaFormat_setString(AMediaFormat *format, const char *name, const char *value);
-    void AMediaFormat_setInt32(AMediaFormat *format, const char *name, int32_t value);
-    void AMediaFormat_setInt64(AMediaFormat *format, const char *name, int64_t value);
-    void AMediaFormat_setBuffer(AMediaFormat *format, const char *name, const void *data, size_t size);
-    bool AMediaFormat_getInt32(AMediaFormat *format, const char *name, int32_t *out);
-    bool AMediaFormat_getInt64(AMediaFormat *format, const char *name, int64_t *out);
-    const char *AMediaFormat_getString(AMediaFormat *format, const char *name, size_t *out_size);
-    const char *AMediaFormat_toString(AMediaFormat *format);
-
-    // ---- AMediaCodec ----
-    typedef struct AMediaCodec AMediaCodec;
-
-    typedef struct AMediaCodecBufferInfo {
-      int32_t offset;
-      int32_t size;
-      int64_t presentationTimeUs;
-      uint32_t flags;
-    } AMediaCodecBufferInfo;
-
-    AMediaCodec *AMediaCodec_createEncoderByType(const char *mime);
-    AMediaCodec *AMediaCodec_createDecoderByType(const char *mime);
-    media_status_t AMediaCodec_configure(AMediaCodec *codec, const AMediaFormat *format,
-                                         void *surface, void *crypto, uint32_t flags);
-    media_status_t AMediaCodec_start(AMediaCodec *codec);
-    media_status_t AMediaCodec_stop(AMediaCodec *codec);
-    media_status_t AMediaCodec_flush(AMediaCodec *codec);
-    media_status_t AMediaCodec_delete(AMediaCodec *codec);
-    uint8_t *AMediaCodec_getInputBuffer(AMediaCodec *codec, size_t index, size_t *out_size);
-    uint8_t *AMediaCodec_getOutputBuffer(AMediaCodec *codec, size_t index, size_t *out_size);
-    ssize_t AMediaCodec_dequeueInputBuffer(AMediaCodec *codec, int64_t timeoutUs);
-    media_status_t AMediaCodec_queueInputBuffer(AMediaCodec *codec, size_t index, size_t offset,
-                                                size_t size, uint64_t time, uint32_t flags);
-    ssize_t AMediaCodec_dequeueOutputBuffer(AMediaCodec *codec, AMediaCodecBufferInfo *info,
-                                            int64_t timeoutUs);
-    media_status_t AMediaCodec_releaseOutputBuffer(AMediaCodec *codec, size_t index, bool render);
-    AMediaFormat *AMediaCodec_getOutputFormat(AMediaCodec *codec);
-
-    // ---- AMediaMuxer ----
-    typedef struct AMediaMuxer AMediaMuxer;
-    AMediaMuxer *AMediaMuxer_new(int fd, int32_t format);
-    media_status_t AMediaMuxer_setOrientationHint(AMediaMuxer *muxer, int degrees);
-    ssize_t AMediaMuxer_addTrack(AMediaMuxer *muxer, const AMediaFormat *format);
-    media_status_t AMediaMuxer_start(AMediaMuxer *muxer);
-    media_status_t AMediaMuxer_stop(AMediaMuxer *muxer);
-    media_status_t AMediaMuxer_delete(AMediaMuxer *muxer);
-    media_status_t AMediaMuxer_writeSampleData(AMediaMuxer *muxer, size_t trackIndex,
-                                               const uint8_t *data, const AMediaCodecBufferInfo *info);
-
-    // ---- AMediaExtractor (剪辑时按关键帧取样本) ----
-    typedef struct AMediaExtractor AMediaExtractor;
-    AMediaExtractor *AMediaExtractor_new(void);
-    media_status_t AMediaExtractor_setDataSourceFd(AMediaExtractor *ex, int fd, int64_t offset,
-                                                   int64_t length);
-    media_status_t AMediaExtractor_delete(AMediaExtractor *ex);
-    size_t AMediaExtractor_getTrackCount(AMediaExtractor *ex);
-    AMediaFormat *AMediaExtractor_getTrackFormat(AMediaExtractor *ex, size_t track);
-    media_status_t AMediaExtractor_selectTrack(AMediaExtractor *ex, size_t track);
-    void AMediaExtractor_unselectTrack(AMediaExtractor *ex, size_t track);
-    ssize_t AMediaExtractor_readSampleData(AMediaExtractor *ex, uint8_t *buffer, size_t capacity);
-    int64_t AMediaExtractor_getSampleTime(AMediaExtractor *ex);
-    uint32_t AMediaExtractor_getSampleFlags(AMediaExtractor *ex);
-    bool AMediaExtractor_advance(AMediaExtractor *ex);
-    int AMediaExtractor_getSampleTrackIndex(AMediaExtractor *ex);
-
-    // ---- libc: 输出文件描述符 (AMediaMuxer 按 fd 写) ----
-    int open(const char *path, int flags, ...);
-    int close(int fd);
-]]
-
 --- 声明一次即可; 被加载两次时第二次会报重复定义, 此时按已声明处理.
 local function cdef(lib)
-  local ok, err = pcall(lib.cdef, CDECL)
+  local ok, err = pcall(lib.cdef, Cdef.CDECL)
   local declared, missing = types_declared(lib)
   if declared then
     return true
@@ -198,6 +117,13 @@ end
 function M.load(opts)
   opts = opts or {}
   local injected = opts.ffi ~= nil or opts.lib ~= nil
+  if not Cdef then
+    if opts.cdef then
+      Cdef = opts.cdef
+    else
+      Cdef = assert(SMODS.load_file("agent/record/android/cdef.lua", MOD_ID))()
+    end
+  end
   if M.available then
     return true
   end

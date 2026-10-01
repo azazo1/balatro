@@ -3,6 +3,8 @@
 -- 这里用真的 ffi 模块跑 cdef, 声明文本有错就会失败; 库本身用桩代替 (开发机上没有 libmediandk).
 
 local Media = dofile("mods/balatrobot/agent/record/android/ffi.lua")
+-- 声明文本与需要的类型来自 cdef.lua (编码线程用同一份); 测试里直接加载它注入.
+local Cdef = dofile("mods/balatrobot/agent/record/android/cdef.lua")
 
 local failures = 0
 local function check(name, cond, detail)
@@ -40,7 +42,7 @@ local function stub_lib(available)
 end
 
 do -- 加载成功: cdef 文本必须真能被 LuaJIT 解析 (media_status_t 之类的类型漏声明时这里就会失败)
-  local ok, err = Media.load({ ffi = ffi, lib = stub_lib({ h264 = true, aac = true }) })
+  local ok, err = Media.load({ ffi = ffi, cdef = Cdef, lib = stub_lib({ h264 = true, aac = true }) })
   check("加载 media 库", ok, tostring(err))
   check("加载后标记可用", Media.is_available() == true)
 end
@@ -55,7 +57,7 @@ end
 
 do -- 设备上没有对应编码器时: 探测仍然成功, 但如实报告为 false
   local fresh = dofile("mods/balatrobot/agent/record/android/ffi.lua")
-  local ok, err = fresh.load({ ffi = ffi, lib = stub_lib({ h264 = false, aac = false }) })
+  local ok, err = fresh.load({ ffi = ffi, cdef = Cdef, lib = stub_lib({ h264 = false, aac = false }) })
   check("没有编码器也能通过加载", ok, tostring(err))
   local probe = fresh.probe()
   check("没有 H.264 编码器时报告 false", probe.ok and probe.h264 == false, tostring(probe.error))
@@ -73,7 +75,7 @@ do -- 没有 ffi 时给出原因而不是崩
       error("should not be reached")
     end,
   }
-  local ok, err = fresh.load({ ffi = bad })
+  local ok, err = fresh.load({ ffi = bad, cdef = Cdef })
   check("cdef 失败时返回 false", ok == false)
   check("cdef 失败时说明原因", type(err) == "string" and err:find("cdef", 1, true) ~= nil, tostring(err))
   check("cdef 失败时不可用", fresh.is_available() == false)

@@ -299,8 +299,33 @@ Android:
 - 默认 540p 24fps, 可在设置页调整. 卡顿时按墙钟重复上一帧, 音画不会错位.
 - 桌面端继续用 ffmpeg.
 
-进度: 颜色转换与 media 的 ffi 绑定已就绪 (转换有 Rust 单测, 覆盖纯色, 色度抽样与跨度对齐; 导出符号
-已在 APK 的 arm64 `.so` 与 macOS dylib 上核对). 编码器与 muxer 的串接, 以及剪辑的 remux 还没有开始.
+进度: 视频链路已在真机跑通 (640x360 自检: 30 帧 / 30 个样本 / 封装成功, 取出用 ffprobe 核对是
+H.264 640x360 yuv420p 30fps 1.0 秒, 抽帧确认红绿蓝三块颜色正确). 声音与剪辑版还没做.
+
+实现要点 (都是真机上试出来的):
+
+- 编码器按顺序试: `createEncoderByType` (系统推荐, 通常是最省电的硬件编码器), 然后
+  `c2.android.avc.encoder`, 再 `OMX.google.h264.encoder`. 第一个 `configure` 通过的用.
+  实测高通设备上硬件编码器会以 `err(-22, BAD_VALUE)` 拒绝同一份 format, 而软件编码器直接通过 ——
+  硬件编码器实例有限, 被别的应用 (例如 scrcpy, 系统录屏) 占用时就建不起来, 这时软编仍可用.
+  软编占 CPU, 所以放在最后; 结束时会报告实际用了哪个, 以及编码队列被压满的次数 (次数多说明跟不上帧率).
+- 只用 NV12 (`COLOR_FormatYUV420SemiPlanar`), 与 bbnet 的转换输出一致. 不换 I420 兜底:
+  那是三平面布局, 喂 NV12 的数据会得到颜色错乱的视频.
+- `i-frame-interval` 是 float 键 (Java 侧 `KEY_I_FRAME_INTERVAL` 也是 float), 用 `setFloat` 设.
+- 文件用非变参声明的 `open` 建: LuaJIT 把变参里的 Lua 数字按 double 传, `mode` 会按 4 字节读成 0,
+  文件权限就成了 0000 (连自己都读不到). 产物写完再走一次存档目录的权限修正, 外部工具才取得走.
+- `AMediaMuxer` 只写普通 mp4, moov 在收尾时才落盘, 所以录制中途崩溃会丢掉这一局的视频 (桌面的
+  ffmpeg 用 fragmented mp4 抗崩溃, 这个特性 Android 上没有对应做法).
+- 整个编码线程包在 `xpcall` 里: LÖVE 会把线程里未捕获的错误抛到主线程并直接崩掉游戏, 而这里出错
+  多半与设备相关, 不该让玩家的对局陪葬. 失败只记一条警告.
+- Android 默认 540p 24fps (手机屏幕小, 软编时 24fps 比 30fps 省四分之一 CPU), 桌面仍是 720p30.
+
+还没做:
+
+- 声音: Android 的 mp4 目前没有音轨 (所以这一路不采 `.pcm`, 免得留下用不到的文件). 要加音轨得再用
+  MediaCodec 编 AAC 并在封装器里多一条轨道.
+- 剪辑版: Android 上没有 ffmpeg 可以调, 要按关键帧截取拼接 (`AMediaExtractor` 加 `AMediaMuxer`) 重新封装.
+- 崩溃恢复: 见上面的 moov 限制.
 
 ## 游戏内回放
 
@@ -491,7 +516,7 @@ Android:
   分页有单测. 界面外观和真机上的长按中止待验证.
 - 5 完成了一部分: `bbnet` 的 arm64-v8a 交叉编译与 APK 打包 (`just android dist-modded` 已验证 .so 进入
   `lib/arm64-v8a/`), 切到后台自动暂停, 运行中防熄屏. armeabi-v7a 缺 rust target; 真机上的触摸流程未验证.
-- 6 完成了一部分: 颜色转换与 media 绑定已就绪, 编码与封装未接. 见 "录像" 一节末尾.
+- 6 完成了一部分: 视频链路已在真机跑通 (颜色转换, 编码器回退, 封装), 声音与剪辑版未做. 见 "录像" 一节末尾.
 
 录制器的开关与文件名前缀改成运行时可设 (`agent/record/recorder.lua` 的 `set_enabled` / `set_prefix`):
 游戏内回放选了录像时按 `replay-` 前缀录, 结束或开始失败时回滚. 录像本来关着时, 这一步才装载编码相关的
