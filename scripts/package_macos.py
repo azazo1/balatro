@@ -24,9 +24,43 @@ import build_native  # noqa: E402  打包带 mod 的版本时顺带编译 bbnet
 
 log.set_prefix("macos")
 
-# 官方 love.app 里与图标相关的资源, 换成我们自己的图标后需要清掉,
-# 否则 Assets.car 里的命名图标会盖过新的 .icns.
-LOVE_ICON_ASSETS = ("Assets.car", "OS X AppIcon.icns", "GameIcon.icns")
+# 官方 love.app 用 Assets.car + CFBundleIconName 提供图标. 换成我们的 .icns 后
+# 必须删掉 Assets.car 并移除 CFBundleIconName, 否则命名图标会盖过 icns,
+# 表现成有时是 LÖVE 图标, 有时是我们的图标.
+LOVE_ICON_CAR = "Assets.car"
+# 覆盖官方 icns 的原名, 而不是改成 AppIcon.icns. 这样 CFBundleIconFile 保持
+# "OS X AppIcon", 与运行时一致, Launch Services 也不必换名重新绑定.
+LOVE_ICNS_FILE = "OS X AppIcon.icns"
+LOVE_ICNS_COPIES = ("GameIcon.icns", "AppIcon.icns")
+LSREGISTER = (
+    "/System/Library/Frameworks/CoreServices.framework/"
+    "Frameworks/LaunchServices.framework/Support/lsregister"
+)
+
+
+def install_app_icon(resources, icon_src):
+    """写入圆角 icns, 覆盖官方原名, 并去掉会盖过 icns 的 Assets.car."""
+    icns_path = os.path.join(resources, LOVE_ICNS_FILE)
+    sizes = icns.build(icon_src, icns_path)
+    for name in LOVE_ICNS_COPIES:
+        shutil.copy2(icns_path, os.path.join(resources, name))
+    car = os.path.join(resources, LOVE_ICON_CAR)
+    if os.path.exists(car):
+        os.remove(car)
+    return sizes
+
+
+def refresh_bundle_icon(app_dir):
+    """让 Finder / Dock 重新读取应用包图标, 避免沿用旧缓存."""
+    try:
+        os.utime(app_dir, None)
+        plist = os.path.join(app_dir, "Contents", "Info.plist")
+        if os.path.isfile(plist):
+            os.utime(plist, None)
+    except OSError as exc:
+        log.warn("未能更新应用包时间戳: %s" % exc)
+    if os.path.isfile(LSREGISTER):
+        log.run([LSREGISTER, "-f", app_dir], check=False, quiet=True)
 
 
 def parse_args():
@@ -95,18 +129,11 @@ def main():
         }
         remove = []
         if icon_src:
-            icns_path = os.path.join(resources, "AppIcon.icns")
-            sizes = icns.build(icon_src, icns_path)
-            log.info("已生成 %s (尺寸: %s)"
-                     % (os.path.basename(icns_path),
-                        ", ".join(str(s) for s in sorted(set(sizes)))))
-            values["CFBundleIconFile"] = "AppIcon"
-            # 让新的 .icns 生效, 需要同时去掉 CFBundleIconName 与旧的图标资源.
+            sizes = install_app_icon(resources, icon_src)
+            log.info("已生成图标 (尺寸: %s)"
+                     % ", ".join(str(s) for s in sorted(set(sizes))))
+            values["CFBundleIconFile"] = "OS X AppIcon"
             remove.append("CFBundleIconName")
-            for name in LOVE_ICON_ASSETS:
-                target = os.path.join(resources, name)
-                if os.path.exists(target):
-                    os.remove(target)
         info_plist.update(os.path.join(contents, "Info.plist"), values, remove)
 
         log.info("清除隔离属性")
@@ -117,6 +144,8 @@ def main():
         log.run(["codesign", "--force", "--deep", "--sign", "-", app_dir], quiet=True)
         log.run(["codesign", "--verify", "--deep", "--strict", app_dir], quiet=True)
         log.info("签名校验通过")
+        if icon_src:
+            refresh_bundle_icon(app_dir)
     finally:
         if args.keep_work:
             log.info("保留工作目录: %s" % work_dir)

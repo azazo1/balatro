@@ -11,7 +11,7 @@
 | 路径 | 说明 |
 | --- | --- |
 | `assets/Balatro.exe` | 原始 Windows 版游戏, LÖVE 融合 exe, 尾部 zip 即游戏资源 (`7zz x Balatro.exe` 可解出), 仅作来源保留, 不参与构建也不入库 |
-| `assets/icon.png` | 应用图标源图, 1024x1024, 由 `game/resources/textures/2x/Jokers.png` 第一格裁出 |
+| `assets/icon.png` | 应用图标源图, 1024x1024, 由 `game/resources/textures/2x/Jokers.png` 第一格裁出. macOS 打包时再套圆角矩形 |
 | `game/` | 从发行包中提取的游戏资源, 构建输入 |
 | `vendor/` | 各平台官方 LÖVE 11.5 运行时, 打包时校验 sha256 |
 | `scripts/lib/` | 打包用的可复用模块 (PNG 与 icns, 二进制 manifest, zip 等) |
@@ -67,7 +67,7 @@ just macos dist
 ```
 
 产物 `dist/macos/Balatro.app`, 可以整体拷贝到 `/Applications` 后双击运行. 应用包为 ad-hoc
-签名并已清除隔离属性, 首次打开无需放行.
+签名并已清除隔离属性, 首次打开无需放行. 图标在打包时套圆角矩形并写成 icns, 源图仍保持方图.
 
 换图标时传入自己的正方形 png, 建议 1024x1024 以上:
 

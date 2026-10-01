@@ -4,7 +4,9 @@
 
 支持 8 位深度的灰度, 灰度加透明, RGB 与 RGBA 四种颜色类型, 覆盖图标源图的常见情况.
 缩放采用区域平均 (box filter), 并在计算前做预乘处理, 避免透明边缘出现暗边.
+macOS 应用图标另外提供圆角矩形遮罩, 只改 alpha, 源图像素风缩放仍走最近邻.
 """
+import math
 import struct
 import zlib
 
@@ -239,3 +241,57 @@ def scaled_copy(src_path, dst_path, size, nearest=False):
     width, height, rgba = load_rgba(src_path)
     out = resize_rgba(width, height, rgba, size, size, nearest)
     save_rgba(dst_path, size, size, out)
+
+
+# 接近 iOS / macOS 图标模板的圆角半径 (228 / 1024).
+ROUND_RECT_RATIO = 228 / 1024.0
+
+
+def _round_rect_coverage(x, y, width, height, radius):
+    """像素 (x, y) 落在圆角矩形内的覆盖率, 1 为完全在内, 0 为完全在外."""
+    if radius <= 0:
+        return 1.0
+    cx = x + 0.5
+    cy = y + 0.5
+    if cx < radius and cy < radius:
+        dist = math.hypot(cx - radius, cy - radius)
+    elif cx > width - radius and cy < radius:
+        dist = math.hypot(cx - (width - radius), cy - radius)
+    elif cx < radius and cy > height - radius:
+        dist = math.hypot(cx - radius, cy - (height - radius))
+    elif cx > width - radius and cy > height - radius:
+        dist = math.hypot(cx - (width - radius), cy - (height - radius))
+    else:
+        return 1.0
+    return max(0.0, min(1.0, radius + 0.5 - dist))
+
+
+def apply_round_rect_mask(width, height, rgba, radius_ratio=ROUND_RECT_RATIO):
+    """给 RGBA 图像套一层抗锯齿圆角矩形遮罩, 四角变透明.
+
+    在目标尺寸上切圆角, 而不是先切再缩放, 这样像素风色块仍走最近邻,
+    只有外轮廓带一层平滑过渡. 完全透明的像素把 RGB 清零, 方便 PNG 压缩.
+    """
+    if len(rgba) != width * height * 4:
+        raise PngError("像素数据长度与尺寸不符")
+    if width < 1 or height < 1:
+        raise PngError("目标尺寸必须为正数")
+    radius = min(width, height) * float(radius_ratio)
+    radius = min(radius, width / 2.0, height / 2.0)
+    out = bytearray(rgba)
+    for y in range(height):
+        for x in range(width):
+            cov = _round_rect_coverage(x, y, width, height, radius)
+            if cov >= 1.0:
+                continue
+            i = (y * width + x) * 4
+            if cov <= 0.0:
+                out[i:i + 4] = b"\x00\x00\x00\x00"
+                continue
+            alpha = int(out[i + 3] * cov + 0.5)
+            out[i + 3] = alpha
+            if alpha == 0:
+                out[i] = 0
+                out[i + 1] = 0
+                out[i + 2] = 0
+    return bytes(out)
