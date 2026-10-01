@@ -64,6 +64,11 @@ BB_RECORDER.init({
   mod_path = MOD.path,
   config_enabled = MOD.config.record == true,
   config_keep = MOD.config.record_keep,
+  config_quality = {
+    height = MOD.config.record_height,
+    fps = MOD.config.record_fps,
+    bitrate = MOD.config.record_bitrate,
+  },
 })
 -- 流式条在屏幕上时和决策消息一样算作活动, 剪辑版不剪掉.
 BB_RECORDER.add_activity_source(function()

@@ -65,8 +65,8 @@ loop 留在 Lua 里, 因为动作本来就在游戏的 Lua 里执行, 调用动�
 - 状态行: 外部模式显示监听地址, 内置模式显示 loop 状态和最近一次错误.
 - 原有的消息显示开关.
 
-录像的开关与保留方式 (skip/keep) 不在这里, 在 bbreplay 自己的设置页 (模组 -> BB Replay -> 配置), 改完立刻生效,
-桌面端设了 `BALATROBOT_RECORD*` 环境变量时以环境变量为准. 分辨率与帧率没有设置项, 只能用环境变量改, Android 上固定为默认值.
+录像的开关, 保留方式 (skip/keep), 清晰度, 帧率与码率不在这里, 在 bbreplay 自己的设置页 (模组 -> BB Replay -> 配置),
+见 [recording.md](<recording.md>). 桌面端设了 `BALATROBOT_RECORD*` 环境变量时以环境变量为准.
 
 输入: 原版文本框的字符表里没有 `/`, 并且会把 `0` 改成 `o`, URL 和 key 输不进去. 因此 endpoint, key 和模型名都用 "从剪贴板粘贴" 按钮输入, 读取 `love.system.getClipboardText()`. key 在界面上只显示掩码.
 

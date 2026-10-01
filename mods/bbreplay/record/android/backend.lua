@@ -38,9 +38,12 @@ function M.available()
   return true
 end
 
---- 码率估算: 约 0.15 bit/像素/帧, 限制在 1~12 Mbps.
+--- 码率 (bit/s). 设置页给了码率 (Mbps) 时照用; 自动 (0) 时估算: 约 0.15 bit/像素/帧, 限制在 1~12 Mbps.
 --- 540p24 得约 1.9 Mbps. 卡面文字边缘多, 给低了会糊.
-local function bitrate(width, height, fps)
+local function bitrate(width, height, fps, mbps)
+  if mbps and mbps > 0 then
+    return math.floor(mbps * 1000000 + 0.5)
+  end
   local want = math.floor(width * height * fps * 0.15)
   return math.max(1000000, math.min(12000000, want))
 end
@@ -51,11 +54,12 @@ end
 ---@param width integer
 ---@param height integer
 ---@param fps integer
+---@param mbps number? 码率, 0 或 nil 为自动
 ---@return boolean ok
 ---@return table|string thread_or_error
 ---@return table? frames 仅成功时给出
 ---@return table? status 仅成功时给出
-function M.start(mod_path, video_path, width, height, fps)
+function M.start(mod_path, video_path, width, height, fps, mbps)
   local ok_cdef, Cdef = pcall(function()
     return assert(SMODS.load_file("record/android/cdef.lua", MOD_ID))()
   end)
@@ -73,7 +77,7 @@ function M.start(mod_path, video_path, width, height, fps)
     width = width,
     height = height,
     fps = fps,
-    bitrate = bitrate(width, height, fps),
+    bitrate = bitrate(width, height, fps, mbps),
   }
   local thread = love.thread.newThread(love.filesystem.newFileData(source, "bb_android_encoder.lua"))
   local frames = love.thread.newChannel()

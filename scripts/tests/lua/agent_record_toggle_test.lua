@@ -31,12 +31,17 @@ sendWarnMessage = function(msg) logs.warn[#logs.warn + 1] = msg end
 sendErrorMessage = function(msg) logs.error[#logs.error + 1] = msg end
 sendDebugMessage = function(msg) logs.debug[#logs.debug + 1] = msg end
 
---- 记录每次加载的 (path, id), 并返回一个空模块.
+--- 记录每次加载的 (path, id), 并返回一个空模块. quality.lua 是纯逻辑, 装载时就要用, 加载真的.
 local loads = {}
 SMODS = {
   current_mod = nil, -- 运行中通常已经不是本 mod, 正是省 id 会失败的情形
   load_file = function(path, id)
     loads[#loads + 1] = { path = path, id = id }
+    if path == "record/quality.lua" then
+      return function()
+        return dofile("mods/bbreplay/record/quality.lua")
+      end
+    end
     return function()
       return {}
     end

@@ -219,8 +219,9 @@ just macos run-agent on 1     # 10 倍速, 仅在需要时使用
 | --- | --- | --- |
 | `BALATROBOT_RECORD` | 关闭 | `on` 开启 |
 | `BALATROBOT_RECORD_DIR` | `<存档目录>/recordings` | 输出目录, `run-agent` 设为 `recordings/` |
-| `BALATROBOT_RECORD_FPS` | 30 | 视频帧率 |
-| `BALATROBOT_RECORD_HEIGHT` | 720 | 视频高度, 宽度按窗口比例 |
+| `BALATROBOT_RECORD_FPS` | 设置页的值, 默认 30 | 视频帧率 |
+| `BALATROBOT_RECORD_HEIGHT` | 设置页的值, 默认 720 | 视频高度, 宽度按窗口比例 |
+| `BALATROBOT_RECORD_BITRATE` | 设置页的值, 默认自动 | 视频码率 (Mbps, 可带小数), 0 为自动 (固定画质, 体积随画面变化) |
 | `BALATROBOT_RECORD_PRE` | 0.6 | 剪辑版每段活动前保留的秒数 |
 | `BALATROBOT_RECORD_POST` | 0.8 | 剪辑版动画停下后保留的秒数 |
 | `BALATROBOT_RECORD_CODEC` | 自动 | `videotoolbox` 或 `x264`; x264 更省体积, 但占 CPU, 动画多时游戏会掉帧 |

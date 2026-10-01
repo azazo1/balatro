@@ -6,4 +6,9 @@ return {
   -- 设了 BALATROBOT_RECORD / BALATROBOT_RECORD_KEEP 环境变量时以环境变量为准.
   record = false,
   record_keep = "skip",
+  -- 清晰度 (画面高度), 帧率, 码率 (Mbps). 0 为默认: 清晰度与帧率按平台 (桌面 720p30, Android 540p24),
+  -- 码率自动. 可选值见 record/quality.lua. 设了 BALATROBOT_RECORD_HEIGHT / _FPS / _BITRATE 时以环境变量为准.
+  record_height = 0,
+  record_fps = 0,
+  record_bitrate = 0,
 }

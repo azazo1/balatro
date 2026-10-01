@@ -21,8 +21,10 @@ agent 暂停期间一律不算活动.
 
 环境变量:
 - BALATROBOT_RECORD_DIR     输出目录, 默认 <存档目录>/recordings
-- BALATROBOT_RECORD_FPS     默认 30 (Android 24)
-- BALATROBOT_RECORD_HEIGHT  默认 720 (Android 540), 宽度按窗口比例, 取偶数
+- BALATROBOT_RECORD_FPS     帧率, 未设置时用设置页的值, 默认 30 (Android 24)
+- BALATROBOT_RECORD_HEIGHT  画面高度, 宽度按窗口比例, 取偶数. 未设置时用设置页的值, 默认 720 (Android 540)
+- BALATROBOT_RECORD_BITRATE 视频码率 (Mbps), 0 为自动. 未设置时用设置页的值, 默认自动
+  三者的可选值与取舍见 record/quality.lua. 设置页改了之后从下一个录像段起生效, 正在录的一段不变.
 - BALATROBOT_RECORD_PRE     剪辑版在每次活动前保留的秒数, 默认 0.6
 - BALATROBOT_RECORD_POST    剪辑版在动画停下后保留的秒数, 默认 0.8
 - BALATROBOT_RECORD_PREFIX  输出文件名前缀, 默认为空, 回放时为 replay-
@@ -44,7 +46,7 @@ local MIN_GAP = 1.5 -- 剪掉的部分短于它时不剪
 -- 也视为停下, 防止某个一直挂着的事件让剪辑版一刀都剪不掉.
 local SETTLE_MAX = 10
 
-local Cuts, Timeline, Audio, Post -- 在 setup 中加载
+local Cuts, Timeline, Audio, Post, Quality -- 在 setup 中加载
 
 local M = {
   enabled = false,
@@ -112,21 +114,38 @@ local function find_ffmpeg()
   return nil
 end
 
-local CODEC_ARGS = {
+-- 码率为自动时用固定画质参数, 体积随画面复杂度变化.
+local CODECS = {
   -- 硬件编码, CPU 占用约为 x264 veryfast 的 1/4, 同画质下体积约大一倍.
-  videotoolbox = "-c:v h264_videotoolbox -q:v 65",
-  x264 = "-c:v libx264 -preset veryfast -crf 20",
+  videotoolbox = { encoder = "-c:v h264_videotoolbox", quality = "-q:v 65" },
+  x264 = { encoder = "-c:v libx264 -preset veryfast", quality = "-crf 20" },
 }
+
+--- 码率参数. mbps 为 0 时用固定画质; 否则给目标码率, x264 另限峰值, 免得动画密集处突然变大.
+---@param codec string
+---@param mbps number
+---@return string
+local function rate_args(codec, mbps)
+  if not mbps or mbps <= 0 then
+    return CODECS[codec].quality
+  end
+  local kbps = math.floor(mbps * 1000 + 0.5)
+  if codec == "x264" then
+    return string.format("-b:v %dk -maxrate %dk -bufsize %dk", kbps, math.floor(kbps * 1.5), kbps * 2)
+  end
+  return string.format("-b:v %dk", kbps)
+end
 
 --- 编码参数. live 为 true 时是录制中的实时编码: 约 2 秒一个关键帧, fragmented mp4 按关键帧分片,
 --- 崩溃时最多丢约 2 秒画面. x264 默认 250 帧一个关键帧, 30fps 下超过 8 秒;
 --- videotoolbox 默认约 0.4 秒一个, 分片过碎. 局末重新编码剪辑版时不需要这些.
 ---@param codec string
 ---@param fps integer
+---@param mbps number 码率, 0 为自动
 ---@param live boolean
 ---@return string
-local function codec_args(codec, fps, live)
-  local args = CODEC_ARGS[codec]
+local function codec_args(codec, fps, mbps, live)
+  local args = CODECS[codec].encoder .. " " .. rate_args(codec, mbps)
   if not live then
     return args
   end
@@ -138,7 +157,7 @@ end
 
 local function pick_codec(ffmpeg)
   local wanted = os.getenv("BALATROBOT_RECORD_CODEC")
-  if wanted and CODEC_ARGS[wanted] then
+  if wanted and CODECS[wanted] then
     return wanted
   end
   local pipe = io.popen(shell_quote(ffmpeg) .. " -hide_banner -encoders 2>/dev/null")
@@ -303,7 +322,7 @@ local function start_encoder(video_path, log_path, w, h)
     "-s " .. w .. "x" .. h,
     "-r " .. cfg.fps,
     "-i -",
-    codec_args(cfg.codec, cfg.fps, true),
+    codec_args(cfg.codec, cfg.fps, cfg.bitrate, true),
     "-pix_fmt yuv420p",
     -- fragmented mp4: 游戏中途崩溃时已写入的分片仍可播放. flush_packets 让每个分片写完就落盘,
     -- 否则画面简单时整个分片都停在 ffmpeg 的 32 KB 写缓冲里, 被 kill 时一帧都读不出.
@@ -553,6 +572,8 @@ local function start_session(resumed, reason)
     cuts = Cuts.new({ pre = cfg.pre, post = cfg.post, min_gap = MIN_GAP }),
     timeline = Timeline.new(base .. ".json", meta),
     size = { w, h },
+    -- 本段的帧率. 设置页可以在录制中改 cfg.fps, 只影响下一段, 这一段的帧数一直按开始时的帧率算.
+    fps = cfg.fps,
     frames_out = 0, -- 已交给画面的帧数 (含待写出的 pending)
     pending = 0,
     queue_full = 0, -- 编码队列被压满的次数: 编码跟不上帧率时才会发生
@@ -591,7 +612,7 @@ local function start_session(resumed, reason)
 
     local ok, thread, frames, status
     if cfg.backend == "android" then
-      ok, thread, frames, status = cfg.android.start(deps.mod_path, base .. ".video.mp4", w, h, cfg.fps)
+      ok, thread, frames, status = cfg.android.start(deps.mod_path, base .. ".video.mp4", w, h, cfg.fps, cfg.bitrate)
     else
       ok, thread, frames, status = pcall(start_encoder, base .. ".video.mp4", base .. ".ffmpeg.txt", w, h)
     end
@@ -603,7 +624,7 @@ local function start_session(resumed, reason)
         -- 合成参数, 草稿与局末脚本共用
         session.post = {
           ffmpeg = cfg.ffmpeg,
-          codec_args = codec_args(cfg.codec, cfg.fps, false),
+          codec_args = codec_args(cfg.codec, cfg.fps, cfg.bitrate, false),
           base = base,
           fps = cfg.fps,
           keep = cfg.keep,
@@ -619,14 +640,22 @@ local function start_session(resumed, reason)
   write_draft(session)
   M.status = "recording " .. stem
   sendInfoMessage(
-    string.format("Recording started: %s (%dx%d@%d, sound %s)", base, w, h, cfg.fps, session.audio and "on" or "off"),
+    string.format(
+      "Recording started: %s (%dx%d@%d, bitrate %s, sound %s)",
+      base,
+      w,
+      h,
+      cfg.fps,
+      cfg.bitrate > 0 and (cfg.bitrate .. " Mbps") or "auto",
+      session.audio and "on" or "off"
+    ),
     LOGGER
   )
 end
 
 --- 把画面帧数补到墙钟时间 wall 对应的帧.
 local function advance_frames(s, wall)
-  local target = math.floor(wall * cfg.fps + 1e-9)
+  local target = math.floor(wall * s.fps + 1e-9)
   if target > s.frames_out then
     s.pending = s.pending + (target - s.frames_out)
     s.frames_out = target
@@ -656,7 +685,7 @@ local function end_session(reason)
     collect_frames(s, true)
   end
   staged = {}
-  local length = s.frames_out / cfg.fps -- 视频的实际长度
+  local length = s.frames_out / s.fps -- 视频的实际长度
   local was_paused = s.cuts.paused
   s.cuts.paused = false -- 暂停中结束: 暂停的部分由 finish 当作结尾的等待剪掉
   s.cuts:finish(length)
@@ -858,6 +887,12 @@ function M.annotate(key, value)
   end
 end
 
+--- 按设置页的值 (cfg.wanted) 与环境变量定下清晰度, 帧率与码率. 下一个录像段开始时生效.
+local function apply_quality()
+  local q = Quality.resolve(cfg.wanted, os.getenv, love._os == "Android")
+  cfg.height, cfg.fps, cfg.bitrate = q.height, q.fps, q.bitrate
+end
+
 --- 装载模块, 定下输出参数, 装全局钩子. 只做一次, 由第一次 M.set_enabled(true) 触发.
 ---@return boolean ok 可以录制
 local function setup()
@@ -876,11 +911,10 @@ local function setup()
   Audio = assert(SMODS.load_file("record/audio.lua", MOD_ID))()
   Post = assert(SMODS.load_file("record/post.lua", MOD_ID))()
 
-  -- Android 上只走 MediaCodec (没有 ffmpeg), 默认 540p 24fps: 手机屏幕小, 540p 够看;
-  -- 退到软编时 24fps 比 30fps 省四分之一 CPU. 桌面默认 720p30.
+  -- Android 上只走 MediaCodec (没有 ffmpeg). 清晰度, 帧率与码率的默认值与取舍见 record/quality.lua.
   local android = love._os == "Android"
-  cfg.fps = math.floor(env_number("BALATROBOT_RECORD_FPS", android and 24 or 30))
-  cfg.height = math.floor(env_number("BALATROBOT_RECORD_HEIGHT", android and 540 or 720))
+  Quality = assert(SMODS.load_file("record/quality.lua", MOD_ID))()
+  apply_quality()
   cfg.pre = env_number("BALATROBOT_RECORD_PRE", 0.6)
   cfg.post = env_number("BALATROBOT_RECORD_POST", 0.8)
   -- 文件名前缀, 回放时为 "replay-", 与原局的录像区分. 游戏内回放在录像还没初始化时就先 M.set_prefix,
@@ -991,9 +1025,10 @@ local function setup()
 
   sendInfoMessage(
     string.format(
-      "Recording ready: %d fps, height %d, padding %.1f/%.1fs, dir %s, backend %s%s",
+      "Recording ready: %d fps, height %d, bitrate %s, padding %.1f/%.1fs, dir %s, backend %s%s",
       cfg.fps,
       cfg.height,
+      cfg.bitrate > 0 and (cfg.bitrate .. " Mbps") or "auto",
       cfg.pre,
       cfg.post,
       cfg.dir,
@@ -1008,12 +1043,15 @@ local function setup()
   return true
 end
 
----@param options {activity: table, toast: table, animating: fun(): boolean, mod_path: string, config_enabled: boolean?, config_keep: string?}
+---@param options {activity: table, toast: table, animating: fun(): boolean, mod_path: string, config_enabled: boolean?, config_keep: string?, config_quality: table?}
 --- activity / toast / animating: bbcore 的 BB_ACTIVITY, BB_TOAST, BB_OVERLAY.animating.
 --- config_enabled: 设置页的录像开关. 设了 BALATROBOT_RECORD 环境变量时以环境变量为准 (Android 没有环境变量).
 --- config_keep: 设置页的保留方式, "keep" 时合成成功后保留中间文件. 设了 BALATROBOT_RECORD_KEEP 时以它为准.
+--- config_quality: 设置页的 {height, fps, bitrate}, 0 为默认. 设了对应环境变量的项以环境变量为准.
 function M.init(options)
   deps = options
+  local q = options.config_quality or {}
+  cfg.wanted = { height = q.height, fps = q.fps, bitrate = q.bitrate }
   local mode = os.getenv("BALATROBOT_RECORD")
   local wanted
   if mode ~= nil and mode ~= "" then
@@ -1066,6 +1104,18 @@ end
 ---@param mode string?
 function M.set_keep(mode)
   cfg.keep = mode == "keep"
+end
+
+--- 运行时改清晰度, 帧率或码率 (设置页). 从下一个录像段起生效, 正在录的一段不变.
+--- 录像还没装载时只记下来, 装载时一并生效. 设了对应环境变量的项仍以环境变量为准.
+---@param key "height"|"fps"|"bitrate"
+---@param value number 可选值之一, 0 为默认
+function M.set_quality(key, value)
+  cfg.wanted = cfg.wanted or {}
+  cfg.wanted[key] = value
+  if Quality then
+    apply_quality()
+  end
 end
 
 --- 运行时改输出文件名前缀 (游戏内回放录成 replay-*, 与原局录像区分). 只影响之后开始的录像段.

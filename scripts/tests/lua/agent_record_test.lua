@@ -179,6 +179,30 @@ do -- 草稿脚本不删中间文件 (带 --clean 才删), 局末脚本成功后
   os.execute("rm -rf '" .. dir .. "'")
 end
 
+do -- 清晰度, 帧率, 码率: 环境变量 > 设置页 > 平台默认; 设置页的值不在可选范围内时按默认
+  local Quality = dofile("mods/bbreplay/record/quality.lua")
+  local function env(map)
+    return function(name)
+      return map[name]
+    end
+  end
+  local q = Quality.resolve({ height = 1080, fps = 60, bitrate = 8 }, env({}), false)
+  check("设置页的值生效", q.height == 1080 and q.fps == 60 and q.bitrate == 8 and next(q.env) == nil)
+  q = Quality.resolve({ height = 0, fps = 0, bitrate = 0 }, env({}), true)
+  check("0 跟随平台默认", q.height == 540 and q.fps == 24 and q.bitrate == 0)
+  q = Quality.resolve({ height = 1000, fps = "x" }, env({}), false)
+  check("非可选值按默认", q.height == 720 and q.fps == 30 and q.bitrate == 0)
+  q = Quality.resolve(
+    { height = 1080, fps = 60, bitrate = 8 },
+    env({ BALATROBOT_RECORD_HEIGHT = "480", BALATROBOT_RECORD_BITRATE = "2.5", BALATROBOT_RECORD_FPS = "abc" }),
+    false
+  )
+  check(
+    "环境变量优先, 不合法时当作没设",
+    q.height == 480 and q.bitrate == 2.5 and q.fps == 60 and q.env.height == "480" and q.env.fps == nil
+  )
+end
+
 do -- 消息截断按 UTF-8 字符, 不切断多字节字符
   local text = string.rep("中", 10)
   local cut = Toast.truncate(text, 5)
