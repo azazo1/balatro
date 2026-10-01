@@ -194,12 +194,13 @@ just macos run-agent on 1     # 10 倍速, 仅在需要时使用
 - 一局从开局 (或读档) 开始, 到回主菜单, 开下一局或退出为止. 游戏结束后停留在结算界面的部分也会录.
 - 输出在仓库根目录的 `recordings/`. 两份视频在局末由后台进程生成, 一般几秒到十几秒, 游戏可以继续玩或退出.
   ffmpeg 的报错在同名 `.ffmpeg.txt`. 每次启动的游戏日志 (含崩溃信息) 在 `recordings/<启动时间>-game.log`.
-- 录制中只写中间文件: `.video.mp4` (约 2 秒一个分片, 写完即落盘), `.pcm` (每秒落盘) 和合成脚本 `.post.sh`.
+- 录制中只写中间文件: `.video.mp4` (约 2 秒一个分片, 写完即落盘), `.pcm` (每秒落盘) 和合成脚本 `.post.sh`
+  (Windows 上是 `.post.cmd`).
   脚本开局时就写出, 剪辑区间变多时更新, 局末换成最终版并运行, 成功后删除中间文件.
 - 游戏崩溃时画面最多丢约 2 秒, 声音约 1 秒. `just macos recordings-recover` 列出残留的局, 加 `--run` 补做合成
   (剪辑版只剪掉崩溃前已确定的区间, 结尾的等待不剪), 再加 `--clean` 在成功后删除中间文件.
   游戏在运行时, 中间文件 30 秒内还在变化的局会跳过. 局末合成失败时同样保留中间文件, 用同一条命令或
-  `sh <文件名>.post.sh` 重跑.
+  `sh <文件名>.post.sh` (Windows 上直接运行 `<文件名>.post.cmd`) 重跑.
 - 剪辑版保留的部分: agent 请求处理中, 决策消息在屏幕上, 状态变化, 手动操作, 以及之后动画完全停下之前
   (发牌, 计分, 翻牌等). 每段前留 0.6 秒, 动画停下后留 0.8 秒, 中间的等待剪掉; 不足 1.5 秒的停顿不剪.
   只查询状态和截图的请求 (`gamestate`, `health`, `screenshot`, `rpc.discover`) 不算活动.
@@ -356,8 +357,8 @@ balatrobot; 录像与回放在 bbreplay. 改写了 balatrobot 的入口 `balatro
 
 ## 其他平台
 
-Windows 与 Android 的 mod 版也带着这个 mod, 默认关闭, 不影响正常游玩. 这两个平台尚未验证,
-录制只在 macOS 上实现与验证过:
+Windows 与 Android 的 mod 版也带着这个 mod, 默认关闭, 不影响正常游玩. 这两个平台的 agent 接口尚未验证.
+录制在 macOS 上验证过; Android 用 MediaCodec, Windows 用 ffmpeg (需要另装), 细节见 [recording.md](<recording.md>):
 
 - Windows: 在游戏内打开开关, 或者设置环境变量 `BALATROBOT_ENABLE=1` 后运行 `Balatro.exe`.
 - Android: 在游戏内打开开关, 再用 `adb forward tcp:12346 tcp:12346` 把端口转发到电脑.

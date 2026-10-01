@@ -203,6 +203,27 @@ do -- 清晰度, 帧率, 码率: 环境变量 > 设置页 > 平台默认; 设置
   )
 end
 
+do -- Windows 命令行的引号: 按 CommandLineToArgvW 的规则, 反斜杠只在引号前与结尾处加倍
+  local WinProc = dofile("mods/bbreplay/record/win_proc.lua")
+  local cases = {
+    { "ffmpeg", "ffmpeg" },
+    { "", '""' },
+    { "C:/Program Files/ffmpeg.exe", '"C:/Program Files/ffmpeg.exe"' },
+    { [[C:\a b\]], [["C:\a b\\"]] }, -- 结尾的反斜杠不能吃掉收尾的引号
+    { [[a\b c]], [["a\b c"]] }, -- 中间的反斜杠原样
+    { [[say "hi"]], [["say \"hi\""]] },
+    { [[a\"b]], [["a\\\"b"]] }, -- 引号前的反斜杠加倍再转义引号
+  }
+  local wrong = {}
+  for _, case in ipairs(cases) do
+    local got = WinProc.quote(case[1])
+    if got ~= case[2] then
+      wrong[#wrong + 1] = case[1] .. " -> " .. got
+    end
+  end
+  check("Windows 参数引号", #wrong == 0, table.concat(wrong, "; "))
+end
+
 do -- 消息截断按 UTF-8 字符, 不切断多字节字符
   local text = string.rep("中", 10)
   local cut = Toast.truncate(text, 5)

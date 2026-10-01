@@ -1,6 +1,10 @@
 # macOS 平台的打包入口.
 python := if os_family() == "windows" { "python" } else { "python3" }
 
+[private]
+default:
+    @just --justfile {{ source_file() }} --list
+
 # 打包 macOS 应用包, 产出 dist/macos/Balatro.app.
 dist:
     {{ python }} scripts/package_macos.py

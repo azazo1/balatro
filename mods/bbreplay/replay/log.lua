@@ -67,7 +67,16 @@ local function flush(force)
   end
   file:write(encoded)
   file:close()
-  os.rename(tmp, l.path)
+  if not os.rename(tmp, l.path) then
+    -- Windows 上 rename 不能覆盖已有文件: 先删掉旧的再改名.
+    os.remove(l.path)
+    local renamed, rename_err = os.rename(tmp, l.path)
+    if not renamed then
+      os.remove(tmp)
+      sendWarnMessage("Failed to write replay file: " .. tostring(rename_err), LOGGER)
+      return
+    end
+  end
   -- 不走 love.filesystem 的写包装, 要单独通知 Android 修正权限, 否则文件管理器与 adb 读不到.
   local storage_ok, storage = pcall(require, "android_storage")
   if storage_ok and type(storage) == "table" and storage.fix_path then

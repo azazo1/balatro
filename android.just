@@ -1,6 +1,10 @@
 # Android 平台的打包入口.
 python := if os_family() == "windows" { "python" } else { "python3" }
 
+[private]
+default:
+    @just --justfile {{ source_file() }} --list
+
 # 打包 Android 安装包, 产出 dist/android/Balatro-<版本>.apk.
 dist:
     {{ python }} scripts/package_android.py

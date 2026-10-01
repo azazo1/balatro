@@ -1,6 +1,10 @@
 # 原生库 native/bbnet (网络与录像用的颜色转换) 的编译与测试.
 python := if os_family() == "windows" { "python" } else { "python3" }
 
+[private]
+default:
+    @just --justfile {{ source_file() }} --list
+
 # 运行原生库的单元测试与集成测试 (本地起 TCP 服务, 不联网).
 test:
     {{ python }} scripts/build_native.py test

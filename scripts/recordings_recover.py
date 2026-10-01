@@ -27,9 +27,10 @@ from lib import layout, log
 
 log.set_prefix("recover")
 
-# 中间文件后缀, 与 mods/bbreplay/record/post.lua 一致
-SUFFIXES = (".video.mp4", ".pcm", ".post.sh")
+# 中间文件后缀, 与 mods/bbreplay/record/post.lua 一致. 合成脚本在 Windows 上是 .post.cmd.
+SUFFIXES = (".video.mp4", ".pcm", ".post.sh", ".post.cmd")
 GAME_PATTERN = "Balatro-Modded"
+IS_WINDOWS = os.name == "nt"
 
 
 def parse_args():
@@ -56,19 +57,34 @@ def find_ffmpeg(explicit):
 
 
 def game_running():
-    """游戏进程是否在运行. 只读, pgrep 不存在时保守地认为在运行."""
+    """游戏进程是否在运行. 只读, 列不出进程时保守地认为在运行.
+
+    Windows 上 exe 名固定为 Balatro.exe (变体只体现在目录名上), 用 tasklist 按映像名查;
+    其余平台用 pgrep 按命令行里的 Balatro-Modded 查.
+    """
     try:
+        if IS_WINDOWS:
+            output = subprocess.run(["tasklist", "/fi", "imagename eq Balatro.exe", "/fo", "csv", "/nh"],
+                                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True).stdout
+            return "balatro.exe" in output.lower()
         result = subprocess.run(["pgrep", "-f", GAME_PATTERN], stdout=subprocess.DEVNULL,
                                 stderr=subprocess.DEVNULL)
     except OSError:
-        log.warn("无法运行 pgrep, 按游戏正在运行处理")
+        log.warn("无法列出进程, 按游戏正在运行处理")
         return True
     return result.returncode == 0
 
 
 def running_commands():
-    """正在运行的合成脚本的命令行, 用于判断某个 .post.sh 是否正在执行. 只读."""
+    """正在运行的合成脚本的命令行, 用于判断某个合成脚本是否正在执行. 只读."""
     try:
+        if IS_WINDOWS:
+            # tasklist 看不到命令行, 用 PowerShell 取 cmd.exe 的命令行.
+            query = ("Get-CimInstance Win32_Process -Filter \"Name='cmd.exe'\" | "
+                     "ForEach-Object { $_.CommandLine }")
+            output = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", query],
+                                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True).stdout
+            return [line for line in output.splitlines() if ".post.cmd" in line]
         output = subprocess.run(["pgrep", "-lf", r"\.post\.sh"], stdout=subprocess.PIPE,
                                 stderr=subprocess.DEVNULL, text=True).stdout
     except OSError:
@@ -104,6 +120,11 @@ def scan(directory):
     return stems
 
 
+def script_of(files):
+    """这一局的合成脚本 (.post.sh 或 Windows 的 .post.cmd), 没有时返回 None."""
+    return files.get(".post.sh") or files.get(".post.cmd")
+
+
 def script_kind(path):
     """草稿 (draft) 还是局末 (final) 脚本, 旧版本生成的脚本没有标记时返回 None."""
     try:
@@ -112,16 +133,25 @@ def script_kind(path):
     except OSError:
         return None
     for kind in ("draft", "final"):
-        if "# bb-post: " + kind in head:
+        # sh 版是 "# bb-post: ...", 批处理版是 "rem bb-post: ..."
+        if "# bb-post: " + kind in head or "rem bb-post: " + kind in head:
             return kind
     return None
 
 
 def script_matches(path, base):
-    """脚本里的路径是否就是这个目录下的文件 (录像目录被移动过时不是)."""
+    """脚本里的路径是否就是这个目录下的文件 (录像目录被移动过时不是).
+
+    引号写法与 mods/bbreplay/record/post.lua 一致: sh 版用单引号; 批处理版用双引号, 反斜杠, % 写成 %%.
+    """
+    video = base + ".video.mp4"
+    if path.endswith(".post.cmd"):
+        needle = '"' + video.replace("/", "\\").replace("%", "%%") + '"'
+    else:
+        needle = "'" + video + "'"
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as f:
-            return ("'" + base + ".video.mp4'") in f.read()
+            return needle in f.read()
     except OSError:
         return False
 
@@ -129,7 +159,7 @@ def script_matches(path, base):
 def classify(stem, files, directory, ctx):
     """返回 (状态, 说明). 状态: active, done, broken, recover."""
     base = os.path.join(directory, stem)
-    script = files.get(".post.sh")
+    script = script_of(files)
     if script and any(script in line for line in ctx["commands"]):
         return "active", "合成脚本正在执行"
     if ctx["game"]:
@@ -174,16 +204,22 @@ def fallback_full(ffmpeg, base, verbose):
 
 def recover(stem, files, directory, ffmpeg, args):
     base = os.path.join(directory, stem)
-    script = files.get(".post.sh")
+    script = script_of(files)
     started = time.time()
+    is_cmd = bool(script) and script.endswith(".post.cmd")
+    if script and is_cmd and not IS_WINDOWS:
+        log.warn("%s: 合成脚本是 Windows 的 .post.cmd, 这里不能运行, 改为只合成 -full.mp4" % stem)
+        script = None
     if script and script_matches(script, base):
         kind = script_kind(script)
-        cmd = ["/bin/sh", script]
+        cmd = ["cmd", "/d", "/c", script] if is_cmd else ["/bin/sh", script]
         # 草稿脚本带 --clean 才删中间文件; 局末脚本 (或旧版本脚本) 成功后总是删除
         if kind == "draft" and args.clean:
             cmd.append("--clean")
         log.info("%s: 执行 %s 脚本" % (stem, kind or "旧版"))
-        ok = subprocess.run(cmd, stdin=subprocess.DEVNULL).returncode == 0
+        code = subprocess.run(cmd, stdin=subprocess.DEVNULL).returncode
+        # 批处理的局末脚本删掉自身后退出码不可靠, 以产物为准.
+        ok = (is_cmd and kind == "final") or code == 0
         ok = ok and size_of(base + "-full.mp4") > 0
     else:
         if ffmpeg is None:
@@ -226,7 +262,7 @@ def main():
     for stem, files in stems.items():
         status, note = classify(stem, files, directory, ctx)
         parts = ", ".join("%s %s" % (suffix, human(size_of(path))) for suffix, path in sorted(files.items()))
-        kind = script_kind(files[".post.sh"]) if ".post.sh" in files else None
+        kind = script_kind(script_of(files)) if script_of(files) else None
         label = {"active": "跳过", "done": "已合成", "broken": "无法合成", "recover": "待合成"}[status]
         log.info("[%s] %s: %s%s%s" % (label, stem, parts, " (%s 脚本)" % kind if kind else "",
                                       ", " + note if note else ""))

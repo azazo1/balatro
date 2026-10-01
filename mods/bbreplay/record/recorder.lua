@@ -6,8 +6,9 @@
 两份视频在局末由后台脚本生成 (record/post.lua), 录制中只写中间文件 <stem>.video.mp4 与 <stem>.pcm.
 
 崩溃时尽量少丢: 画面约 2 秒一个关键帧 (即一个分片) 并逐个落盘, 声音每秒 flush, 时间线每 2 秒写一次;
-开局时就写出草稿合成脚本 <stem>.post.sh, 剪辑区间变多时覆盖, 局末用最终版覆盖并运行.
-崩溃后用 sh <stem>.post.sh 或 scripts/recordings_recover.py 补做合成.
+开局时就写出草稿合成脚本 <stem>.post.sh (Windows 上是 <stem>.post.cmd), 剪辑区间变多时覆盖, 局末用最终版覆盖并运行.
+崩溃后用 sh <stem>.post.sh (Windows 上直接运行 .post.cmd) 或 scripts/recordings_recover.py 补做合成.
+Windows 上 ffmpeg 与合成脚本都由 record/win_proc.lua 直接启动, 不弹控制台窗口.
 
 给 agent 控制的接口: M.end_segment / M.start_segment (停止时立即结束一段), M.set_paused (暂停段在剪辑版里剪掉),
 M.add_activity_source (额外的活动来源, 例如流式条).
@@ -95,10 +96,36 @@ local function shell_quote(s)
   return "'" .. tostring(s):gsub("'", "'\\''") .. "'"
 end
 
+-- Windows 上不经过 shell 启动子进程 (见 record/win_proc.lua), 在 setup 里装载.
+local WINDOWS = love._os == "Windows"
+local WinProc
+
 local function is_executable(path)
+  if WINDOWS then
+    return WinProc.run({ path, "-version" }, 10000) == 0
+  end
   local ok, _, code = os.execute(shell_quote(path) .. " -version >/dev/null 2>&1")
   -- LuaJIT 下 os.execute 返回退出码数字, 5.2 语义下返回 true/nil
   return ok == 0 or ok == true or code == 0
+end
+
+--- ffmpeg 的候选位置. Windows 上 PATH 之外再看几个包管理器的固定位置 (装完没重新登录时 PATH 还没生效).
+---@return string[]
+local function ffmpeg_candidates()
+  if not WINDOWS then
+    return { "ffmpeg", "/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg" }
+  end
+  local list = { "ffmpeg" }
+  local function add(root, rest)
+    if root and root ~= "" then
+      list[#list + 1] = root .. rest
+    end
+  end
+  add(os.getenv("LOCALAPPDATA"), "\\Microsoft\\WinGet\\Links\\ffmpeg.exe") -- winget
+  add(os.getenv("USERPROFILE"), "\\scoop\\shims\\ffmpeg.exe") -- scoop
+  add(os.getenv("ProgramData"), "\\chocolatey\\bin\\ffmpeg.exe") -- choco
+  list[#list + 1] = "C:\\ffmpeg\\bin\\ffmpeg.exe" -- 手动解压的常见位置
+  return list
 end
 
 local function find_ffmpeg()
@@ -106,7 +133,7 @@ local function find_ffmpeg()
   if explicit and explicit ~= "" then
     return is_executable(explicit) and explicit or nil
   end
-  for _, candidate in ipairs({ "ffmpeg", "/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg" }) do
+  for _, candidate in ipairs(ffmpeg_candidates()) do
     if is_executable(candidate) then
       return candidate
     end
@@ -159,6 +186,10 @@ local function pick_codec(ffmpeg)
   local wanted = os.getenv("BALATROBOT_RECORD_CODEC")
   if wanted and CODECS[wanted] then
     return wanted
+  end
+  -- videotoolbox 只有 macOS 有; Windows 上不探测, 直接用 x264 (常见的 ffmpeg 发行版都带).
+  if WINDOWS then
+    return "x264"
   end
   local pipe = io.popen(shell_quote(ffmpeg) .. " -hide_banner -encoders 2>/dev/null")
   local list = pipe and pipe:read("*a") or ""
@@ -316,8 +347,8 @@ end
 -- ==========================================================================
 
 local function start_encoder(video_path, log_path, w, h)
-  local command = table.concat({
-    shell_quote(cfg.ffmpeg),
+  -- 中间这些参数不含空格与引号, 两种写法都可以原样拼; 只有程序路径与输出路径要加引号.
+  local args = table.concat({
     "-y -loglevel error -f rawvideo -pix_fmt rgba",
     "-s " .. w .. "x" .. h,
     "-r " .. cfg.fps,
@@ -327,14 +358,19 @@ local function start_encoder(video_path, log_path, w, h)
     -- fragmented mp4: 游戏中途崩溃时已写入的分片仍可播放. flush_packets 让每个分片写完就落盘,
     -- 否则画面简单时整个分片都停在 ffmpeg 的 32 KB 写缓冲里, 被 kill 时一帧都读不出.
     "-movflags +frag_keyframe+empty_moov+default_base_moof -flush_packets 1",
-    shell_quote(video_path),
-    "2>" .. shell_quote(log_path),
   }, " ")
+  local command, win_source
+  if WINDOWS then
+    command = WinProc.quote(cfg.ffmpeg) .. " " .. args .. " " .. WinProc.quote(video_path)
+    win_source = SMODS.NFS.read(deps.mod_path .. "record/win_proc.lua")
+  else
+    command = shell_quote(cfg.ffmpeg) .. " " .. args .. " " .. shell_quote(video_path) .. " 2>" .. shell_quote(log_path)
+  end
   local source = SMODS.NFS.read(deps.mod_path .. "record/encoder_thread.lua")
   local thread = love.thread.newThread(love.filesystem.newFileData(source, "bb_encoder_thread.lua"))
   local frames = love.thread.newChannel()
   local status = love.thread.newChannel()
-  thread:start(command, frames, status)
+  thread:start(command, frames, status, win_source, WINDOWS and log_path or nil)
   return thread, frames, status
 end
 
@@ -366,6 +402,20 @@ local function part_finished(part)
   end
   drain_status(part)
   return part.done ~= nil or part.error ~= nil or not part.thread:isRunning()
+end
+
+--- Windows: 在后台运行局末合成脚本 (.post.cmd), 不开窗口, 游戏退出不影响它.
+--- cmd /s /c "..." : 去掉最外层一对引号后原样执行, 路径里有空格也不会拆开.
+---@param path string
+---@return boolean ok
+---@return string? err
+local function launch_cmd(path)
+  local proc, err = WinProc.spawn('cmd.exe /d /s /c ""' .. path:gsub("/", "\\") .. '""', { detached = true })
+  if not proc then
+    return false, err
+  end
+  WinProc.release(proc)
+  return true
 end
 
 --- 画面与声音都写完后启动后台合成. force 为 true 时 (退出前等不及了) 直接启动.
@@ -425,7 +475,7 @@ local function try_post(item, force)
     audio_ok = size > 0
   end
   item.post.audio = audio_ok
-  local ok, err = Post.spawn(item.post)
+  local ok, err = Post.spawn(item.post, WINDOWS and launch_cmd or nil)
   sendInfoMessage(
     string.format(
       "Recording %s: %d frames, audio %s, building -full.mp4 and -cut.mp4 in background%s",
@@ -623,6 +673,7 @@ local function start_session(resumed, reason)
       if cfg.backend == "ffmpeg" then
         -- 合成参数, 草稿与局末脚本共用
         session.post = {
+          dialect = WINDOWS and "cmd" or "sh",
           ffmpeg = cfg.ffmpeg,
           codec_args = codec_args(cfg.codec, cfg.fps, cfg.bitrate, false),
           base = base,
@@ -914,6 +965,9 @@ local function setup()
   -- Android 上只走 MediaCodec (没有 ffmpeg). 清晰度, 帧率与码率的默认值与取舍见 record/quality.lua.
   local android = love._os == "Android"
   Quality = assert(SMODS.load_file("record/quality.lua", MOD_ID))()
+  if WINDOWS then
+    WinProc = assert(SMODS.load_file("record/win_proc.lua", MOD_ID))()
+  end
   apply_quality()
   cfg.pre = env_number("BALATROBOT_RECORD_PRE", 0.6)
   cfg.post = env_number("BALATROBOT_RECORD_POST", 0.8)

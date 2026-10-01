@@ -32,8 +32,29 @@
 1. 编码参数设置约 2 秒一个关键帧. 画面本来就写成 fragmented mp4, 这样崩溃时最多丢约 2 秒画面.
 2. 音频线程每秒 flush 一次 pcm.
 3. 开局时就写出合成脚本, 局末再用最终的剪辑区间覆盖. 崩溃后至少能合成出 `-full.mp4`.
-4. 新增 `just macos recordings-recover`: 扫描 `recordings/` 里残留的中间文件, 加 `--run` 补做合成.
-   脚本本身跨平台, 只依赖 python3, ffmpeg 和 pgrep.
+4. 新增 `just macos recordings-recover` (Windows 上是 `just windows recordings-recover`): 扫描 `recordings/`
+   里残留的中间文件, 加 `--run` 补做合成. 脚本本身跨平台, 只依赖 python3 与 ffmpeg; 判断游戏与合成脚本
+   是否在运行, macOS 上用 pgrep, Windows 上用 tasklist 与 PowerShell.
+
+## Windows
+
+桌面录像的流程与 macOS 相同 (ffmpeg 实时编码画面, 声音另写 .pcm, 局末合成), 以下几处不同:
+
+- 启动子进程不经过 shell, 由 [win_proc.lua](<../mods/bbreplay/record/win_proc.lua>) 用 LuaJIT FFI 直接调
+  `CreateProcessW`. 原因: `Balatro.exe` 是 GUI 程序, `io.popen` 每次都会弹出控制台窗口, 录像期间一直开着;
+  而且 popen 是文本模式, 写进去的画面字节里每个 0x0A 都会变成 0x0D 0x0A, 画面全部错位.
+  现在 ffmpeg 不开窗口, 标准输入是二进制管道, 输出写进 `.ffmpeg.txt`.
+- 合成脚本是批处理 `<stem>.post.cmd`, 内容与 `.post.sh` 一致. 局末用 `cmd /d /s /c` 在后台运行, 不开窗口,
+  新进程组, 并尽量脱离游戏所在的作业, 游戏退出不影响它. 崩溃后可以直接双击运行草稿脚本, 带 `--clean` 时成功后删除中间文件.
+  局末脚本删掉自身后退出码不可靠, `recordings-recover` 以 `-full.mp4` 是否生成为准.
+- 编码器固定用 x264 (videotoolbox 只有 macOS 有), 可用 `BALATROBOT_RECORD_CODEC` 指定. x264 占 CPU,
+  动画多时游戏可能掉帧; 掉帧时把清晰度或帧率调低.
+- ffmpeg 先在 PATH 里找, 再看 winget (`%LOCALAPPDATA%\Microsoft\WinGet\Links`), scoop (`%USERPROFILE%\scoop\shims`),
+  choco (`%ProgramData%\chocolatey\bin`) 与 `C:\ffmpeg\bin`, 也可以用 `BALATROBOT_FFMPEG` 指定.
+- `os.rename` 在 Windows 上不能覆盖已有文件. 时间轴, 回放文件与合成脚本都是先写临时文件再改名,
+  改名失败时先删掉旧文件再改名.
+- 已知限制: 存档目录路径里有非 ASCII 字符 (例如中文用户名) 时, Lua 的 `io.open` 按系统代码页解释路径,
+  可能打不开文件. 子进程那一侧按 UTF-8 转成 UTF-16, 没有这个问题.
 
 实测 (7.3 秒时 kill -9): 只加 `-g` 仍然读不出任何帧, 因为分片小于 ffmpeg 的 32 KB 写缓冲, 一直没落盘.
 加上 `-flush_packets 1` 后读出 6.0 秒, 关键帧在 0, 2, 4 秒.

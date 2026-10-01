@@ -1,6 +1,10 @@
 # Windows 平台的打包入口.
 python := if os_family() == "windows" { "python" } else { "python3" }
 
+[private]
+default:
+    @just --justfile {{ source_file() }} --list
+
 # 打包 Windows 免安装版, 产出 dist/windows/Balatro-<版本>-win64.zip.
 dist:
     {{ python }} scripts/package_windows.py
@@ -13,3 +17,8 @@ console:
 # 打包带 mod 的免安装版, 同时产出带控制台的 exe 便于看日志.
 dist-modded mods="mods":
     {{ python }} scripts/package_windows.py --mods {{ mods }} --console
+
+# just windows recordings-recover [--run] [--clean] [录像目录]
+# 扫描录像目录里崩溃后残留的中间文件并补做合成, 默认只列出, --run 执行, --clean 成功后删中间文件.
+recordings-recover *args:
+    {{ python }} scripts/recordings_recover.py {{ args }}

@@ -105,6 +105,12 @@ function Timeline:flush(now, force)
   file:close()
   local renamed, rename_err = os.rename(tmp, self.path)
   if not renamed then
+    -- Windows 上 rename 不能覆盖已有文件: 先删掉旧的再改名. 两步之间崩溃最多丢这一份时间线.
+    os.remove(self.path)
+    renamed, rename_err = os.rename(tmp, self.path)
+  end
+  if not renamed then
+    os.remove(tmp)
     return false, tostring(rename_err)
   end
   self.dirty = false
