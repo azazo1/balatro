@@ -405,10 +405,23 @@ function M.start_selected()
   deps.mode.apply()
 end
 
+--- 回放入口只在主菜单显示: 回放要从开局开始, 局内进来没有意义.
+--- 常量名容易写错 (G.STAGES 只有 MAIN_MENU / RUN / SANDBOX, 没有 MENU), 拿错时 compare 恒为假,
+--- 按钮会静默消失, 所以单独成函数并有单测.
+---@param stage integer? G.STAGE
+---@param stages table? G.STAGES
+---@return boolean
+function M.menu_visible(stage, stages)
+  if not stage or not stages then
+    return false
+  end
+  return stage == stages.MAIN_MENU
+end
+
 --- ESC 菜单的 "回放" 按钮: 只在主菜单显示, 内置 loop 运行中不可用.
 ---@return table?
 local function replay_entry()
-  if G.STAGE ~= G.STAGES.MENU then
+  if not M.menu_visible(G.STAGE, G.STAGES) then
     return nil
   end
   if deps.replay.active then
@@ -421,7 +434,7 @@ local function replay_entry()
     scale = 0.5,
     padding = 0,
     outer_padding = 0,
-    colour = G.C.BLUE,
+    colour = G.C.RED,
     enabled = function()
       return not deps.runner.is_busy()
     end,

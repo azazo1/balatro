@@ -192,6 +192,20 @@ do -- runner: 没有 driver 时不启动; 停止与出错各通知一次录像; 
   check("超过 token 上限自动暂停", Runner.state == "paused" and Runner.stats.last_error ~= "")
 end
 
+do -- 回放入口的显示条件: 常量写错时按钮会静默消失, 这里按真实游戏的 G.STAGES 取值核对
+  -- 与 game/globals.lua 一致: 只有 MAIN_MENU / RUN / SANDBOX
+  package.path = "mods/Steamodded/libs/json/?.lua;" .. package.path
+  local stages = { MAIN_MENU = 1, RUN = 2, SANDBOX = 3 }
+  G = { FUNCS = {}, STAGES = stages }
+  local ReplayMenu = dofile("mods/balatrobot/agent/ui/replay_menu.lua")
+  check("主菜单显示回放入口", ReplayMenu.menu_visible(1, G.STAGES))
+  check("局内不显示回放入口", not ReplayMenu.menu_visible(2, G.STAGES))
+  check("沙盒不显示回放入口", not ReplayMenu.menu_visible(3, G.STAGES))
+  check("取不到阶段时不显示", not ReplayMenu.menu_visible(nil, G.STAGES) and not ReplayMenu.menu_visible(1, nil))
+  -- 回归保护: 用不存在的阶段常量 (例如 G.STAGES.MENU) 时 compare 恒为假, 判断会变成永远不显示
+  check("阶段常量名必须存在", G.STAGES.MENU == nil and G.STAGES.MAIN_MENU == 1)
+end
+
 if failures > 0 then
   print(failures .. " 项失败")
   os.exit(1)

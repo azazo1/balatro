@@ -122,7 +122,7 @@ function M.button(args)
     on_click = args.on_click,
     enabled = args.enabled,
     selected = args.selected,
-    colour = args.colour or G.C.L_BLACK,
+    colour = args.colour or (args.selected ~= nil and G.C.L_BLACK or G.C.RED),
     selected_colour = args.selected_colour or G.C.RED,
     text_colour = { G.C.UI.TEXT_LIGHT[1], G.C.UI.TEXT_LIGHT[2], G.C.UI.TEXT_LIGHT[3], G.C.UI.TEXT_LIGHT[4] },
   }
