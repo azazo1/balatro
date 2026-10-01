@@ -82,6 +82,17 @@ do
   end
 end
 
+do -- 新版本录下的手动局: 出牌等手动步骤可以重做
+  local data = replay_data()
+  data.actions = {
+    { method = "select", manual = true, ok = true },
+    { method = "play", params = { cards = { 0, 1 } }, manual = true, ok = true },
+    { method = "menu", manual = true, ok = true },
+  }
+  local entry = Library.describe(data, Format.VERSION)
+  check("可回放: 手动步骤", entry.ok == true, entry.reason)
+end
+
 do
   -- 扫描: 坏文件不炸, 按时间倒序
   local newer = replay_data()

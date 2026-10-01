@@ -104,6 +104,13 @@ local function split(digest)
   return fields
 end
 
+--- 摘要能不能拿来比: 状态未知时 (一局正在拆掉) 取到的是空的.
+---@param digest string?
+---@return boolean
+function M.usable_digest(digest)
+  return type(digest) == "string" and digest ~= "state=UNKNOWN" and digest:sub(1, 14) ~= "state=UNKNOWN "
+end
+
 --- 两个摘要不同的项, 例如 "money: 12 -> 9; hand: ... -> ...". 相同时返回 nil.
 ---@param expected string
 ---@param actual string
@@ -144,6 +151,33 @@ local STAKES = { "WHITE", "RED", "GREEN", "BLACK", "BLUE", "PURPLE", "ORANGE", "
 function M.deck_enum(key)
   local name = type(key) == "string" and key:match("^b_(%a+)$")
   return name and string.upper(name) or nil
+end
+
+--- 开局前看设置: 这一局是不是受教程影响. 教程会强制给出优惠券, 标签和商店里的牌
+--- (G.SETTINGS.tutorial_progress 的 forced_*), 跳过正常的随机抽取, 回放时用 start 开局重现不了.
+---@param settings table? G.SETTINGS
+---@return boolean
+function M.tutorial_settings(settings)
+  if type(settings) ~= "table" then
+    return false
+  end
+  if settings.tutorial_complete == false then
+    return true
+  end
+  local progress = settings.tutorial_progress
+  return type(progress) == "table"
+    and (progress.forced_voucher ~= nil or progress.forced_tags ~= nil or progress.forced_shop ~= nil)
+end
+
+--- 回放文件里的一局是不是教程局. 旧文件没有 run.tutorial, 用种子判断: 教程固定用 "TUTORIAL",
+--- 而人手动输入这个种子时 seeded 为真.
+---@param run table
+---@return boolean
+function M.is_tutorial(run)
+  if run.tutorial ~= nil then
+    return run.tutorial == true
+  end
+  return not run.resumed and run.seed == "TUTORIAL" and not run.seeded
 end
 
 --- 赌注等级 (1~8) 转成 start 方法用的枚举.

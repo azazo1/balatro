@@ -123,6 +123,7 @@ local MOD_VERSION = MOD.version .. " / smods " .. tostring(SMODS.version)
 local REPLAY_FORMAT = assert(SMODS.load_file("agent/replay/format.lua"))()
 local REPLAY_SNAPSHOT = assert(SMODS.load_file("agent/replay/snapshot.lua"))()
 local REPLAY_SESSION = assert(SMODS.load_file("agent/replay/session.lua"))()
+local REPLAY_MANUAL = assert(SMODS.load_file("agent/replay/manual.lua"))()
 REPLAY_SESSION.init({ snapshot = REPLAY_SNAPSHOT })
 BB_REPLAY = assert(SMODS.load_file("agent/replay/player.lua"))()
 local function replaying()
@@ -143,6 +144,7 @@ BB_REPLAY.init_early({
   snapshot = REPLAY_SNAPSHOT,
   session = REPLAY_SESSION,
   input_lock = assert(SMODS.load_file("agent/replay/input_lock.lua"))(),
+  manual = REPLAY_MANUAL,
   game_version = GAME_VERSION,
   mod_version = MOD_VERSION,
 })
@@ -165,12 +167,15 @@ if not BB_REPLAY.active then
     activity = BB_ACTIVITY,
     recorder = BB_RECORDER,
     overlay = BB_OVERLAY,
+    gamestate = BB_GAMESTATE,
     format = REPLAY_FORMAT,
     snapshot = REPLAY_SNAPSHOT,
     game_version = GAME_VERSION,
     mod_version = MOD_VERSION,
     replaying = replaying,
   })
+  -- 人手动的操作换算成回放步骤. 按钮函数的钩子装在这里, 回放时 log 不存在, 不装.
+  REPLAY_MANUAL.install({ record = BB_REPLAY_LOG.record_manual })
 end
 BB_REPLAY.init_late()
 if BB_REPLAY.active then
@@ -306,6 +311,7 @@ love.update = function(dt) ---@diagnostic disable-line: duplicate-set-field
   BB_REPLAY.update()
   if BB_REPLAY_LOG then
     BB_REPLAY_LOG.update()
+    REPLAY_MANUAL.update()
   end
   -- fast/headless 模式下传进来的 dt 是固定步长, 通知停留时间按墙钟算.
   local wall_dt = love.timer.getDelta()

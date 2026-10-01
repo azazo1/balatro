@@ -56,6 +56,21 @@ do -- 开局参数
   check("讲解写进回放", Format.recorded("notify") and Format.recorded("continue"))
 end
 
+do -- 一局正在拆掉时取的摘要 (真机上输掉后点回主菜单) 不拿来比
+  check("摘要: 状态未知的不比", not Format.usable_digest("state=UNKNOWN ante=nil deck=0"))
+  check("摘要: 正常的照比", Format.usable_digest("state=GAME_OVER ante=1 deck=40"))
+  check("摘要: 没有摘要不比", not Format.usable_digest(nil))
+end
+
+do -- 教程局: 开局前的设置里还有强制内容, 或者教程没完成
+  check("教程: 未完成", Format.tutorial_settings({ tutorial_complete = false }))
+  check("教程: 还有强制的商店牌", Format.tutorial_settings({ tutorial_complete = true, tutorial_progress = { forced_shop = { "j_joker" } } }))
+  check("教程: 完成且没有强制内容", not Format.tutorial_settings({ tutorial_complete = true, tutorial_progress = {} }))
+  check("教程: 旧文件按种子判断", Format.is_tutorial({ seed = "TUTORIAL", seeded = false }))
+  check("教程: 人手动输入的同名种子不算", not Format.is_tutorial({ seed = "TUTORIAL", seeded = true }))
+  check("教程: 有记录时以记录为准", not Format.is_tutorial({ seed = "TUTORIAL", seeded = false, tutorial = false }))
+end
+
 if failures > 0 then
   print(failures .. " 项失败")
   os.exit(1)

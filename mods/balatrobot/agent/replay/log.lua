@@ -5,8 +5,11 @@
 - run: 牌组, 赌注, 种子, 是否指定过种子 (seeded), 是否读档开局; 读档时附带存档.
 - snapshot: 开局那一刻的存档进度与画面设置, 见 agent/replay/snapshot.lua.
 - actions: agent 的每一步操作 (含 notify), 带参数, reason, 开始与完成时间, 成功与否, 状态摘要.
-  人在弹窗上手动选的 "无尽模式" 或 "主菜单" 也记成一步 (manual = true), 回放时照做.
-- manual_inputs: 这局里手动操作的次数, 回放时据此提示结果可能不同.
+  人手动的操作 (出牌, 购买, 拖动排序, 弹窗上选无尽或回主菜单等, 见 agent/replay/manual.lua)
+  换算成同样的步骤, 标 manual = true. 手动步骤没有 "完成" 的时刻, 它的状态摘要在下一步开始时取:
+  人点下一步时画面已经停下, 与回放时这一步的接口返回时的状态对应.
+
+旧版本的文件只记了手动操作的次数 (manual_inputs), 没有具体操作, 回放时据此提示结果可能不同.
 
 时间都是开局起的秒数, 与时间线 JSON 的 wall 相同. 写入先写临时文件再 rename.
 ]]
@@ -20,6 +23,7 @@ local M = {}
 
 local deps = {} -- activity, recorder, overlay, gamestate, format, snapshot, game_version, mod_version, replaying
 local log = nil -- 当前一局
+local unsettled = nil -- 最近一步还没取状态摘要的手动步骤
 local pending = nil -- 开局时录像还没开始的一段, 见 M.update 里的补写
 local PENDING_LIMIT = 2 -- 等录像段出现的时间上限
 
@@ -64,12 +68,31 @@ local function flush(force)
   file:write(encoded)
   file:close()
   os.rename(tmp, l.path)
+  -- 不走 love.filesystem 的写包装, 要单独通知 Android 修正权限, 否则文件管理器与 adb 读不到.
+  local storage_ok, storage = pcall(require, "android_storage")
+  if storage_ok and type(storage) == "table" and storage.fix_path then
+    pcall(storage.fix_path, l.path)
+  end
   l.dirty = false
   l.last_flush = now()
 end
 
 local function elapsed()
   return log and round(now() - log.started) or 0
+end
+
+--- 给上一个手动步骤补上状态摘要: 在下一步开始之前调用, 这时是人看着画面决定下一步的时刻.
+--- 有弹窗时不比 (与 summarize 相同的规则).
+local function settle_manual()
+  local action = unsettled
+  unsettled = nil
+  if not action or not deps.format.comparable(deps.overlay.kind()) then
+    return
+  end
+  local ok, state = pcall(deps.gamestate.get_gamestate)
+  if ok and type(state) == "table" then
+    action.digest = deps.format.digest(state)
+  end
 end
 
 --- 追加一步操作.
@@ -80,6 +103,26 @@ local function add_action(fields)
   table.insert(log.data.actions, fields)
   log.dirty = true
   return fields
+end
+
+--- 记一步人手动的操作. fields 至少有 method, 可以带 params.
+---
+--- reorder (拖动排序) 可能发生在上一步的动画中途, 那时的状态和回放时上一步完成时不同, 所以它不给
+--- 上一步补摘要, 上一步就不比对; 它自己的摘要照常在下一步开始时取.
+---@param fields {method: string, params: table?}
+function M.record_manual(fields)
+  if not log then
+    return
+  end
+  -- menu 的钩子 (Game:main_menu) 运行时这一局已经在拆了, 那时取的状态是空的, 上一步也不比对.
+  if fields.method == "reorder" or fields.method == "menu" then
+    unsettled = nil
+  else
+    settle_manual()
+  end
+  fields.manual = true
+  fields.ok = true
+  unsettled = add_action(fields)
 end
 
 --- 这一步完成后的状态摘要. 响应不是完整状态 (例如 notify 只返回 success) 时不记.
@@ -98,6 +141,7 @@ local function summarize(response)
 end
 
 local function finish(reason)
+  unsettled = nil
   if not log then
     return
   end
@@ -110,7 +154,8 @@ end
 
 ---@param resumed_save string? 读档开局时序列化的存档
 ---@param snap table 开局前取的存档进度
-local function begin(resumed_save, snap)
+---@param tutorial boolean 是否受教程影响
+local function begin(resumed_save, snap, tutorial)
   if deps.replaying() then
     -- 回放自己的一局不再写回放文件 (录制仍然照常).
     return
@@ -122,7 +167,7 @@ local function begin(resumed_save, snap)
     end
     -- 录像段还没开始: 录制是运行中才打开时, 录制器的 start_run 钩子装在这里之外, 它的录像段
     -- 要等这里返回之后才建立. 记下来, 由 M.update 在短时间里补上.
-    pending = { resumed_save = resumed_save, snap = snap, until_at = now() + PENDING_LIMIT }
+    pending = { resumed_save = resumed_save, snap = snap, tutorial = tutorial, until_at = now() + PENDING_LIMIT }
     return
   end
   local game = G.GAME or {}
@@ -148,11 +193,11 @@ local function begin(resumed_save, snap)
         seeded = game.seeded or false,
         challenge = game.challenge,
         resumed = resumed_save ~= nil,
+        tutorial = tutorial,
         save = resumed_save,
         start_end = nil,
       },
       snapshot = snap,
-      manual_inputs = 0,
       actions = {},
     },
   }
@@ -169,6 +214,7 @@ function M.init(options)
     if not log or not format.recorded(method) then
       return
     end
+    settle_manual()
     log.open = add_action({ method = method, params = next(params) and copy(params) or nil, reason = reason })
   end)
 
@@ -195,25 +241,11 @@ function M.init(options)
     log.dirty = true
   end)
 
-  -- 手动输入计数. 装在录制的输入钩子之外; 回放时输入被锁, 这里不会被调用.
-  for _, name in ipairs({ "mousepressed", "keypressed", "gamepadpressed", "touchpressed" }) do
-    local original = love[name]
-    love[name] = function(...)
-      if log then
-        log.data.manual_inputs = log.data.manual_inputs + 1
-        log.dirty = true
-      end
-      if original then
-        return original(...)
-      end
-    end
-  end
-
   -- 人在胜利界面上点 "无尽模式": 按钮直接调用 exit_overlay_menu, 不经过 agent 接口.
   local exit_overlay_menu = G.FUNCS.exit_overlay_menu
   G.FUNCS.exit_overlay_menu = function(...)
     if log and deps.overlay.kind() == "win" and not (activity.inflight and activity.inflight.method == "endless") then
-      add_action({ method = "endless", manual = true, ok = true })
+      M.record_manual({ method = "endless" })
     end
     return exit_overlay_menu(...)
   end
@@ -224,9 +256,11 @@ function M.init(options)
     -- 开局前取存档进度; 读档时 savetext 会在这一局里被改写, 先序列化.
     local snap_ok, snap = pcall(deps.snapshot.capture)
     local resumed_save = args and args.savetext and STR_PACK(args.savetext) or nil
+    -- 教程的强制内容在原函数里读取, 之后会被清掉, 先看.
+    local tutorial = deps.format.tutorial_settings(G.SETTINGS)
     start_run(self, args)
     if snap_ok then
-      begin(resumed_save, snap)
+      begin(resumed_save, snap, tutorial)
     else
       sendWarnMessage("Replay snapshot failed, no replay file for this run: " .. tostring(snap), LOGGER)
     end
@@ -236,7 +270,7 @@ function M.init(options)
   local main_menu = Game.main_menu
   function Game:main_menu(change_context) ---@diagnostic disable-line: duplicate-set-field
     if log and not (activity.inflight and activity.inflight.method == "menu") then
-      add_action({ method = "menu", manual = true, ok = true })
+      M.record_manual({ method = "menu" })
     end
     finish("menu")
     return main_menu(self, change_context)
@@ -261,7 +295,7 @@ function M.update()
   if deps.recorder.current() then
     local waiting = pending
     pending = nil
-    begin(waiting.resumed_save, waiting.snap)
+    begin(waiting.resumed_save, waiting.snap, waiting.tutorial)
   elseif now() > pending.until_at then
     sendWarnMessage("录像没有开始, 这一局不写回放文件", LOGGER)
     pending = nil

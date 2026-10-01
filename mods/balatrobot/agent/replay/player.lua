@@ -50,7 +50,7 @@ local cfg = {
   verify_window = 2, -- 摘要不一致时反复确认的时长
 }
 
-local deps = {} -- dispatcher, activity, overlay, gamestate, recorder, toast, stream, format, snapshot, session, input_lock, game_version, mod_version
+local deps = {} -- dispatcher, activity, overlay, gamestate, recorder, toast, stream, format, snapshot, session, input_lock, manual, game_version, mod_version
 local data = nil -- 回放文件内容
 local st = {} -- 回放进度
 
@@ -100,6 +100,9 @@ local function read_data(path)
   end
   if decoded.run.challenge then
     return nil, "挑战模式的局不支持回放"
+  end
+  if deps.format.is_tutorial(decoded.run) then
+    return nil, "教程局不支持回放 (强制给出的牌重现不了)"
   end
   if not decoded.run.resumed and not (decoded.run.deck and decoded.run.stake and decoded.run.seed) then
     return nil, "只支持原版牌组的局"
@@ -206,8 +209,36 @@ local function run_action(action)
     -- 最后一步常是 menu, 它会先结束录制; 先记下结果, 这一步跑偏时 diverge 会覆盖.
     deps.recorder.annotate("replay", { source = data.source, pacing = cfg.pacing, ok = true, steps = #data.actions })
   end
-  dispatch(action.method, action.params, action.reason, false)
   st.running = action
+  if deps.manual.LOCAL[action.method] then
+    -- 人手动的操作里没有接口的那些: 本地重做, 见 local_tick.
+    st.waiting = { method = action.method, sent = now(), pending = true }
+    return
+  end
+  dispatch(action.method, action.params, action.reason, false)
+end
+
+-- 本地步骤做完后至少等这么久再看动画, 它触发的事件可能下一帧才排进队列.
+local LOCAL_SETTLE_MIN = 0.3
+
+--- 本地步骤: 还没准备好 (例如标签送的卡包还没打开) 时每帧重试; 做完后等它触发的动画停下才算完成,
+--- 与接口等到完成才返回一致, 之后照常比对状态摘要.
+---@param t number
+local function local_tick(t)
+  local waiting = st.waiting
+  if waiting.pending then
+    local ok, applied, reason = pcall(deps.manual.apply_local, st.running.method, st.running.params)
+    if not ok or applied == false then
+      st.result = { ok = false, error = ok and reason or applied }
+    elseif applied then
+      waiting.pending = false
+      waiting.applied_at = t
+    end
+    return
+  end
+  if t - waiting.applied_at >= LOCAL_SETTLE_MIN and not deps.recorder.animating() then
+    st.result = { ok = true }
+  end
 end
 
 --- 最后一步之后: 停留一会儿再退出. 胜利界面停得久一些.
@@ -240,12 +271,18 @@ local function handle_result(t)
     diverge("原局成功, 回放失败: " .. tostring(result.error))
     return
   end
-  if action.digest and result.ok then
+  if deps.format.usable_digest(action.digest) and result.ok then
     local response = result.response
     local overlay = type(response) == "table" and response.overlay or deps.overlay.kind()
     if not deps.format.comparable(overlay) then
       -- 回放时这一步弹出了原局没有的解锁通知: 等通知关掉再比, 关通知不改变状态.
       st.deferred = { action = action, index = st.index }
+    elseif action.manual then
+      -- 手动步骤的摘要是人点下一步时取的, 那时画面已经停下 (例如跳过盲注后标签送的卡包已经打开),
+      -- 而接口可能更早返回. 等动画停下再比, 比的是当时的状态而不是接口的返回.
+      st.verify = { action = action, index = st.index, since = t, started = t, settle = true, advance = true }
+      set_phase("verify")
+      return
     else
       local digest = type(response) == "table" and response.state ~= nil and deps.format.digest(response)
         or deps.format.digest(deps.gamestate.get_gamestate())
@@ -263,6 +300,13 @@ end
 --- 摘要不一致: 动画中金钱等数值可能晚一帧, 在 verify_window 内反复确认.
 local function verify_tick(t)
   local v = st.verify
+  if v.settle and t - v.started < cfg.settle_max then
+    -- 动画没停, 或者刚做完 (它触发的事件可能还没排进队列): 确认窗口从停下的那一刻算起.
+    if t - v.started < cfg.tight_gap or deps.recorder.animating() then
+      v.since = t
+      return
+    end
+  end
   local diff = deps.format.diff(v.action.digest, deps.format.digest(deps.gamestate.get_gamestate()))
   if not diff then
     st.verify = nil
@@ -281,6 +325,9 @@ end
 
 local function run_tick(t)
   if st.waiting then
+    if not st.result and st.waiting.pending ~= nil then
+      local_tick(t)
+    end
     if st.result then
       handle_result(t)
       return
