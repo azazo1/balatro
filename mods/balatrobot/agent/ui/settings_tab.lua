@@ -24,7 +24,6 @@ local LABEL_W = 1.3 -- 行首标签宽度
 local VALUE_W = 2.9 -- 当前值宽度
 local SCALE = 0.3
 
-
 ---@class BBSettingsDeps
 ---@field mod table SMODS mod 对象
 ---@field modes table agent/mode.lua 模块
@@ -316,7 +315,6 @@ local function side_column()
   else
     record_nodes = {
       toggle("录制对局", "record", function(value)
-        -- 开关立即生效: 打开时补装载编码模块, 关闭时结束当前录像段 (分辨率与帧率仍按启动时的值).
         deps.recorder.set_enabled(value, "settings")
       end),
       W.row({ W.text("分辨率与帧率下次启动生效", 0.26, G.C.UI.TEXT_INACTIVE) }),
@@ -328,9 +326,7 @@ local function side_column()
       return config().record_keep
     end, function(value)
       config().record_keep = value
-      if deps.recorder.set_keep then
-        deps.recorder.set_keep(value)
-      end
+      deps.recorder.set_keep(value)
       save()
     end, { minw = 1.1, scale = SCALE }),
   })

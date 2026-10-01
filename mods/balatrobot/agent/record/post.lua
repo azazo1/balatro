@@ -9,7 +9,7 @@
   声音在运行时按 .pcm 是否非空决定. 默认不删中间文件, 带 --clean 且全部成功时才删, 即使在录制中
   被误执行也只会得到一份不完整的视频, 不会破坏还在写的中间文件.
 - 局末 (final): 局末用最终的剪辑区间覆盖草稿并在后台运行, 游戏继续运行或退出都不影响.
-  成功后删除中间文件与脚本自身; 失败时保留, 可以手动重跑.
+  成功后删除中间文件与脚本自身 (保留方式为 keep 时只删脚本); 失败时保留, 可以手动重跑.
 两种脚本都以退出码表示是否全部成功. 写入先写临时文件再 rename, 不会留下写了一半的脚本.
 ]]
 
@@ -119,14 +119,10 @@ function M.script(opts)
   end
   -- 草稿只在显式要求时清理: 录制中被误执行也不会删掉还在写的中间文件.
   -- 局末默认清理; 保留方式为 keep 时只删脚本自身, 中间文件留着供事后重跑.
-  if opts.draft then
-    lines[#lines + 1] = "if [ $ok = 1 ] && [ \"${1:-}\" = --clean ]; then"
-    lines[#lines + 1] = "  rm -f " .. video .. " " .. pcm .. " \"$0\""
-    lines[#lines + 1] = "fi"
-  elseif opts.keep then
+  if opts.keep and not opts.draft then
     lines[#lines + 1] = "[ $ok = 1 ] && rm -f \"$0\""
   else
-    lines[#lines + 1] = "if [ $ok = 1 ]; then"
+    lines[#lines + 1] = opts.draft and "if [ $ok = 1 ] && [ \"${1:-}\" = --clean ]; then" or "if [ $ok = 1 ]; then"
     lines[#lines + 1] = "  rm -f " .. video .. " " .. pcm .. " \"$0\""
     lines[#lines + 1] = "fi"
   end

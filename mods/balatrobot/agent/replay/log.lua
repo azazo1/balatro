@@ -111,14 +111,17 @@ end
 ---@param resumed_save string? 读档开局时序列化的存档
 ---@param snap table 开局前取的存档进度
 local function begin(resumed_save, snap)
-  if deps.replaying and deps.replaying() then
+  if deps.replaying() then
     -- 回放自己的一局不再写回放文件 (录制仍然照常).
     return
   end
   local session = deps.recorder.current()
   if not session then
-    -- 录像段还没开始: 游戏内回放是运行中才打开录制的, 录制器装的 start_run 钩子在最外层, 它的录像段
-    -- 要等真正的 start_run 返回之后才建立, 这里会先跑. 记下来, 由 M.update 在短时间里补上.
+    if not deps.recorder.enabled then
+      return
+    end
+    -- 录像段还没开始: 录制是运行中才打开时, 录制器的 start_run 钩子装在这里之外, 它的录像段
+    -- 要等这里返回之后才建立. 记下来, 由 M.update 在短时间里补上.
     pending = { resumed_save = resumed_save, snap = snap, until_at = now() + PENDING_LIMIT }
     return
   end

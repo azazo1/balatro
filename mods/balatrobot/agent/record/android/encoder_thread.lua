@@ -3,12 +3,12 @@ Android 录制编码线程: 从 frames 通道取 ImageData, 用 MediaCodec 硬�
 
 参数: cdecl (C 声明文本, 来自 android/cdef.lua), options, frames (Channel), status (Channel).
 frames 里的元素是 {image = ImageData, count = 重复次数}, 收到 "stop" 时写结束标记并收尾.
-status 里推 {kind = "error"|"done"|"debug", ...}.
+status 里推 {kind = "error"|"done", ...}.
 
 为什么在原生侧做颜色转换: 540p 一帧 50 万像素, 逐像素在 Lua 里转达不到 24fps.
 转换在 bbnet 里 (导出 bbnet_rgba_to_nv12), 这里只负责把指针交过去.
 
-时间戳: 每个重复都算一帧, pts = 帧序号 * 1e6 / fps. 录制侧按墙钟重复上一帧, 所以视频长度与时间线一致.
+时间戳: 每个重复都算一帧, pts = 帧序号 * 帧间隔. 录制侧按墙钟重复上一帧, 所以视频长度与时间线一致.
 
 整个线程体包在 xpcall 里: LÖVE 会把线程里未捕获的错误抛到主线程并直接崩掉游戏, 而出错的原因多半与
 设备相关 (编码器不支持某个参数, 内存不足), 不该让玩家的对局陪葬. 任何失败都经由 status 通道报告.
@@ -18,36 +18,21 @@ status 里推 {kind = "error"|"done"|"debug", ...}.
 
 local cdecl, options, frames, status = ...
 
-local ok_love, love_image = pcall(require, "love.image")
+-- 线程里要先 require 才能调用通道传进来的 ImageData 的方法.
+local ok_love, love_err = pcall(require, "love.image")
 if not ok_love then
-  status:push({ kind = "error", message = "love.image 不可用: " .. tostring(love_image) })
+  status:push({ kind = "error", message = "love.image 不可用: " .. tostring(love_err) })
   return
 end
 
 local ffi = require("ffi")
 local bit = require("bit")
 
---- 阶段上报: 线程静默死掉时靠它定位到哪一步 (options.debug 打开时才推).
-local function stage(message)
-  if options and options.debug then
-    status:push({ kind = "debug", message = message })
-  end
-end
-
---- 帧间隔 (微秒): 时间戳用帧序号乘出来, 保证是整数.
-local function make_pts(fps)
-  local step = math.floor(1000000 / fps + 0.5)
-  return function(index)
-    return index * step
-  end
-end
-
 local ok_cdef, cdef_err = pcall(ffi.cdef, cdecl)
 if not ok_cdef then
   status:push({ kind = "error", message = "ffi.cdef 失败: " .. tostring(cdef_err) })
   return
 end
-stage("cdef 完成")
 
 local ok_media, media = pcall(ffi.load, "mediandk")
 if not ok_media then
@@ -59,7 +44,6 @@ if not ok_net then
   status:push({ kind = "error", message = "加载 libbbnet 失败: " .. tostring(net) })
   return
 end
-stage("库已加载: mediandk + bbnet")
 
 -- media/NdkMediaCodec.h 与 NdkMediaMuxer.h 的常量.
 local COLOR_FORMAT_NV12 = 21
@@ -120,14 +104,13 @@ end
 ---@return string? err
 local function run()
   local width, height, fps = options.width, options.height, options.fps
-  local strided = options.rgba_stride or (width * 4)
-  local pts_of = make_pts(fps)
+  -- 帧间隔 (微秒) 取整, 时间戳用帧序号乘出来, 保证是整数.
+  local pts_step = math.floor(1000000 / fps + 0.5)
 
   local nv12_bytes = tonumber(net.bbnet_nv12_size(width, height))
   if nv12_bytes <= 0 then
     return nil, "尺寸非法: " .. tostring(width) .. "x" .. tostring(height)
   end
-  stage(string.format("尺寸 %dx%d, NV12 %d 字节", width, height, nv12_bytes))
 
   --- 每次尝试都要一份新的 format: configure 会改动它, 失败的那份也要释放.
   local function build_format()
@@ -190,13 +173,11 @@ local function run()
       width, height, fps, options.bitrate / 1000, table.concat(failures, "; ")
     )
   end
-  stage("使用编码器: " .. chosen)
 
   local started = media.AMediaCodec_start(codec)
   if started ~= 0 then
     return nil, "AMediaCodec_start 返回 " .. tostring(started) .. " (" .. chosen .. ")"
   end
-  stage("编码器已启动, 打开输出文件")
 
   fd = ffi.C.bb_open(options.path, O_WRONLY + O_CREAT + O_TRUNC, FD_MODE)
   if fd < 0 then
@@ -206,7 +187,6 @@ local function run()
   if muxer == nil then
     return nil, "AMediaMuxer_new 失败"
   end
-  stage("封装器就绪, 等待帧")
 
   local info = ffi.new("AMediaCodecBufferInfo")
   local out_size = ffi.new("size_t[1]")
@@ -236,7 +216,7 @@ local function run()
       muxing = true
       return true
     end
-    if index == INFO_TRY_AGAIN_LATER or index < 0 then
+    if index < 0 then -- 其余信息码 (TRY_AGAIN_LATER, OUTPUT_BUFFERS_CHANGED) 没有缓冲要处理
       return true
     end
     local buffer = media.AMediaCodec_getOutputBuffer(codec, index, out_size)
@@ -287,7 +267,7 @@ local function run()
           encode_error = "输入缓冲太小: " .. tostring(tonumber(out_size[0])) .. " < " .. tostring(nv12_bytes)
           return false
         end
-        if net.bbnet_rgba_to_nv12(rgba_ptr, width, height, strided, buffer, width, width) ~= 0 then
+        if net.bbnet_rgba_to_nv12(rgba_ptr, width, height, width * 4, buffer, width, width) ~= 0 then
           encode_error = "颜色转换失败"
           return false
         end
@@ -310,7 +290,7 @@ local function run()
     while true do
       local index = media.AMediaCodec_dequeueInputBuffer(codec, DEQUEUE_TIMEOUT_US * 10)
       if index >= 0 then
-        media.AMediaCodec_queueInputBuffer(codec, index, 0, 0, pts_of(written), FLAG_END_OF_STREAM)
+        media.AMediaCodec_queueInputBuffer(codec, index, 0, 0, written * pts_step, FLAG_END_OF_STREAM)
         break
       end
       if not drain(0) then
@@ -318,64 +298,52 @@ local function run()
       end
     end
     for _ = 1, 10000 do
-      local code = media.AMediaCodec_dequeueOutputBuffer(codec, info, DEQUEUE_TIMEOUT_US * 10)
-      if code == INFO_TRY_AGAIN_LATER then
+      local index = media.AMediaCodec_dequeueOutputBuffer(codec, info, DEQUEUE_TIMEOUT_US * 10)
+      if index == INFO_TRY_AGAIN_LATER then
         return true
       end
-      if code == INFO_OUTPUT_FORMAT_CHANGED then
-        if not handle_output(code) then
-          return false
-        end
-      elseif code >= 0 then
-        local eos = bit.band(info.flags, FLAG_END_OF_STREAM) ~= 0
-        if not handle_output(code) then
-          return false
-        end
-        if eos then
-          return true
-        end
+      local eos = index >= 0 and bit.band(info.flags, FLAG_END_OF_STREAM) ~= 0
+      if not handle_output(index) then
+        return false
+      end
+      if eos then
+        return true
       end
     end
     return true
   end
 
   local frame_index = 0
+  --- 出错时的结果: 原因加上已编码的帧数. 走到这里时 encode_error 已经设好.
+  local function failed()
+    return nil, tostring(encode_error) .. " (已编码 " .. tostring(frame_index) .. " 帧)"
+  end
+
   while true do
     local item = frames:demand()
     if item == "stop" then
       break
     end
-    if type(item) == "table" and item.image then
-      stage("收到一帧, 重复 " .. tostring(item.count or 1) .. " 次")
-      -- ImageData 取成 Lua 字符串再转指针: 含 NUL 字节也照样传得过去.
-      local rgba = item.image:getString()
-      local ptr = ffi.cast("const uint8_t *", rgba)
-      for _ = 1, item.count or 1 do
-        if not encode_frame(ptr, pts_of(frame_index)) then
-          break
-        end
-        frame_index = frame_index + 1
+    -- ImageData 取成 Lua 字符串再转指针: 含 NUL 字节也照样传得过去.
+    local rgba = item.image:getString()
+    local ptr = ffi.cast("const uint8_t *", rgba)
+    for _ = 1, item.count do
+      if not encode_frame(ptr, frame_index * pts_step) then
+        break
       end
-      -- 每帧几 MB, 不等 GC, 用完立即释放.
-      item.image:release()
-      if encode_error then
-        return nil, encode_error .. " (已编码 " .. tostring(frame_index) .. " 帧)"
-      end
-      -- 编码过程中也把输出吐掉, 免得编码器内部的缓冲一直涨
-      if not drain(0) then
-        return nil, (encode_error or "取输出失败") .. " (已编码 " .. tostring(frame_index) .. " 帧)"
-      end
-      stage("已编码 " .. tostring(frame_index) .. " 帧")
+      frame_index = frame_index + 1
+    end
+    -- 每帧几 MB, 不等 GC, 用完立即释放.
+    item.image:release()
+    -- 编码过程中也把输出吐掉, 免得编码器内部的缓冲一直涨
+    if encode_error or not drain(0) then
+      return failed()
     end
   end
-  stage("收到 stop")
 
-  if frame_index > 0 then
-    if not signal_end() then
-      return nil, (encode_error or "结束码流失败") .. " (已编码 " .. tostring(frame_index) .. " 帧)"
-    end
+  if frame_index > 0 and not signal_end() then
+    return failed()
   end
-  stage("收尾完成: 已封装 " .. tostring(written) .. " 个样本")
   return {
     frames = frame_index,
     samples = written,

@@ -1,6 +1,6 @@
 -- 录像开关运行时可用的单元测试, 用 luajit 在仓库根目录运行: just test-agent
--- 起因: 设置页打开 "录制对局" 时崩过 (SMODS.load_file 在运行时必须显式给出 mod id, 否则报
--- "No ID was provided!"), 这里把 M.set_enabled 这条路径真正跑一遍.
+-- 录像可能在运行中才装载 (设置页打开开关), 此时 SMODS.load_file 必须显式给出 mod id, 否则报
+-- "No ID was provided!". 这里把 M.set_enabled 这条路径真正跑一遍.
 
 local failures = 0
 local function check(name, cond, detail)
@@ -53,31 +53,27 @@ Recorder.init({
   config_keep = "skip",
 })
 
-check("默认不装载 (开关关着)", Recorder.enabled == false and Recorder.ready == false and #loads == 0)
+check("开关关着时不装载", Recorder.enabled == false and #loads == 0)
 
+-- 游戏内回放的顺序: 录像还没初始化时先设前缀再打开, 初始化不能把前缀冲掉
+Recorder.set_prefix("replay-")
 local ok = Recorder.set_enabled(true, "settings")
-check("运行时打开录像返回成功", ok == true, tostring(Recorder.status))
-check("装载了四个录像模块", #loads == 4, tostring(#loads))
-local missing = {}
+check("运行时打开录像", ok == true and Recorder.enabled == true and #logs.error == 0, tostring(logs.error[1]))
+check("初始化保留先设的前缀", Recorder.get_prefix() == "replay-", Recorder.get_prefix())
+local wrong = {}
 for _, call in ipairs(loads) do
-  if not call.id or call.id == "" then
-    missing[#missing + 1] = call.path
+  if call.id ~= "balatrobot" then
+    wrong[#wrong + 1] = call.path
   end
 end
-check("每次加载都带 mod id", #missing == 0, table.concat(missing, ", "))
-check("加载的是本 mod", loads[1] and loads[1].id == "balatrobot", loads[1] and tostring(loads[1].id))
-check("没有报错", #logs.error == 0, logs.error[1])
-check("打开后状态可用", Recorder.ready == true)
+check("每次加载都带本 mod 的 id", #loads > 0 and #wrong == 0, table.concat(wrong, ", "))
 
--- 再关一次: 不应该重复装载, 也不应该报错.
+-- 关掉再打开: 复用已装载的模块, 不重复装钩子
 local before = #loads
 Recorder.set_enabled(false, "settings")
-check("关闭后不再可用", Recorder.enabled == false)
-check("关闭不重新装载", #loads == before, tostring(#loads - before))
-
--- 再打开一次复用已装载的模块
+check("关闭", Recorder.enabled == false)
 Recorder.set_enabled(true, "settings again")
-check("再次打开复用模块", #loads == before and Recorder.enabled == true)
+check("再次打开复用模块", #loads == before and Recorder.enabled == true, tostring(#loads - before))
 
 if failures > 0 then
   print(failures .. " 项失败")

@@ -69,15 +69,15 @@ mods-check mods="mods":
 mods-tree mods="mods":
     {{ python }} scripts/patch_mods.py --mods {{ mods }}
 
-# just agent-call play '{"cards":[0,1]}' [--port 12346]
+# just agent-call play '{"cards":[0,1]}' [端口]
 # 调用 mod 版内置的 agent 接口 (需先开启), 输出 JSON-RPC 响应, 见 docs/agent-api.md.
-agent-call method params="{}" *opts:
-    {{ python }} scripts/agent_rpc.py call {{ method }} {{ quote(params) }} {{ opts }}
+agent-call method params="{}" port="12346":
+    {{ python }} scripts/agent_rpc.py call {{ method }} {{ quote(params) }} {{ port }}
 
-# just agent-wait [状态] [--timeout 60] [--port 12346]
+# just agent-wait [状态] [超时秒数] [端口]
 # 轮询 agent 接口直到游戏进入指定状态 (默认 MENU), 用于等开场动画播完; 超时返回非 0.
-agent-wait state="MENU" *opts:
-    {{ python }} scripts/agent_rpc.py wait {{ state }} {{ opts }}
+agent-wait state="MENU" timeout="60" port="12346":
+    {{ python }} scripts/agent_rpc.py wait {{ state }} {{ timeout }} {{ port }}
 
 # 从游戏源码生成静态卡牌目录, 不运行游戏或访问存档.
 game-docs:

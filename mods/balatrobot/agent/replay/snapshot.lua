@@ -1,5 +1,6 @@
 --[[
-开局那一刻的存档进度, 回放时恢复到临时存档里.
+开局那一刻的存档进度, 回放时恢复. 命令行回放恢复到临时存档里; 游戏内回放的写盘由
+agent/replay/session.lua 丢弃, 只改内存.
 
 商店, 卡包的候选池按 "已解锁 / 已发现" 过滤 (functions/common_events.lua get_current_pool),
 局中的解锁判断还要看 profile 里的累计数据. 两者不一致, 同一个种子也会抽出不同的牌.
@@ -58,8 +59,7 @@ end
 
 --- 恢复到当前档位.
 ---@param snap table
----@param opts {write_notify: boolean?}? write_notify 为 false 时不写待弹的解锁通知文件 (游戏内回放用,
----  回放期间不落盘, 磁盘上原有的通知文件保持原样)
+---@param opts {write_notify: boolean?}? write_notify 为 false 时不动待弹的解锁通知文件
 ---@return string[] warnings
 function M.apply(snap, opts)
   local warnings = {}
@@ -93,8 +93,9 @@ function M.apply(snap, opts)
     profile[k] = v
   end
 
-  -- 待显示的解锁通知, 与原局开局时相同. 游戏内回放不写盘 (写入本身就丢弃, 磁盘上的文件保持原样).
-  if opts == nil or opts.write_notify ~= false then
+  -- 待显示的解锁通知, 与原局开局时相同. 游戏内回放不动它: compress_and_save 会被丢弃, 但 remove
+  -- 不经过拦截, 会真的删掉磁盘上的通知.
+  if not (opts and opts.write_notify == false) then
     love.filesystem.createDirectory(tostring(profile_num))
     local notify_path = profile_num .. "/unlock_notify.jkr"
     if snap.unlock_notify ~= "" then

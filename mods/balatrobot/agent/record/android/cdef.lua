@@ -6,8 +6,8 @@ media 绑定层的 C 声明, 主线程 (android/ffi.lua) 与编码线程 (androi
 
 本文件是纯数据, 不依赖任何全局, 可以直接用 luajit 加载做检查.
 
-声明覆盖三处: libmediandk (MediaCodec/Muxer/Extractor), libc (Muxer 按 fd 写), libbbnet (颜色转换).
-必须与真实导出符号一致: ffi.cdef 只声明不校验, 名字写错要到真机上第一次
+声明覆盖三处: libmediandk (MediaCodec/Muxer), libc (Muxer 按 fd 写), libbbnet (颜色转换).
+只声明实际调用的函数. 必须与真实导出符号一致: ffi.cdef 只声明不校验, 名字写错要到真机上第一次
 调用才发现. scripts/tests/test_media_symbols.py 用 NDK sysroot 的库逐个核对.
 ]]
 
@@ -23,13 +23,6 @@ M.CDECL = [[
     void AMediaFormat_setString(AMediaFormat *format, const char *name, const char *value);
     void AMediaFormat_setInt32(AMediaFormat *format, const char *name, int32_t value);
     void AMediaFormat_setFloat(AMediaFormat *format, const char *name, float value);
-    void AMediaFormat_setInt64(AMediaFormat *format, const char *name, int64_t value);
-    void AMediaFormat_setBuffer(AMediaFormat *format, const char *name, const void *data, size_t size);
-    bool AMediaFormat_getInt32(AMediaFormat *format, const char *name, int32_t *out);
-    bool AMediaFormat_getFloat(AMediaFormat *format, const char *name, float *out);
-    bool AMediaFormat_getInt64(AMediaFormat *format, const char *name, int64_t *out);
-    const char *AMediaFormat_getString(AMediaFormat *format, const char *name, size_t *out_size);
-    const char *AMediaFormat_toString(AMediaFormat *format);
 
     // ---- AMediaCodec ----
     typedef struct AMediaCodec AMediaCodec;
@@ -43,12 +36,10 @@ M.CDECL = [[
 
     AMediaCodec *AMediaCodec_createEncoderByType(const char *mime);
     AMediaCodec *AMediaCodec_createCodecByName(const char *name);
-    AMediaCodec *AMediaCodec_createDecoderByType(const char *mime);
     media_status_t AMediaCodec_configure(AMediaCodec *codec, const AMediaFormat *format,
                                          void *surface, void *crypto, uint32_t flags);
     media_status_t AMediaCodec_start(AMediaCodec *codec);
     media_status_t AMediaCodec_stop(AMediaCodec *codec);
-    media_status_t AMediaCodec_flush(AMediaCodec *codec);
     media_status_t AMediaCodec_delete(AMediaCodec *codec);
     uint8_t *AMediaCodec_getInputBuffer(AMediaCodec *codec, size_t index, size_t *out_size);
     uint8_t *AMediaCodec_getOutputBuffer(AMediaCodec *codec, size_t index, size_t *out_size);
@@ -63,7 +54,6 @@ M.CDECL = [[
     // ---- AMediaMuxer ----
     typedef struct AMediaMuxer AMediaMuxer;
     AMediaMuxer *AMediaMuxer_new(int fd, int32_t format);
-    media_status_t AMediaMuxer_setOrientationHint(AMediaMuxer *muxer, int degrees);
     ssize_t AMediaMuxer_addTrack(AMediaMuxer *muxer, const AMediaFormat *format);
     media_status_t AMediaMuxer_start(AMediaMuxer *muxer);
     media_status_t AMediaMuxer_stop(AMediaMuxer *muxer);
@@ -71,25 +61,9 @@ M.CDECL = [[
     media_status_t AMediaMuxer_writeSampleData(AMediaMuxer *muxer, size_t trackIndex,
                                                const uint8_t *data, const AMediaCodecBufferInfo *info);
 
-    // ---- AMediaExtractor (剪辑时按关键帧取样本) ----
-    typedef struct AMediaExtractor AMediaExtractor;
-    AMediaExtractor *AMediaExtractor_new(void);
-    media_status_t AMediaExtractor_setDataSourceFd(AMediaExtractor *ex, int fd, int64_t offset,
-                                                   int64_t length);
-    media_status_t AMediaExtractor_delete(AMediaExtractor *ex);
-    size_t AMediaExtractor_getTrackCount(AMediaExtractor *ex);
-    AMediaFormat *AMediaExtractor_getTrackFormat(AMediaExtractor *ex, size_t track);
-    media_status_t AMediaExtractor_selectTrack(AMediaExtractor *ex, size_t track);
-    void AMediaExtractor_unselectTrack(AMediaExtractor *ex, size_t track);
-    ssize_t AMediaExtractor_readSampleData(AMediaExtractor *ex, uint8_t *buffer, size_t capacity);
-    int64_t AMediaExtractor_getSampleTime(AMediaExtractor *ex);
-    uint32_t AMediaExtractor_getSampleFlags(AMediaExtractor *ex);
-    bool AMediaExtractor_advance(AMediaExtractor *ex);
-    int AMediaExtractor_getSampleTrackIndex(AMediaExtractor *ex);
-
     // ---- libc: 输出文件描述符 (AMediaMuxer 按 fd 写) ----
     // 不用变参声明 open: LuaJIT 把变参里的 Lua 数字按 double 传, mode 会按 4 字节读成 0,
-    // 文件权限就成了 0000 (连自己都读不到). 显式写死 mode 参数, 顺手换成 bb_ 前缀的名字,
+    // 文件权限就成了 0000 (连自己都读不到). 显式写死 mode 参数, 并换成 bb_ 前缀的名字,
     // 免得和别处已声明的 open 冲突 (android_storage.lua 的 chmod 等也是这么做的).
     int bb_open(const char *path, int flags, int mode) __asm__("open");
     int bb_close(int fd) __asm__("close");
@@ -106,7 +80,6 @@ M.NEEDED_TYPES = {
   "AMediaCodec",
   "AMediaCodecBufferInfo",
   "AMediaMuxer",
-  "AMediaExtractor",
 }
 
 return M

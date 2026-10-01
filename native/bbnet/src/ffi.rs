@@ -166,7 +166,7 @@ unsafe fn c_str<'a>(p: *const c_char) -> Option<&'a str> {
 /// `int bbnet_rgba_to_nv12(const uint8_t *rgba, int32_t width, int32_t height,
 ///                         int32_t rgba_stride, uint8_t *dst, int32_t y_stride, int32_t uv_stride);`
 ///
-/// 宽高必须为偶数; 返回 0 成功, -1 参数非法, -2 缓冲太小.
+/// 返回 0 成功; -1 指针为空或参数非正; -2 宽高不是偶数或跨度小于宽度.
 ///
 /// # Safety
 /// `rgba` 须指向至少 `rgba_stride * height` 字节的可读内存; `dst` 须指向至少
@@ -181,16 +181,18 @@ pub unsafe extern "C" fn bbnet_rgba_to_nv12(
     y_stride: i32,
     uv_stride: i32,
 ) -> c_int {
-    if rgba.is_null() || dst.is_null() || width <= 0 || height <= 0 || rgba_stride <= 0 {
+    if rgba.is_null() || dst.is_null() {
         return -1;
     }
-    let (w, h, stride) = (width as usize, height as usize, rgba_stride as usize);
-    let (ys, us) = (y_stride.max(0) as usize, uv_stride.max(0) as usize);
+    let dims = [width, height, rgba_stride, y_stride, uv_stride];
+    if dims.iter().any(|&v| v <= 0) {
+        return -1;
+    }
+    let [w, h, stride, ys, us] = dims.map(|v| v as usize);
     let result = catch_unwind(AssertUnwindSafe(|| {
-        // SAFETY: 调用方保证缓冲区大小, 见函数文档.
+        // SAFETY: 调用方按函数文档保证两块缓冲的大小, 切片长度正是文档里的下限.
         let src = unsafe { std::slice::from_raw_parts(rgba, stride * h) };
-        let dst_len = crate::yuv::nv12_size(w, h).max(ys * h + us * (h / 2));
-        let out = unsafe { std::slice::from_raw_parts_mut(dst, dst_len) };
+        let out = unsafe { std::slice::from_raw_parts_mut(dst, ys * h + us * (h / 2)) };
         crate::yuv::rgba_to_nv12(src, w, h, stride, out, ys, us)
     }));
     match result {
@@ -200,7 +202,7 @@ pub unsafe extern "C" fn bbnet_rgba_to_nv12(
     }
 }
 
-/// NV12 缓冲需要的字节数, 尺寸非法时为 0. 便于 Lua 一次分配.
+/// 跨度等于宽度时 NV12 缓冲需要的字节数, 尺寸非正时为 0.
 ///
 /// `int64_t bbnet_nv12_size(int32_t width, int32_t height);`
 #[unsafe(no_mangle)]

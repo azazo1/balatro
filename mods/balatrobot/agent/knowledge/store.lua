@@ -9,7 +9,7 @@ mod 路径在模块加载时缓存: 端点执行时 SMODS.current_mod 可能已�
 4 个端点共用同一个实例, 由第一个加载的端点存进 BB_KNOWLEDGE.
 ]]
 
--- 显式给出 mod id: 这些加载走 SMODS.load_file, 省掉 id 只在首次加载 mod 时成立.
+-- SMODS.load_file 只在 mod 首次加载期间可以省 id, agent/ 下一律显式给出.
 local MOD_ID = "balatrobot"
 local Docs = assert(SMODS.load_file("agent/knowledge/docs.lua", MOD_ID))()
 local Catalog = assert(SMODS.load_file("agent/knowledge/catalog.lua", MOD_ID))()

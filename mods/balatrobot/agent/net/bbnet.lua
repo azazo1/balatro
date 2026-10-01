@@ -548,12 +548,11 @@ function M.request(opts)
   return self
 end
 
---------------------------------------------------------------------------------
---- 颜色转换 (Android 录像用)
---------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+-- 颜色转换 (Android 录像用)
+-------------------------------------------------------------------------------
 
---- RGBA8 转 NV12. 画布读回的数据交给 MediaCodec 的硬件编码器之前要转成 YUV420,
---- 逐像素在 Lua 里做太慢, 放在原生库里.
+--- RGBA8 转 NV12, 宽高须为偶数. 编码线程直接调用原生符号, 这里只给主线程做诊断用.
 ---@param rgba cdata 指向 RGBA 数据的指针
 ---@param width integer
 ---@param height integer
@@ -567,17 +566,6 @@ function M.rgba_to_nv12(rgba, width, height, rgba_stride, dst, y_stride, uv_stri
     return false
   end
   return lib.bbnet_rgba_to_nv12(rgba, width, height, rgba_stride, dst, y_stride, uv_stride) == 0
-end
-
---- NV12 缓冲需要的字节数.
----@param width integer
----@param height integer
----@return integer
-function M.nv12_size(width, height)
-  if not lib then
-    return 0
-  end
-  return tonumber(lib.bbnet_nv12_size(width, height))
 end
 
 return M

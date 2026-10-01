@@ -29,9 +29,9 @@ local LOGGER = "BB.AGENT.REPLAY"
 local M = {
   active = false,
   status = "off",
-  ---@type "cli"|"ingame"? 游戏内回放时由界面设置
-  entry = nil,
 }
+
+local ABORT_HINT = "要中止回放: 按住 Esc 1 秒; 触摸时长按屏幕 1.5 秒"
 
 local function env_number(name, default)
   local value = tonumber(os.getenv(name) or "")
@@ -50,7 +50,7 @@ local cfg = {
   verify_window = 2, -- 摘要不一致时反复确认的时长
 }
 
-local deps = {} -- dispatcher, activity, overlay, gamestate, recorder, toast, format, snapshot, input_lock, game_version, mod_version
+local deps = {} -- dispatcher, activity, overlay, gamestate, recorder, toast, stream, format, snapshot, session, input_lock, game_version, mod_version
 local data = nil -- 回放文件内容
 local st = {} -- 回放进度
 
@@ -75,12 +75,10 @@ local function set_phase(phase)
 end
 
 local function toast(title, text, duration)
-  if deps.toast then
-    deps.toast.push(title, text, duration)
-  end
+  deps.toast.push(title, text, duration)
 end
 
---- 读一个回放文件并校验, 返回内容或中文的不可回放原因.
+--- 读一个回放文件并校验, 返回内容或中文的不可回放原因. 列表里的同样判断见 library.describe.
 ---@param path string
 ---@return table? data
 ---@return string? problem
@@ -109,39 +107,26 @@ local function read_data(path)
   return decoded
 end
 
---- 结束回放: 命令行按退出码结束进程, 游戏内把结果交回界面, 由它收尾.
+--- 停留 hold 秒后结束回放: 命令行按退出码结束进程, 游戏内把结果交回界面, 由它收尾.
 local function finish_later(code, hold)
   st.exit_code = code
-  st.quit_at = now() + (hold or cfg.end_hold)
+  st.quit_at = now() + hold
   set_phase("ending")
 end
 
 --- 游戏内回放的收尾: 结束录像段, 恢复存档进度与设置, 把结果交给界面.
----@return string 结果说明
 local function finish_ingame()
-  local code = st.exit_code or 0
-  local result = code == 0 and "完成" or (code == 1 and "跑偏" or "已中止")
   deps.recorder.end_segment("replay")
-  local warnings = {}
-  if deps.session then
-    for _, text in ipairs(deps.session.finish()) do
-      warnings[#warnings + 1] = text
-    end
-  else
-    sendWarnMessage("没有装载存档隔离, 回放可能改动了磁盘上的存档", LOGGER)
-  end
+  local warnings = deps.session.finish()
   M.active = false
   M.status = "off"
   st.phase = "off"
-  local on_finish = deps.on_finish
-  deps.on_finish = nil
-  if on_finish then
-    local ok, err = pcall(on_finish, code, result, warnings)
+  if st.on_finish then
+    local ok, err = pcall(st.on_finish, st.exit_code, warnings)
     if not ok then
       sendErrorMessage("Replay finish handler failed: " .. tostring(err), LOGGER)
     end
   end
-  return result
 end
 
 local function update_status()
@@ -400,14 +385,8 @@ local function run_tick(t)
   end
 end
 
---- 开局钩子与响应钩子只装一次, 两种入口共用. 钩子内部都看 data 是否存在, 不激活时没有影响.
-local hooks_installed = false
+--- 开局钩子与响应钩子, 启动时装一次, 两种入口共用. 钩子内部都看回放状态, 不在回放时没有影响.
 local function install_hooks()
-  if hooks_installed then
-    return
-  end
-  hooks_installed = true
-
   -- 原局没有指定种子时, 回放用同一个种子开局后把 seeded 改回去: 它影响解锁, 发现与界面上的种子框.
   local start_run = Game.start_run
   function Game:start_run(args) ---@diagnostic disable-line: duplicate-set-field
@@ -433,7 +412,6 @@ function M.init_early(options)
     return
   end
   M.active = true
-  M.entry = "cli"
   st = { phase = "boot", phase_at = now(), index = 1, prev_done = now(), last_busy = now(), reference = 0 }
 
   local pacing = os.getenv("BALATROBOT_REPLAY_PACING")
@@ -467,8 +445,12 @@ function M.init_late()
   end
 end
 
---- 回放开始前的提示 (仅回放模式): 局里有手动操作, 版本不一致等.
-local function warnings()
+--- 回放开始前的提示: 局里有手动操作, 版本不一致, 以及恢复存档进度时的提示 (extra).
+--- 逐条弹出, 返回读完它们要等的秒数.
+---@param extra string[]?
+---@param duration number? 每条的停留时长, 默认按阅读时长
+---@return number
+local function show_warnings(extra, duration)
   local list = {}
   local manual = data.manual_inputs or 0
   if manual > 0 then
@@ -486,7 +468,16 @@ local function warnings()
       tostring(deps.mod_version)
     )
   end
-  return list
+  for _, text in ipairs(extra or {}) do
+    list[#list + 1] = text
+  end
+  local wait = 0
+  for _, text in ipairs(list) do
+    sendWarnMessage("Replay warning: " .. text, LOGGER)
+    toast("回放警告", text, duration)
+    wait = wait + deps.toast.duration_for(text) + 0.5
+  end
+  return wait
 end
 
 local function start_run_request()
@@ -494,10 +485,10 @@ local function start_run_request()
   -- 先切阶段: start_run 钩子据此判断这次开局是回放发起的.
   set_phase("starting")
   if run.resumed then
-    -- 读档开局: 把存档写成一个临时文件交给 load, 用完即删 (回放期间写入本身是被丢弃的, 这个文件要放行).
+    -- 读档开局: 把存档写成一个临时文件交给 load. 游戏内回放结束时由 session 删掉.
     local name = "replay_resume.jkr"
-    if deps.session then
-      deps.session.allow_temp(name)
+    if st.ingame then
+      deps.session.add_temp_file(name)
     end
     love.filesystem.write(name, run.save)
     dispatch("load", { path = love.filesystem.getSaveDirectory() .. "/" .. name }, nil, false)
@@ -507,7 +498,8 @@ local function start_run_request()
 end
 
 --- 游戏内开始一次回放. 由 选项 -> 回放 的确认页调用, 此时人在主菜单上.
----@param options {path: string, pacing: string?, record: boolean?, on_finish: fun(code: integer, result: string, warnings: string[])?, session: table?}
+--- 存档隔离 (session.begin) 由调用方先做好, 收尾由这里的 finish_ingame 调 session.finish.
+---@param options {path: string, pacing: string?, on_finish: fun(code: integer, warnings: string[])?}
 ---@return boolean ok
 ---@return string? reason
 function M.start(options)
@@ -519,9 +511,11 @@ function M.start(options)
     return false, problem
   end
   cfg.pacing = options.pacing == "original" and "original" or "tight"
-  M.entry = "ingame"
-  deps.on_finish = options.on_finish
-  deps.session = options.session
+  -- 回放期间不写盘: 待弹的解锁通知也保持磁盘上的原样, 回放里没有的通知就跳过对应步骤.
+  local ok, result = pcall(deps.snapshot.apply, decoded.snapshot, { write_notify = false })
+  if not ok then
+    return false, "恢复存档进度失败: " .. tostring(result)
+  end
   data = decoded
   st = {
     phase = "warn",
@@ -530,38 +524,17 @@ function M.start(options)
     prev_done = now(),
     last_busy = now(),
     reference = 0,
-    warn_until = now(),
     ingame = true,
+    on_finish = options.on_finish,
   }
-  -- 回放期间不写盘: 待弹的解锁通知也保持磁盘上的原样, 回放里没有的通知就跳过对应步骤.
-  local ok, result = pcall(deps.snapshot.apply, data.snapshot, { write_notify = false })
-  if not ok then
-    data = nil
-    deps.on_finish = nil
-    return false, "恢复存档进度失败: " .. tostring(result)
-  end
-  local list = warnings()
-  for _, text in ipairs(result or {}) do
-    list[#list + 1] = text
-  end
-  for _, text in ipairs(list) do
-    sendWarnMessage("Replay warning: " .. text, LOGGER)
-    toast("回放警告", text, 4)
-    st.warn_until = st.warn_until + deps.toast.duration_for(text) + 0.5
-  end
+  st.warn_until = now() + show_warnings(result, 4)
   M.active = true
   deps.input_lock.install()
   deps.recorder.annotate("replay", { source = data.source, file = options.path, pacing = cfg.pacing, entry = "ingame" })
   sendInfoMessage(string.format("游戏内回放开始: %s, %d 步, 节奏 %s", options.path, #data.actions, cfg.pacing), LOGGER)
-  -- 中止方法要在屏幕上说明一次: 桌面按住 Esc 1 秒, 触摸长按 1.5 秒.
-  toast("回放中", "要中止回放: 按住 Esc 1 秒; 触摸时长按屏幕 1.5 秒", deps.toast.duration_for("要中止回放: 按住 Esc 1 秒; 触摸时长按屏幕 1.5 秒"))
+  toast("回放中", ABORT_HINT, deps.toast.duration_for(ABORT_HINT))
   update_status()
   return true
-end
-
---- 中止提示的进度 (0~1), 供流式条显示.
-local function abort_progress()
-  return deps.input_lock.abort_progress and deps.input_lock.abort_progress() or 0
 end
 
 function M.update()
@@ -569,12 +542,12 @@ function M.update()
     return
   end
   local t = now()
-  local progress = abort_progress()
-  if progress > 0 and st.phase ~= "ending" and st.phase ~= "quit" and deps.stream then
+  local progress = deps.input_lock.abort_progress()
+  if progress > 0 and st.phase ~= "ending" and st.phase ~= "quit" then
     -- 按住期间显示进度, 松手后按下一次刷新 (0.3 秒) 收起.
     deps.stream.show_status(string.format("松开: 中止回放 (%d%%)", math.floor(progress * 100 + 0.5)), 0.3)
   end
-  if deps.input_lock.abort_requested() and st.phase ~= "ending" and st.phase ~= "quit" then
+  if progress >= 1 and st.phase ~= "ending" and st.phase ~= "quit" then
     sendWarnMessage("Replay aborted by user", LOGGER)
     toast("回放中止", "用户中止了回放", 3)
     deps.recorder.annotate("replay", { source = data and data.source, pacing = cfg.pacing, ok = false, aborted = true, step = st.index })
@@ -605,16 +578,7 @@ function M.update()
         finish_later(3, 6)
         return
       end
-      local list = warnings()
-      for _, text in ipairs(result or {}) do
-        list[#list + 1] = text
-      end
-      st.warn_until = t
-      for _, text in ipairs(list) do
-        sendWarnMessage("Replay warning: " .. text, LOGGER)
-        toast("回放警告", text)
-        st.warn_until = st.warn_until + deps.toast.duration_for(text) + 0.5
-      end
+      st.warn_until = t + show_warnings(result)
       set_phase("warn")
     end
   elseif phase == "warn" then
@@ -648,7 +612,7 @@ function M.update()
       if st.ingame then
         finish_ingame()
       else
-        love.event.quit(st.exit_code or 0)
+        love.event.quit(st.exit_code)
       end
     end
   end

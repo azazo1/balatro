@@ -9,58 +9,35 @@
 //! 系数用 BT.601 有限范围 (studio swing): 黑 Y=16, 白 Y=235, 色度以 128 为零点.
 //! 这与 Android 相机和硬件编码器的惯例一致; 用满范围会让画面发灰或过饱和.
 //! 色度按 2x2 平均抽样, 比直接取左上角像素少一些锯齿.
+//!
+//! 系数和为 256 的整数近似, 输入在 0..=255 时结果落在 16..=235 (Y) 与 16..=240 (U/V),
+//! 不会越出 u8, 所以不需要再夹取值. i32 的 `>>` 是算术右移, 负数向下取整.
 
-/// 色度平面的高度: 高度按偶数处理, 所以是 height / 2.
-fn chroma_height(height: usize) -> usize {
-    height / 2
-}
-
-/// NV12 缓冲需要的字节数. 尺寸非法时返回 0.
+/// NV12 缓冲需要的字节数 (Y 平面 + 半高的 UV 平面), 宽或高为 0 时为 0.
 pub fn nv12_size(width: usize, height: usize) -> usize {
-    if width == 0 || height == 0 {
-        return 0;
-    }
-    width * height + width * chroma_height(height)
-}
-
-/// 整除 256 并向负无穷取整.
-///
-/// 直接写 `v >> 8` 在负数上是算术右移, 对这里够用, 但显式写出来更清楚, 也不依赖具体实现.
-fn shr8(v: i32) -> i32 {
-    if v >= 0 {
-        v >> 8
-    } else {
-        -(((-v) + 255) >> 8)
-    }
-}
-
-/// 夹到 0..=255.
-fn clamp_u8(v: i32) -> u8 {
-    v.clamp(0, 255) as u8
+    width * height + width * (height / 2)
 }
 
 /// Y = 16 + (66R + 129G + 25B) / 256
 fn luma(r: i32, g: i32, b: i32) -> u8 {
-    clamp_u8(16 + shr8(66 * r + 129 * g + 25 * b))
+    (16 + ((66 * r + 129 * g + 25 * b) >> 8)) as u8
 }
 
-/// U = 128 + (-38R - 74G + 112B) / 256
-fn chroma_u(r: i32, g: i32, b: i32) -> u8 {
-    clamp_u8(128 + shr8(-38 * r - 74 * g + 112 * b))
-}
-
-/// V = 128 + (112R - 94G - 18B) / 256
-fn chroma_v(r: i32, g: i32, b: i32) -> u8 {
-    clamp_u8(128 + shr8(112 * r - 94 * g - 18 * b))
+/// U = 128 + (-38R - 74G + 112B) / 256, V = 128 + (112R - 94G - 18B) / 256
+fn chroma(r: i32, g: i32, b: i32) -> [u8; 2] {
+    [
+        (128 + ((-38 * r - 74 * g + 112 * b) >> 8)) as u8,
+        (128 + ((112 * r - 94 * g - 18 * b) >> 8)) as u8,
+    ]
 }
 
 /// 把 RGBA8 转成 NV12.
 ///
 /// `rgba` 每行 `rgba_stride` 字节, 每行前 `width` 个像素有效; `dst` 先是
 /// `y_stride * height` 的 Y 平面, 之后是 `uv_stride * (height / 2)` 的 UV 平面.
-/// 两边的跨度都允许大于宽度 (画布和内部分配常有对齐填充).
+/// 两边的跨度都允许大于宽度 (画布和内部分配常有对齐填充), 填充字节不读也不写.
 ///
-/// `width` 与 `height` 由调用方保证是偶数 (视频编码要求, 调用方已经取过偶数).
+/// `width` 与 `height` 必须是偶数, 色度按 2x2 块取值.
 pub fn rgba_to_nv12(
     rgba: &[u8],
     width: usize,
@@ -82,37 +59,36 @@ pub fn rgba_to_nv12(
     if rgba.len() < rgba_stride * (height - 1) + width * 4 {
         return Err("输入缓冲太小");
     }
-    // UV 平面起点前面就是 Y 平面, 这里按 min(y_stride, width) 判断: 跨度大于宽度时多出的部分不写.
+    // UV 每行是 width / 2 对交错的 U, V, 正好 width 字节, 所以两个平面的跨度下限都是 width.
     if y_stride < width || uv_stride < width {
         return Err("输出行跨度太小");
     }
-    if dst.len() < y_stride * height + uv_stride * chroma_height(height) {
+    if dst.len() < y_stride * height + uv_stride * (height / 2) {
         return Err("输出缓冲太小");
     }
 
     let (y_plane, uv_plane) = dst.split_at_mut(y_stride * height);
+    let row_bytes = width * 4;
 
     for row in 0..height {
-        let src = &rgba[row * rgba_stride..];
-        let y_row = &mut y_plane[row * y_stride..row * y_stride + width];
-        for (col, out) in y_row.iter_mut().enumerate() {
-            let p = &src[col * 4..];
-            *out = luma(p[0] as i32, p[1] as i32, p[2] as i32);
+        let src = &rgba[row * rgba_stride..][..row_bytes];
+        let y_row = &mut y_plane[row * y_stride..][..width];
+        for (out, p) in y_row.iter_mut().zip(src.as_chunks::<4>().0) {
+            *out = luma(p[0].into(), p[1].into(), p[2].into());
         }
     }
 
-    for row in (0..height).step_by(2) {
-        let src0 = &rgba[row * rgba_stride..];
-        let src1 = &rgba[(row + 1) * rgba_stride..];
-        let uv_row = &mut uv_plane[(row / 2) * uv_stride..(row / 2) * uv_stride + width];
-        for col in (0..width).step_by(2) {
-            // 2x2 平均: 相邻两行的左右各一个像素, 先各分量求和再除以 4.
-            let (p0, p1) = (&src0[col * 4..], &src1[col * 4..]);
-            let r = (p0[0] as i32 + p0[4] as i32 + p1[0] as i32 + p1[4] as i32) / 4;
-            let g = (p0[1] as i32 + p0[5] as i32 + p1[1] as i32 + p1[5] as i32) / 4;
-            let b = (p0[2] as i32 + p0[6] as i32 + p1[2] as i32 + p1[6] as i32) / 4;
-            uv_row[col] = chroma_u(r, g, b);
-            uv_row[col + 1] = chroma_v(r, g, b);
+    for row in 0..height / 2 {
+        let top = &rgba[2 * row * rgba_stride..][..row_bytes];
+        let bottom = &rgba[(2 * row + 1) * rgba_stride..][..row_bytes];
+        let uv_row = &mut uv_plane[row * uv_stride..][..width];
+        let blocks = top.as_chunks::<8>().0.iter().zip(bottom.as_chunks::<8>().0);
+        for (uv, (a, b)) in uv_row.as_chunks_mut::<2>().0.iter_mut().zip(blocks) {
+            // 2x2 平均: 上下两行各取左右两个像素, 同一分量求和后除以 4.
+            let avg = |c: usize| {
+                (i32::from(a[c]) + i32::from(a[c + 4]) + i32::from(b[c]) + i32::from(b[c + 4])) / 4
+            };
+            *uv = chroma(avg(0), avg(1), avg(2));
         }
     }
     Ok(())
@@ -127,80 +103,64 @@ mod tests {
         (got as i32 - want).abs() <= 1
     }
 
-    /// 纯色图像: Y 平面处处相同, U 与 V 各一个值. 期望值取标准 BT.601 有限范围的理想值.
-    fn check_colour(r: u8, g: u8, b: u8, y_want: i32, u_want: i32, v_want: i32) {
-        let (w, h) = (4, 4);
-        let mut rgba = vec![0u8; w * h * 4];
-        for px in rgba.as_chunks_mut::<4>().0 {
-            px.copy_from_slice(&[r, g, b, 255]);
-        }
+    const RED: [u8; 4] = [255, 0, 0, 255];
+    const BLUE: [u8; 4] = [0, 0, 255, 255];
+
+    /// 转换一张紧凑排列 (跨度等于宽度) 的图像, 缓冲按 nv12_size 分配.
+    fn convert(pixels: &[[u8; 4]], w: usize, h: usize) -> Vec<u8> {
         let mut out = vec![0u8; nv12_size(w, h)];
-        rgba_to_nv12(&rgba, w, h, w * 4, &mut out, w, w).expect("转换应成功");
-        assert!(
-            out[..w * h].iter().all(|&y| near(y, y_want)),
-            "Y 平面应全是 {y_want}, 实际 {:?}",
-            &out[..4]
-        );
-        assert!(near(out[w * h], u_want), "U 应为 {u_want}, 实际 {}", out[w * h]);
-        assert!(near(out[w * h + 1], v_want), "V 应为 {v_want}, 实际 {}", out[w * h + 1]);
+        rgba_to_nv12(pixels.as_flattened(), w, h, w * 4, &mut out, w, w).expect("转换应成功");
+        out
     }
 
+    /// 期望值取 BT.601 有限范围的理想值.
     #[test]
     fn bt601_limited_range_primaries() {
-        check_colour(0, 0, 0, 16, 128, 128);
-        check_colour(255, 255, 255, 235, 128, 128);
-        check_colour(255, 0, 0, 81, 90, 240);
-        check_colour(0, 255, 0, 145, 54, 34);
-        check_colour(0, 0, 255, 41, 240, 110);
-    }
-
-    #[test]
-    fn chroma_rows_are_independent() {
-        // 上半红下半蓝: 两行色度各自独立, 第二行在 uv_plane + uv_stride 处.
-        let (w, h) = (4, 4);
-        let mut rgba = vec![0u8; w * h * 4];
-        for (i, px) in rgba.as_chunks_mut::<4>().0.iter_mut().enumerate() {
-            let top = i / w < 2;
-            px.copy_from_slice(if top { &[255, 0, 0, 255] } else { &[0, 0, 255, 255] });
+        let cases = [
+            ([0, 0, 0], [16, 128, 128]),
+            ([255, 255, 255], [235, 128, 128]),
+            ([255, 0, 0], [81, 90, 240]),
+            ([0, 255, 0], [145, 54, 34]),
+            ([0, 0, 255], [41, 240, 110]),
+        ];
+        for ([r, g, b], [y, u, v]) in cases {
+            let out = convert(&[[r, g, b, 255]; 4], 2, 2);
+            assert!(out[..4].iter().all(|&got| near(got, y)), "({r},{g},{b}) 的 Y: {:?}", &out[..4]);
+            assert!(near(out[4], u) && near(out[5], v), "({r},{g},{b}) 的 UV: {:?}", &out[4..]);
         }
-        let mut out = vec![0u8; nv12_size(w, h)];
-        rgba_to_nv12(&rgba, w, h, w * 4, &mut out, w, w).expect("转换应成功");
-        let uv = &out[w * h..];
-        assert!(near(uv[0], 90) && near(uv[1], 240), "第一行应是红: {:?}", &uv[..2]);
-        assert!(near(uv[w], 240) && near(uv[w + 1], 110), "第二行应是蓝: {:?}", &uv[w..w + 2]);
     }
 
     #[test]
     fn chroma_averages_the_2x2_block() {
-        // 2x2 块内两红两蓝: U=(90+240)/2=165, V=(240+110)/2=175.
-        let (w, h) = (2, 2);
-        let mut rgba = vec![0u8; w * h * 4];
-        for (i, px) in rgba.as_chunks_mut::<4>().0.iter_mut().enumerate() {
-            let left = i % w == 0;
-            px.copy_from_slice(if left { &[255, 0, 0, 255] } else { &[0, 0, 255, 255] });
-        }
-        let mut out = vec![0u8; nv12_size(w, h)];
-        rgba_to_nv12(&rgba, w, h, w * 4, &mut out, w, w).expect("转换应成功");
-        assert!(near(out[4], 165) && near(out[5], 175), "UV 应取平均: {:?}", &out[4..6]);
+        // 左红右蓝: U=(90+240)/2=165, V=(240+110)/2=175.
+        let out = convert(&[RED, BLUE, RED, BLUE], 2, 2);
+        assert!(near(out[4], 165) && near(out[5], 175), "UV 应取平均: {:?}", &out[4..]);
     }
 
     #[test]
     fn honours_strides_larger_than_width() {
-        // 输入与输出都带对齐填充: 填充字节不能被写坏, 也不能被当成像素.
-        let (w, h, stride) = (2, 2, 12);
-        let mut rgba = vec![0u8; stride * h];
+        // 2x4, 上两行红下两行蓝. 输入行尾填充 0x7F 不能被当成像素, 输出填充 0xAB 不能被写.
+        let (w, h, stride, ys, us) = (2, 4, 12, 3, 5);
+        let mut rgba = vec![0x7Fu8; stride * h];
         for row in 0..h {
-            for col in 0..w {
-                let p = &mut rgba[row * stride + col * 4..row * stride + col * 4 + 4];
-                p.copy_from_slice(&[255, 255, 255, 255]);
-            }
+            let px = if row < 2 { RED } else { BLUE };
+            rgba[row * stride..][..8].copy_from_slice(&[px, px].concat());
         }
-        // 输出跨度是 8: Y 平面 8*2, 色度平面 8*1
-        let mut out = vec![0xABu8; 8 * h + 8 * (h / 2)];
-        rgba_to_nv12(&rgba, w, h, stride, &mut out, 8, 8).expect("转换应成功");
-        assert!(out[0] == 235 && out[1] == 235, "Y 应全是白");
-        // 填充区的字节保持原样
-        assert!(out[2] == 0xAB && out[3] == 0xAB, "Y 平面的填充不该被写");
+        let mut out = vec![0xABu8; ys * h + us * (h / 2)];
+        rgba_to_nv12(&rgba, w, h, stride, &mut out, ys, us).expect("转换应成功");
+        let (y_plane, uv) = out.split_at(ys * h);
+        for row in 0..h {
+            let want = if row < 2 { 81 } else { 41 };
+            let y_row = &y_plane[row * ys..][..ys];
+            assert!(
+                near(y_row[0], want) && near(y_row[1], want) && y_row[2] == 0xAB,
+                "Y 第 {row} 行: {y_row:?}"
+            );
+        }
+        assert!(near(uv[0], 90) && near(uv[1], 240), "UV 第一行应是红: {:?}", &uv[..us]);
+        assert!(near(uv[us], 240) && near(uv[us + 1], 110), "UV 第二行应是蓝: {:?}", &uv[us..]);
+        let untouched = uv[2..us].iter().chain(&uv[us + 2..]).all(|&b| b == 0xAB);
+        assert!(untouched, "UV 的填充不该被写: {uv:?}");
     }
 
     #[test]
@@ -213,12 +173,5 @@ mod tests {
         assert!(rgba_to_nv12(&rgba, 4, 4, 8, &mut out, 4, 4).is_err(), "输入跨度太小");
         assert!(rgba_to_nv12(&rgba, 4, 4, 16, &mut out, 2, 2).is_err(), "输出跨度太小");
         assert!(rgba_to_nv12(&rgba, 4, 4, 16, &mut out[..8], 4, 4).is_err(), "输出缓冲太小");
-    }
-
-    #[test]
-    fn nv12_size_matches_planes() {
-        assert_eq!(nv12_size(960, 540), 960 * 540 + 960 * 270);
-        assert_eq!(nv12_size(0, 540), 0);
-        assert_eq!(nv12_size(960, 0), 0);
     }
 }

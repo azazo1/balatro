@@ -7,36 +7,23 @@ overlay.lua 可能先把请求挂起, 在弹窗关掉后再用同一个 send_res
 
 一次只允许一个本地调用, 与 HTTP 服务一次只处理一个请求的约束一致.
 
-过期响应: 端点的回复可能比调用活得久 (overlay 把请求挂到弹窗关闭, 或者在等动画). 如果中途 stop 或
-暂停, 调用被 abandon, 之后又开了新的一次调用, 旧的那份回复会顺着同一条 send_response 回来, 看上去
-和新调用一模一样. 所以调用期间把目标端点的 execute 换成一个带代号的包装: 回复到达时先看代号是不是
-仍然等于当前待处理的那一次, 不是就丢掉并记一次数. 代号在包装里捕获, 不依赖响应内容 (响应表里没有
-可以识别调用的字段).
+过期响应: 端点的回复可能比调用活得久 (overlay 把请求挂到弹窗关闭, 或者在等动画). 中途 stop 或暂停时
+调用被 abandon, 之后再开新调用, 旧回复会顺着同一条 send_response 回来, 和新调用的回复分不出来
+(响应表里没有能识别调用的字段). 所以给端点的 execute 套一层常驻的闸门: execute 被调用时记下当时
+待处理的那次调用 (代号), 回复到达时这次调用已被 abandon 就丢掉并计数. 闸门只套一次且不再拆:
+dispatch 期间 overlay 会在它外面再包一层, 拆掉会把 overlay 的包装一起丢掉.
 
 必须在 BB_OVERLAY.install 与 BB_ACTIVITY.install 之后安装, 让本地调用同样经过弹窗拦截与活动追踪.
 ]]
 
 local M = {}
 
-local pending = nil -- {id, method, cb, started}
+local pending = nil -- {method, cb, abandoned}
 local next_id = 0
 local dropped = 0
-local installed_server = nil
-
-local function log_drop(method, id, current)
-  dropped = dropped + 1
-  sendDebugMessage(
-    string.format("丢弃过期响应 (第 %d 次调用 %s; 当前 %s)", id, method, current or "无待处理调用"),
-    "BB.AGENT.LOOP"
-  )
-end
 
 ---@param server table BB_SERVER
 function M.install(server)
-  if installed_server == server then
-    return
-  end
-  installed_server = server
   local send_response = server.send_response
   server.send_response = function(response)
     local call = pending
@@ -49,6 +36,30 @@ function M.install(server)
       end
     end
     return sent
+  end
+end
+
+--- 给端点套上闸门, 每个端点只套一次. 不在本地调用中的 execute (HTTP 请求) 原样放行.
+---@param endpoint table
+local function gate(endpoint)
+  if endpoint.__bb_local_call_gated then
+    return
+  end
+  endpoint.__bb_local_call_gated = true
+  local execute = endpoint.execute
+  endpoint.execute = function(args, send_response)
+    local call = pending
+    if not call then
+      return execute(args, send_response)
+    end
+    return execute(args, function(response)
+      if call.abandoned then
+        dropped = dropped + 1
+        sendDebugMessage("丢弃过期响应 (已放弃的 " .. call.method .. " 调用)", "BB.AGENT.LOOP")
+      else
+        send_response(response)
+      end
+    end)
   end
 end
 
@@ -81,31 +92,15 @@ function M.call(dispatcher, method, params, reason, cb)
   if reason then
     request_params.reason = reason
   end
+  local endpoint = dispatcher.endpoints[method]
+  if endpoint then
+    gate(endpoint)
+  end
   next_id = next_id + 1
-  local id = next_id
-  pending = { id = id, method = method, cb = cb, started = love.timer.getTime() }
-
-  -- 端点可能在本次 dispatch 之后很久才回复, 回复时它手上拿着的还是这里包出来的函数.
-  local endpoint = dispatcher.endpoints and dispatcher.endpoints[method]
-  local orig_execute = endpoint and endpoint.execute
-  if orig_execute then
-    endpoint.execute = function(args, send_response)
-      return orig_execute(args, function(response)
-        if pending and pending.id == id then
-          send_response(response)
-        else
-          log_drop(method, id, pending and pending.method or nil)
-        end
-      end)
-    end
-  end
-
-  local ok, err = pcall(dispatcher.dispatch, { jsonrpc = "2.0", method = method, params = request_params, id = id })
-  if orig_execute then
-    endpoint.execute = orig_execute
-  end
+  pending = { method = method, cb = cb, abandoned = false }
+  local ok, err = pcall(dispatcher.dispatch, { jsonrpc = "2.0", method = method, params = request_params, id = next_id })
   if not ok then
-    pending = nil
+    M.abandon()
     return false, tostring(err)
   end
   return true
@@ -113,6 +108,9 @@ end
 
 --- 放弃等待 (停止或暂停 loop 时). 端点之后交回的结果会被丢弃.
 function M.abandon()
+  if pending then
+    pending.abandoned = true
+  end
   pending = nil
 end
 

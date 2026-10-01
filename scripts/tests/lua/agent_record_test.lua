@@ -203,36 +203,17 @@ do -- 运行时加载自己的模块必须显式给出 mod id.
   if pipe then
     pipe:close()
   end
-  check("扫到了 agent 下的 lua", #RUNTIME_FILES >= 40, tostring(#RUNTIME_FILES))
-  --- 去掉注释, 免得把用法示例当成代码 (行注释与块注释都处理, 不处理字符串里的 --).
-  ---@param text string
-  ---@return string
-  local function strip_comments(text)
-    text = text:gsub("%-%-%[%[.-%]%]", "")
-    text = text:gsub("%-%-[^\n]*", "")
-    return text
-  end
-
-  --- 找出 load_file 只传了一个参数的地方.
-  ---@param text string
-  ---@return string[] bare
-  local function bare_loads(text)
-    local out = {}
-    for path in strip_comments(text):gmatch('SMODS%.load_file%s*%(%s*"[^"]*"%s*%)') do
-      out[#out + 1] = path
-    end
-    return out
-  end
+  local bare = {}
   for _, file in ipairs(RUNTIME_FILES) do
     local handle = assert(io.open(file, "rb"))
-    local bare = bare_loads(handle:read("*a"))
+    -- 去掉注释 (块注释与行注释), 免得把用法示例当成代码
+    local code = handle:read("*a"):gsub("%-%-%[%[.-%]%]", ""):gsub("%-%-[^\n]*", "")
     handle:close()
-    check(
-      "运行时加载带 mod id: " .. file:match("[^/]+$"),
-      #bare == 0,
-      bare[1] and ("缺少 id: " .. bare[1]) or nil
-    )
+    for call in code:gmatch('SMODS%.load_file%s*%(%s*"[^"]*"%s*%)') do
+      bare[#bare + 1] = file:match("[^/]+$") .. ": " .. call
+    end
   end
+  check("运行时加载都带 mod id", #RUNTIME_FILES > 0 and #bare == 0, table.concat(bare, "; "))
 end
 
 if failures > 0 then

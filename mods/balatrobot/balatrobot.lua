@@ -123,9 +123,11 @@ local MOD_VERSION = MOD.version .. " / smods " .. tostring(SMODS.version)
 local REPLAY_FORMAT = assert(SMODS.load_file("agent/replay/format.lua"))()
 local REPLAY_SNAPSHOT = assert(SMODS.load_file("agent/replay/snapshot.lua"))()
 local REPLAY_SESSION = assert(SMODS.load_file("agent/replay/session.lua"))()
+REPLAY_SESSION.init({ snapshot = REPLAY_SNAPSHOT })
 BB_REPLAY = assert(SMODS.load_file("agent/replay/player.lua"))()
-BB_REPLAY_LIBRARY = assert(SMODS.load_file("agent/replay/library.lua"))()
-REPLAY_SESSION.init({ recorder = BB_RECORDER, toast = BB_TOAST, snapshot = REPLAY_SNAPSHOT })
+local function replaying()
+  return BB_REPLAY.active == true
+end
 
 -- 顺序: 回放的 start_run 钩子要在录制之内 (先改好 seeded 再开始录制);
 -- 回放文件的钩子在录制之外 (开局前取存档进度); 输入锁在所有输入钩子之外.
@@ -155,7 +157,8 @@ BB_RECORDER.init({
 BB_RECORDER.add_activity_source(function()
   return BB_STREAM.active()
 end)
--- 回放文件与录像同名, 只在录制时写; 回放自己的一局不写回放文件 (录制器运行中才打开时, 由 log.lua 补上).
+-- 回放文件与录像同名, 只在有录像段时写. 录像可以在运行中才打开, 所以不看启动时的录像开关;
+-- 回放的一局不写, 命令行回放在这里排除, 游戏内回放由 replaying 排除.
 if not BB_REPLAY.active then
   BB_REPLAY_LOG = assert(SMODS.load_file("agent/replay/log.lua"))()
   BB_REPLAY_LOG.init({
@@ -166,9 +169,7 @@ if not BB_REPLAY.active then
     snapshot = REPLAY_SNAPSHOT,
     game_version = GAME_VERSION,
     mod_version = MOD_VERSION,
-    replaying = function()
-      return BB_REPLAY.active == true
-    end,
+    replaying = replaying,
   })
 end
 BB_REPLAY.init_late()
@@ -220,9 +221,7 @@ BB_RUNNER = assert(SMODS.load_file("agent/runner.lua"))()
 BB_MODE = MODE.new({
   initial = MOD.config.mode,
   env_locked = env_enabled,
-  replaying = function()
-    return BB_REPLAY.active == true
-  end,
+  replaying = replaying,
   runner_busy = function()
     return BB_RUNNER.is_busy()
   end,
@@ -351,17 +350,14 @@ BB_AGENT_MENU.init({
   widgets = WIDGETS,
 })
 -- 主菜单 选项 -> 回放: 列表, 确认页, 存档隔离与结束收尾.
-BB_REPLAY_MENU = assert(SMODS.load_file("agent/ui/replay_menu.lua"))()
-BB_REPLAY_MENU.init({
-  mod = MOD,
+assert(SMODS.load_file("agent/ui/replay_menu.lua"))().init({
   agent_menu = BB_AGENT_MENU,
   runner = BB_RUNNER,
   mode = BB_MODE,
   recorder = BB_RECORDER,
   replay = BB_REPLAY,
   session = REPLAY_SESSION,
-  library = BB_REPLAY_LIBRARY,
-  snapshot = REPLAY_SNAPSHOT,
+  library = assert(SMODS.load_file("agent/replay/library.lua"))(),
   format = REPLAY_FORMAT,
   toast = BB_TOAST,
   stream = BB_STREAM,

@@ -1,5 +1,5 @@
 --[[
-整局录制. 由 BALATROBOT_RECORD=on 开启, 每局 (start_run 到回主菜单/下一局/退出) 输出:
+整局录制. 由 BALATROBOT_RECORD=on 或设置页的录像开关开启, 每局 (start_run 到回主菜单/下一局/退出) 输出:
 - <stem>-full.mp4: 按墙钟原样录制, 带声音.
 - <stem>-cut.mp4: 同一份素材剪掉 agent 思考时的无意义等待, 见 record/cuts.lua.
 - <stem>.json: 关键时间点, 同时给出两份视频里的时间.
@@ -21,11 +21,12 @@ agent 暂停期间一律不算活动.
 
 环境变量:
 - BALATROBOT_RECORD_DIR     输出目录, 默认 <存档目录>/recordings
-- BALATROBOT_RECORD_FPS     默认 30
-- BALATROBOT_RECORD_HEIGHT  默认 720, 宽度按窗口比例, 取偶数
+- BALATROBOT_RECORD_FPS     默认 30 (Android 24)
+- BALATROBOT_RECORD_HEIGHT  默认 720 (Android 540), 宽度按窗口比例, 取偶数
 - BALATROBOT_RECORD_PRE     剪辑版在每次活动前保留的秒数, 默认 0.6
 - BALATROBOT_RECORD_POST    剪辑版在动画停下后保留的秒数, 默认 0.8
 - BALATROBOT_RECORD_PREFIX  输出文件名前缀, 默认为空, 回放时为 replay-
+- BALATROBOT_RECORD_KEEP    设为 keep 时合成成功后保留中间文件, 未设置时用设置页的保留方式
 - BALATROBOT_FFMPEG         ffmpeg 路径, 默认在 PATH, /opt/homebrew/bin, /usr/local/bin 中查找
 - BALATROBOT_RECORD_CODEC   videotoolbox 或 x264, 默认 ffmpeg 支持时用 videotoolbox (macOS 硬件编码)
                             x264 画质体积比更好, 但与游戏争抢 CPU, 动画多时游戏会掉帧
@@ -33,7 +34,7 @@ agent 暂停期间一律不算活动.
 
 local LOGGER = "BB.AGENT.RECORD"
 -- 运行时加载自己的模块必须显式给出 mod id: SMODS.load_file 只在首次加载 mod 时才可以省 id,
--- 少了它会报 "No ID was provided!" (设置页打开录像开关时崩过).
+-- 少了它会报 "No ID was provided!". 录像可能在运行中才装载 (设置页打开开关, 游戏内回放).
 local MOD_ID = "balatrobot"
 local MAX_QUEUE = 8
 local START_GRACE = 1.5 -- 开局后固定算作活动的秒数, 覆盖开局动画
@@ -43,15 +44,15 @@ local MIN_GAP = 1.5 -- 剪掉的部分短于它时不剪
 -- 也视为停下, 防止某个一直挂着的事件让剪辑版一刀都剪不掉.
 local SETTLE_MAX = 10
 
-local Cuts, Timeline, Audio, Post -- 在 init 中加载
+local Cuts, Timeline, Audio, Post -- 在 setup 中加载
 
 local M = {
   enabled = false,
-  ready = false,
   status = "off",
 }
 
 local setup_done = false
+local ready = false -- setup 成功, 可以录制
 
 local cfg = {}
 local deps = {} -- activity, toast, mod_path
@@ -75,10 +76,9 @@ end
 ---@param path string
 local function fix_permissions(path)
   local ok, storage = pcall(require, "android_storage")
-  if not ok or type(storage) ~= "table" or type(storage.fix_path) ~= "function" then
-    return
+  if ok and type(storage) == "table" and storage.fix_path then
+    pcall(storage.fix_path, path)
   end
-  pcall(storage.fix_path, path)
 end
 
 local function env_number(name, default)
@@ -264,8 +264,8 @@ local function push_frame(s, canvas, count)
   -- 不丢帧: 编码跟不上时等它, 保证视频时长与时间线一致.
   local waited = 0
   if frames:getCount() >= MAX_QUEUE then
-    -- 记一次: 编码线程落后于采集, 主线程在这里等它 (次数多说明编码器跟不上当前分辨率与帧率).
-    s.queue_full = (s.queue_full or 0) + 1
+    -- 编码线程落后于采集, 主线程在这里等它 (次数多说明编码器跟不上当前分辨率与帧率).
+    s.queue_full = s.queue_full + 1
   end
   while frames:getCount() >= MAX_QUEUE and waited < 2 do
     if not s.thread:isRunning() then
@@ -365,20 +365,34 @@ local function try_post(item, force)
     if video_done.path then
       fix_permissions(video_done.path)
     end
-    local details = item.video.error and ("编码失败: " .. tostring(item.video.error))
-      or string.format(
-        "%d 帧, %d 个样本, 编码器 %s%s%s",
+    if item.video.error then
+      sendErrorMessage(string.format("Recording %s: 编码失败: %s", item.stem, tostring(item.video.error)), LOGGER)
+      return true
+    end
+    -- 封装成功才改名成 -full.mp4, 与桌面的成品同名; 没封装成功的留着 .video.mp4 (moov 没写, 播不了).
+    local final = video_done.path
+    if video_done.muxed and final then
+      local renamed = final:gsub("%.video%.mp4$", "-full.mp4")
+      local ok, err = os.rename(final, renamed)
+      if ok then
+        final = renamed
+      else
+        sendWarnMessage(string.format("Recording %s: 改名失败, 留在 %s: %s", item.stem, final, tostring(err)), LOGGER)
+      end
+    end
+    sendInfoMessage(
+      string.format(
+        "Recording %s: %s, %d 帧, %d 个样本, 编码器 %s%s%s",
+        item.stem,
+        tostring(final),
         video_done.frames or 0,
         video_done.samples or 0,
         tostring(video_done.encoder),
         video_done.muxed and "" or " (没有封装成功)",
-        (item.queue_full or 0) > 0 and string.format(", 编码队列压满 %d 次", item.queue_full) or ""
-      )
-    if item.video.error then
-      sendErrorMessage(string.format("Recording %s: %s", item.stem, details), LOGGER)
-    else
-      sendInfoMessage(string.format("Recording %s: %s", item.stem, details), LOGGER)
-    end
+        item.queue_full > 0 and string.format(", 编码队列压满 %d 次", item.queue_full) or ""
+      ),
+      LOGGER
+    )
     return true
   end
 
@@ -460,8 +474,8 @@ end
 --- 写出或覆盖草稿合成脚本, 崩溃后用它补做合成. 局末由 Post.spawn 用最终版覆盖.
 local function write_draft(s)
   s.draft_cuts = #s.cuts.list
-  -- 草稿脚本是给 ffmpeg 补做合成用的; Android 后端自己写 mp4, 没有这一步.
-  if not s.post or not s.post.ffmpeg then
+  -- 只有 ffmpeg 后端有 post (合成参数); Android 后端自己写 mp4, 没有这一步.
+  if not s.post then
     return
   end
   local opts = {}
@@ -519,7 +533,9 @@ local function start_session(resumed, reason)
   local meta = {
     fps = cfg.fps,
     size = { w, h },
-    videos = cfg.backend and { full = stem .. "-full.mp4", cut = stem .. "-cut.mp4" } or nil,
+    -- Android 没有剪辑版, 编码完成后 .video.mp4 改名成 -full.mp4 (见 try_post).
+    videos = cfg.backend == "android" and { full = stem .. "-full.mp4" }
+      or (cfg.backend and { full = stem .. "-full.mp4", cut = stem .. "-cut.mp4" } or nil),
     started_at = os.date("!%Y-%m-%dT%H:%M:%SZ"),
     deck = game.selected_back and game.selected_back.name or nil,
     stake = game.stake,
@@ -545,13 +561,12 @@ local function start_session(resumed, reason)
     won = game.won or false,
     draft_cuts = 0, -- 上次写草稿脚本时的剪辑区间数
   }
-  fix_permissions(base)
   log_event(session, "run_start", { resumed = resumed, reason = reason })
   if paused then
     pause_session(session, "carried")
   end
 
-  -- 只有 ffmpeg 后端采音频: Android 的 mp4 还没有混音这一步 (见 docs/builtin-agent.md),
+  -- 只有 ffmpeg 后端采音频: Android 只写无声 mp4, 混音还没做 (见 docs/builtin-agent.md),
   -- 采了也只会留下用不到的 .pcm, 白白占 CPU 与磁盘.
   if cfg.backend == "ffmpeg" then
     local audio, audio_err = Audio.start(deps.mod_path, base .. ".pcm", session.started)
@@ -576,7 +591,6 @@ local function start_session(resumed, reason)
 
     local ok, thread, frames, status
     if cfg.backend == "android" then
-      -- Android: 先写静音 mp4, 声音在局面结束后由 post 混进去 (见 docs/builtin-agent.md).
       ok, thread, frames, status = cfg.android.start(deps.mod_path, base .. ".video.mp4", w, h, cfg.fps)
     else
       ok, thread, frames, status = pcall(start_encoder, base .. ".video.mp4", base .. ".ffmpeg.txt", w, h)
@@ -585,15 +599,16 @@ local function start_session(resumed, reason)
     if ok then
       session.thread, session.frames, session.status = thread, frames, status
       redirect = true
-      -- 合成参数, 草稿与局末脚本共用
-      session.post = {
-        ffmpeg = cfg.ffmpeg,
-        codec_args = cfg.ffmpeg and codec_args(cfg.codec, cfg.fps, false) or nil,
-        base = base,
-        fps = cfg.fps,
-        keep = cfg.keep,
-        backend = cfg.backend,
-      }
+      if cfg.backend == "ffmpeg" then
+        -- 合成参数, 草稿与局末脚本共用
+        session.post = {
+          ffmpeg = cfg.ffmpeg,
+          codec_args = codec_args(cfg.codec, cfg.fps, false),
+          base = base,
+          fps = cfg.fps,
+          keep = cfg.keep,
+        }
+      end
     else
       sendErrorMessage("Failed to start encoder: " .. tostring(thread), LOGGER)
       session.timeline:set("videos", nil)
@@ -601,9 +616,7 @@ local function start_session(resumed, reason)
   end
   session.timeline:set("audio", session.audio ~= nil)
   session.timeline:flush(now(), true)
-  if cfg.backend == "ffmpeg" then
-    write_draft(session)
-  end
+  write_draft(session)
   M.status = "recording " .. stem
   sendInfoMessage(
     string.format("Recording started: %s (%dx%d@%d, sound %s)", base, w, h, cfg.fps, session.audio and "on" or "off"),
@@ -668,29 +681,23 @@ local function end_session(reason)
   end
   if s.thread then
     s.frames:push("stop")
-    if cfg.backend == "android" then
-      -- Android: 编码线程自己收尾写 mp4, 主线程只等它结束 (没有 ffmpeg 可调).
-      -- 声音的混入还没做, 见 docs/builtin-agent.md 的 "Android" 一节.
-      finishing[#finishing + 1] = {
-        stem = s.stem,
-        video = { stem = s.stem, thread = s.thread, status = s.status },
-        audio = s.audio and { stem = s.stem, thread = s.audio.thread, status = s.audio.status } or nil,
-        post = nil,
-        android = true,
-      }
-    else
-      local post = {}
+    local item = {
+      stem = s.stem,
+      video = { stem = s.stem, thread = s.thread, status = s.status },
+      audio = s.audio and { stem = s.stem, thread = s.audio.thread, status = s.audio.status } or nil,
+      queue_full = s.queue_full,
+    }
+    if s.post then
+      item.post = {}
       for k, v in pairs(s.post) do
-        post[k] = v
+        item.post[k] = v
       end
-      post.cuts = s.cuts.list
-      finishing[#finishing + 1] = {
-        stem = s.stem,
-        video = { stem = s.stem, thread = s.thread, status = s.status },
-        audio = s.audio and { stem = s.stem, thread = s.audio.thread, status = s.audio.status } or nil,
-        post = post,
-      }
+      item.post.cuts = s.cuts.list
+    else
+      -- Android: 编码线程自己收尾写 mp4, 主线程只等它结束 (没有 ffmpeg 可调).
+      item.android = true
     end
+    finishing[#finishing + 1] = item
   elseif s.post then
     -- 编码线程中途退出: 不在局末合成, 用最终的剪辑区间更新草稿, 之后可以用它或 recordings_recover 补做
     write_draft(s)
@@ -868,49 +875,16 @@ function M.annotate(key, value)
   end
 end
 
---- Android 上编码后端不可用时的诊断: 报告 media 库, 颜色转换与编码器的情况.
---- 正常情况下用不到它, 但失败原因可能是"没这个编码器"或"库没加载"这类只有真机才知道的事,
---- 与其只报一句"没有可用后端", 不如把这些前提各查一遍写进日志.
----@return string 一行摘要
-local function probe_android_codecs()
-  local Media = assert(SMODS.load_file("agent/record/android/ffi.lua", MOD_ID))()
-  local Bbnet = assert(SMODS.load_file("agent/net/bbnet.lua", MOD_ID))()
-  local probe = Media.probe()
-  local convert = "bbnet 不可用"
-  if Bbnet.load(deps.mod_path) and Bbnet.available() then
-    local ffi = require("ffi")
-    -- 2x2 纯白: Y 应在 235 左右, U/V 在 128 左右
-    local src = ffi.new("uint8_t[16]")
-    for i = 0, 3 do
-      src[i * 4 + 0], src[i * 4 + 1], src[i * 4 + 2], src[i * 4 + 3] = 255, 255, 255, 255
-    end
-    local dst = ffi.new("uint8_t[8]")
-    convert = Bbnet.rgba_to_nv12(src, 2, 2, 8, dst, 2, 2)
-        and string.format("Y=%d U=%d V=%d", dst[0], dst[4], dst[5])
-      or "转换失败"
-  end
-  return string.format(
-    "media=%s, 转换=%s, H.264 编码器=%s, AAC 编码器=%s",
-    probe.ok and "ok" or tostring(probe.error),
-    convert,
-    probe.h264 and "有" or "无",
-    probe.aac and "有" or "无"
-  )
-end
-
----@param options {activity: table, toast: table, mod_path: string, config_enabled: boolean?}
---- config_enabled: 设置页的录像开关. 设了 BALATROBOT_RECORD 环境变量时以环境变量为准 (Android 没有环境变量).
---- 装载模块, 定下输出参数, 装全局钩子. 录像本来关着但游戏内回放要录一段时, 由 M.set_enabled 调用.
+--- 装载模块, 定下输出参数, 装全局钩子. 只做一次, 由第一次 M.set_enabled(true) 触发.
 ---@return boolean ok 可以录制
 local function setup()
   if setup_done then
-    return M.ready
+    return ready
   end
   setup_done = true
   if BB_SETTINGS.headless or BB_SETTINGS.render_on_api then
     M.status = "unavailable (headless/render_on_api)"
     sendWarnMessage("Recording disabled: headless and render_on_api modes have no frames to capture", LOGGER)
-    M.ready = false
     return false
   end
 
@@ -919,42 +893,42 @@ local function setup()
   Audio = assert(SMODS.load_file("agent/record/audio.lua", MOD_ID))()
   Post = assert(SMODS.load_file("agent/record/post.lua", MOD_ID))()
 
-  -- Android 上只走硬件/软件编码器 (没有 ffmpeg), 分辨率与帧率按文档取 540p 24fps:
-  -- 手机屏幕小, 540p 够看; 软编时 24fps 比 30fps 省四分之一 CPU. 桌面沿用原来的 720p30.
-  local android_defaults = love._os == "Android"
-  cfg.fps = math.floor(env_number("BALATROBOT_RECORD_FPS", android_defaults and 24 or 30))
-  cfg.height = math.floor(env_number("BALATROBOT_RECORD_HEIGHT", android_defaults and 540 or 720))
+  -- Android 上只走 MediaCodec (没有 ffmpeg), 默认 540p 24fps: 手机屏幕小, 540p 够看;
+  -- 退到软编时 24fps 比 30fps 省四分之一 CPU. 桌面默认 720p30.
+  local android = love._os == "Android"
+  cfg.fps = math.floor(env_number("BALATROBOT_RECORD_FPS", android and 24 or 30))
+  cfg.height = math.floor(env_number("BALATROBOT_RECORD_HEIGHT", android and 540 or 720))
   cfg.pre = env_number("BALATROBOT_RECORD_PRE", 0.6)
   cfg.post = env_number("BALATROBOT_RECORD_POST", 0.8)
-  -- 文件名前缀, 回放时为 "replay-", 与原局的录像区分 (游戏内回放用 M.set_prefix 设定).
-  cfg.prefix = (os.getenv("BALATROBOT_RECORD_PREFIX") or ""):gsub("[^%w%-_]", "")
+  -- 文件名前缀, 回放时为 "replay-", 与原局的录像区分. 游戏内回放在录像还没初始化时就先 M.set_prefix,
+  -- 这里不能覆盖它, 只在没设过时取环境变量.
+  if cfg.prefix == nil then
+    cfg.prefix = (os.getenv("BALATROBOT_RECORD_PREFIX") or ""):gsub("[^%w%-_]", "")
+  end
   local dir = os.getenv("BALATROBOT_RECORD_DIR")
   cfg.dir = (dir and dir ~= "") and dir:gsub("/+$", "") or (love.filesystem.getSaveDirectory() .. "/recordings")
   local created, err = SMODS.NFS.createDirectory(cfg.dir)
-  if created then
-    fix_permissions(cfg.dir)
-  end
   if not created then
     M.status = "unavailable (output dir)"
     sendErrorMessage("Recording disabled: " .. tostring(err), LOGGER)
-    M.ready = false
     return false
   end
-  -- 编码后端: Android 上用 MediaCodec 硬件编码, 其余平台用 ffmpeg.
-  if love._os == "Android" then
-    local ok_android, android = pcall(function()
+  fix_permissions(cfg.dir)
+  -- 编码后端: Android 上用 MediaCodec, 其余平台用 ffmpeg.
+  if android then
+    local ok_backend, backend = pcall(function()
       return assert(SMODS.load_file("agent/record/android/backend.lua", MOD_ID))()
     end)
-    if ok_android then
-      local usable, why = android.available()
+    if not ok_backend then
+      sendWarnMessage("装载 Android 编码后端失败: " .. tostring(backend), LOGGER)
+    else
+      local usable, why = backend.available()
       if usable then
-        cfg.android = android
+        cfg.android = backend
         cfg.backend = "android"
       else
         sendWarnMessage("Android 硬件编码不可用: " .. tostring(why), LOGGER)
       end
-    else
-      sendWarnMessage("装载 Android 编码后端失败: " .. tostring(android), LOGGER)
     end
   end
   if not cfg.backend then
@@ -964,7 +938,7 @@ local function setup()
       cfg.backend = "ffmpeg"
     end
   end
-  M.ready = true
+  ready = true
 
   love.graphics.setCanvas = wrapped_set_canvas
 
@@ -1046,16 +1020,8 @@ local function setup()
     LOGGER
   )
   if not cfg.backend then
-    -- 诊断信息, 绝不能因为它自己出错而中断游戏: 整块包在 pcall 里.
-    local ok_diag, detail = pcall(probe_android_codecs)
-    if not ok_diag then
-      sendWarnMessage("Android 录像自检失败: " .. tostring(detail), LOGGER)
-    else
-      sendInfoMessage("Android 录像自检: " .. detail, LOGGER)
-    end
-    sendWarnMessage("没有可用的编码后端, 只写时间轴 JSON", LOGGER)
+    sendWarnMessage("没有可用的编码后端 (Android 上见上面的原因, 桌面上设 BALATROBOT_FFMPEG), 只写时间轴 JSON", LOGGER)
   end
-
   return true
 end
 
@@ -1096,8 +1062,8 @@ function M.set_enabled(value, reason)
       return false
     end
     M.enabled = true
-    M.status = cfg.backend == "android" and "on (H.264 硬件编码)"
-      or (cfg.ffmpeg and "on" or "on, no ffmpeg (timeline only)")
+    M.status = cfg.backend == "android" and "on (MediaCodec)"
+      or (cfg.backend == "ffmpeg" and "on" or "on, no ffmpeg (timeline only)")
     if reason then
       sendInfoMessage("Recording enabled by " .. reason, LOGGER)
     end
@@ -1112,15 +1078,10 @@ function M.set_enabled(value, reason)
   return false
 end
 
---- 运行时改保留方式: "keep" 时合成成功后保留中间文件. 只影响之后结束的录像段.
+--- 运行时改保留方式: "keep" 时合成成功后保留中间文件. 合成参数在开始录制时定下, 只影响之后开始的录像段.
 ---@param mode string?
 function M.set_keep(mode)
   cfg.keep = mode == "keep"
-end
-
----@return boolean
-function M.keep_intermediates()
-  return cfg.keep == true
 end
 
 --- 运行时改输出文件名前缀 (游戏内回放录成 replay-*, 与原局录像区分). 只影响之后开始的录像段.
@@ -1132,11 +1093,6 @@ end
 ---@return string
 function M.get_prefix()
   return cfg.prefix or ""
-end
-
----@return boolean 编码相关的模块已装载, 可以录制 (与当前是否开着无关)
-function M.available()
-  return setup_done and M.ready == true
 end
 
 --- 每帧在游戏 update 之后调用.
