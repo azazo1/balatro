@@ -4,7 +4,10 @@
 
 中止:
 - 桌面: 按住 Esc 1 秒.
-- 触摸: 长按屏幕 1.5 秒. 触摸事件照旧被丢弃, 这里只额外记住按下的时刻, 手指移动不取消 (手会抖).
+- 触摸: 长按屏幕 1.5 秒. 触摸事件照旧被丢弃, 手指移动不取消 (手会抖).
+  按下不能靠 love.touchpressed: 游戏的主循环 (game/main.lua 的 love.run) 收到 touchpressed 只记一个标记,
+  不交给 love.handlers, 改由 mousepressed 带上 "是触摸" 传下去, 所以 love.touchpressed 从来不会被调用.
+  这里改为每帧查 love.touch.getTouches(): 它由 love.event.pump 维护, 与主循环分发哪个事件无关.
 按住期间把进度报给调用方显示, 松手就清零.
 ]]
 
@@ -61,14 +64,11 @@ function M.install()
         local original = originals[name]
         return original and original(a, ...)
       end
+      -- 触摸的按住时长由 abort_progress 每帧查 love.touch 得出, 这里不处理.
       if name == "keypressed" and a == "escape" then
         escape_down_at = love.timer.getTime()
       elseif name == "keyreleased" and a == "escape" then
         escape_down_at = nil
-      elseif name == "touchpressed" then
-        touch_down_at = love.timer.getTime()
-      elseif name == "touchreleased" then
-        touch_down_at = nil
       end
     end
   end
@@ -89,13 +89,26 @@ function M.install()
   end
 end
 
+--- 屏幕上是否有手指. 没有触摸模块 (桌面上通常也有, 只是总为空) 时为 false.
+---@return boolean
+local function touching()
+  local touch = love.touch
+  return touch ~= nil and touch.getTouches ~= nil and next(touch.getTouches()) ~= nil
+end
+
 --- 中止键按住的进度: 按住时长与要求时长的比例, 取键盘与触摸里较大的一个, 限制在 0~1. 到 1 即请求中止.
+--- 每帧调用一次 (player.update), 触摸的按下与松开也在这里按 love.touch 的当前状态更新.
 ---@return number
 function M.abort_progress()
   if not M.active then
     return 0
   end
   local now = love.timer.getTime()
+  if touching() then
+    touch_down_at = touch_down_at or now
+  else
+    touch_down_at = nil
+  end
   local best = 0
   if escape_down_at then
     best = (now - escape_down_at) / ESC_HOLD

@@ -171,7 +171,8 @@ Agent 面板:
 - 1~3 已实现, 有单测, 未在游戏里实际运行过 (界面外观, F9, 流式条位置, 真实模型请求都待实机验证).
 - 4 已实现: 主菜单 选项 -> 回放 (列表, 确认页, 存档写入拦截, 结束收尾) 在 bbreplay 的 `replay/library.lua`,
   `replay/session.lua`, `replay/player.lua` 与 `ui/replay_menu.lua`; 列表的解析, 缓存,
-  分页有单测. 界面外观和真机上的长按中止待验证. 手动打的局也能录制与回放, 已在真机上回放一局 23 步.
+  分页有单测. 界面外观待验证; 真机上长按中止原先无效 (主循环不分发 `touchpressed`), 已改为按触摸状态判断,
+  修复后待真机复测. 手动打的局也能录制与回放, 已在真机上回放一局 23 步.
 - 5 完成了一部分: `bbnet` 的 arm64-v8a 交叉编译与 APK 打包 (`just android dist-modded` 已验证 .so 进入
   `lib/arm64-v8a/`), 切到后台自动暂停, 运行中防熄屏. armeabi-v7a 缺 rust target; 真机上的触摸流程未验证.
 - 6 完成了一部分: 视频链路已在真机跑通 (颜色转换, 编码器回退, 封装), 声音与剪辑版未做. 见 [recording.md](<recording.md>) 的 "Android" 一节.

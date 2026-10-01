@@ -71,6 +71,35 @@ do -- 教程局: 开局前的设置里还有强制内容, 或者教程没完成
   check("教程: 有记录时以记录为准", not Format.is_tutorial({ seed = "TUTORIAL", seeded = false, tutorial = false }))
 end
 
+do -- 长按中止: 游戏主循环不分发 touchpressed, 按住时长只能按 love.touch 的当前状态算
+  local clock, fingers = 100, {}
+  local saved_love = love
+  love = {
+    timer = { getTime = function() return clock end },
+    touch = { getTouches = function() return fingers end },
+    mouse = { setVisible = function() end },
+    graphics = { getWidth = function() return 1280 end },
+  }
+  local InputLock = dofile("mods/bbreplay/replay/input_lock.lua")
+  InputLock.install()
+  -- 只有手指按下, 没有任何 touchpressed 事件 (与 game/main.lua 的 love.run 一致).
+  fingers = { "finger-1" }
+  InputLock.abort_progress()
+  clock = clock + 0.75
+  local half = InputLock.abort_progress()
+  clock = clock + 0.8
+  local full = InputLock.abort_progress()
+  fingers = {}
+  local released = InputLock.abort_progress()
+  InputLock.release()
+  love = saved_love
+  check(
+    "长按 1.5 秒中止不依赖 touchpressed",
+    math.abs(half - 0.5) < 1e-9 and full == 1 and released == 0,
+    string.format("half=%s full=%s released=%s", half, full, released)
+  )
+end
+
 if failures > 0 then
   print(failures .. " 项失败")
   os.exit(1)
