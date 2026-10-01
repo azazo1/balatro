@@ -20,6 +20,8 @@ return {
   token_limit = 0,
   -- 最大上下文 (token): 上一次请求的用量到它的 80% 时, 较早的对话交给模型写摘要, 最近的原文保留.
   context_limit = 256000,
+  -- 思考强度: 写进请求体的 reasoning_effort ("low", "medium", "high"). "" 为默认, 不写这个字段.
+  reasoning_effort = "",
   -- 内置 agent 赢下一局后: "menu" 回主菜单并停止, "endless" 进入无尽模式继续打.
   after_win = "menu",
   -- 内置 agent 的打法策略: user 自己写的一段文字, 拼在系统提示词末尾, 下一次开始时生效. 空为不加.

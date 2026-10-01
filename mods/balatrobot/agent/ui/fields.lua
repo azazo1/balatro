@@ -14,6 +14,22 @@ M.TOKEN_LIMIT_LABELS = { "不限", "100K", "500K", "1M", "5M" }
 M.CONTEXT_LIMITS = { 32000, 64000, 128000, 256000, 500000, 1000000 }
 M.CONTEXT_LIMIT_LABELS = { "32K", "64K", "128K", "256K", "500K", "1M" }
 
+-- 思考强度: 写进请求体的 reasoning_effort. "" 为默认, 不写这个字段, 由服务端决定.
+M.REASONING_EFFORTS = { "", "low", "medium", "high" }
+M.REASONING_EFFORT_LABELS = { "默认", "低", "中", "高" }
+
+--- 当前思考强度在选项里的下标, 不在选项里时按 "默认".
+---@param effort any
+---@return integer
+function M.reasoning_effort_index(effort)
+  for i, v in ipairs(M.REASONING_EFFORTS) do
+    if v == effort then
+      return i
+    end
+  end
+  return 1
+end
+
 --- 掩码显示 key, 例如 "sk-...ab12".
 ---@param key string?
 ---@return string

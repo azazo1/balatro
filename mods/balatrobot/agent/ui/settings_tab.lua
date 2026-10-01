@@ -2,7 +2,7 @@
 mod 设置页 (模组 -> BalatroBot -> 配置), 即 MOD.config_tab.
 
 左列: agent 模式, 内置 agent 的连接 (endpoint, 模型名, key, 鉴权方式) 与状态行.
-右列: 内置 agent 的对局设置 (单局 token 上限, 最大上下文, 赢后处理, 种子, 策略) 与显示开关.
+右列: 内置 agent 的对局设置 (单局 token 上限, 最大上下文, 思考强度, 赢后处理, 种子, 策略) 与显示开关.
 底部整行: 粘贴, 清除等操作的结果. 录像与回放的设置在 bbreplay 自己的设置页.
 
 - 原版文本框的字符表没有 '/', 还会把 '0' 改成 'o', 所以 endpoint, 模型名, key, 策略都用 "从剪贴板粘贴" 输入.
@@ -371,6 +371,10 @@ local function play_column()
   for i, v in ipairs(Fields.CONTEXT_LIMITS) do
     context_options[i] = { v, Fields.CONTEXT_LIMIT_LABELS[i] }
   end
+  local effort_options = {}
+  for i, v in ipairs(Fields.REASONING_EFFORTS) do
+    effort_options[i] = { v, Fields.REASONING_EFFORT_LABELS[i] }
+  end
 
   local nodes = {
     W.title("内置 agent 对局"),
@@ -391,6 +395,15 @@ local function play_column()
         config().context_limit = value
         save()
       end, { minw = 0.85, scale = 0.28 }),
+    }),
+    W.row({ W.text("思考强度 (reasoning_effort, 默认不发)", SCALE) }, { padding = 0.04 }),
+    W.row({
+      W.radio(effort_options, function()
+        return Fields.REASONING_EFFORTS[Fields.reasoning_effort_index(config().reasoning_effort)]
+      end, function(value)
+        config().reasoning_effort = value
+        save()
+      end, { minw = 1.3, scale = 0.28 }),
     }),
     W.row({ W.text("赢下一局之后", SCALE) }, { padding = 0.04 }),
     W.row({
