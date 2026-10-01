@@ -184,7 +184,7 @@ do -- 回放菜单的布局: 竖直列表里不能出现"C 型节点后面还有
       RED = { 1, 0, 0, 1 },
       GREEN = { 0, 1, 0, 1 },
       L_BLACK = { 0, 0, 0, 1 },
-      UI = { TEXT_LIGHT = { 1, 1, 1, 1 }, TEXT_INACTIVE = { 0.5, 0.5, 0.5, 1 } },
+      UI = { TEXT_LIGHT = { 1, 1, 1, 1 }, TEXT_INACTIVE = { 0.5, 0.5, 0.5, 1 }, BACKGROUND_INACTIVE = { 0.3, 0.3, 0.3, 1 } },
     },
     FUNCS = {},
     SETTINGS = {},
@@ -193,10 +193,13 @@ do -- 回放菜单的布局: 竖直列表里不能出现"C 型节点后面还有
   SMODS = {
     NFS = {
       getDirectoryItemsInfo = function()
-        return { { name = "20240501-123456-ABCD.replay.json", size = #fake_replay, modtime = 1000 } }
+        return {
+          { name = "20240501-123456-ABCD.replay.json", size = #fake_replay, modtime = 1000 },
+          { name = "20240501-000000-BROKEN.replay.json", size = 3, modtime = 1000 },
+        }
       end,
-      read = function()
-        return fake_replay
+      read = function(path)
+        return path:find("BROKEN", 1, true) and "{{{" or fake_replay
       end,
     },
   }
@@ -296,6 +299,36 @@ do -- 回放菜单的布局: 竖直列表里不能出现"C 型节点后面还有
     end
   end
   check("确认页生成且没有 C 后面带 R 的布局", clicked ~= nil and captured ~= list_def and #confirm_found == 0, table.concat(confirm_found, "; "))
+
+  -- 不能回放的行 (这里是损坏的文件) 仍能点进确认页, 才能删除它.
+  --- 按顺序收集所有按钮的引用表.
+  local function collect_refs(node, out)
+    if type(node) ~= "table" then
+      return out
+    end
+    local ref = node.config and node.config.ref_table
+    if ref and type(ref.on_click) == "function" then
+      out[#out + 1] = ref
+    end
+    for _, child in ipairs(node.n and (node.nodes or {}) or node) do
+      collect_refs(child, out)
+    end
+    return out
+  end
+  G.FUNCS.bb_replay_list()
+  local broken
+  for _, ref in ipairs(collect_refs(captured.args.contents, {})) do
+    if tostring(ref.label):find("BROKEN", 1, true) then
+      broken = ref
+    end
+  end
+  local enabled = broken and (broken.enabled == nil or broken.enabled())
+  local ok, err = false, "列表里没有损坏文件那一行"
+  if broken then
+    captured = nil
+    ok, err = pcall(broken.on_click)
+  end
+  check("不能回放的行可以点进确认页", enabled and ok and captured ~= nil, tostring(err))
 end
 
 if failures > 0 then

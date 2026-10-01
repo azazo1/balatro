@@ -176,9 +176,13 @@ local function entry_row(index)
     minw = PANEL_W,
     minh = 0.5,
     scale = 0.3,
-    enabled = function()
+    -- 不能回放的行显示成灰色但仍可点, 进确认页后只能删除.
+    colour = function()
       local entry = view.entries[index]
-      return entry ~= nil and entry.ok
+      return (entry and entry.ok) and G.C.RED or G.C.UI.BACKGROUND_INACTIVE
+    end,
+    enabled = function()
+      return view.entries[index] ~= nil
     end,
     on_click = function()
       -- 按钮的可点状态每帧刷新一次, 翻页后的第一帧还可能点到空行.
@@ -386,26 +390,64 @@ function delete_selected()
   end
 end
 
-local function confirm_definition()
-  local entry = confirm.entry
-  local lines = {
-    "文件: " .. entry.name,
-    string.format("原局: %s | %s | %s | 种子 %s", entry.deck, entry.stake, entry.result, entry.seed),
-    string.format("步数 %d, 原局时长 %s", entry.steps, deps.library.duration_text(entry.duration)),
-  }
-  if entry.manual_inputs > 0 then
+--- 删除按钮: 点一次变成 "再点一次删除", 再点才删. 返回列表由面板底部原版的 "返回" 负责.
+---@return table
+local function delete_button()
+  return W.button({
+    label = "删除",
+    label_fn = function()
+      return delete_armed() and "再点一次删除" or "删除"
+    end,
+    col = true,
+    minw = 2.5,
+    minh = 0.6,
+    scale = 0.4,
+    colour = G.C.RED,
+    on_click = delete_selected,
+  })
+end
+
+--- 确认页上的说明文字. 不可回放的文件 (含损坏, 读不到的) 只有文件名与原因, 其余字段可能缺.
+---@param entry BBReplayEntry
+---@return string[]
+local function confirm_lines(entry)
+  local lines = { "文件: " .. entry.name }
+  if not entry.ok then
+    lines[#lines + 1] = "不能回放: " .. tostring(entry.reason)
+  end
+  if entry.deck then
+    lines[#lines + 1] = string.format(
+      "原局: %s | %s | %s | 种子 %s",
+      tostring(entry.deck),
+      tostring(entry.stake),
+      tostring(entry.result),
+      tostring(entry.seed)
+    )
+    lines[#lines + 1] =
+      string.format("步数 %d, 原局时长 %s", entry.steps or 0, deps.library.duration_text(entry.duration))
+  end
+  if entry.ok and (entry.manual_inputs or 0) > 0 then
     lines[#lines + 1] = string.format("原局里有 %d 次手动操作, 结果可能与原局不同", entry.manual_inputs)
   end
-  if entry.resumed then
+  if entry.ok and entry.resumed then
     lines[#lines + 1] = "这是读档开局的局, 回放会从原局的存档接着走"
   end
+  return lines
+end
 
+local function confirm_definition()
+  local entry = confirm.entry
   local nodes = {
-    W.row({ W.text("回放这一局", 0.5, G.C.FILTER) }, { align = "cm", padding = 0.05 }),
+    W.row({ W.text(entry.ok and "回放这一局" or "不能回放", 0.5, G.C.FILTER) }, { align = "cm", padding = 0.05 }),
   }
   -- 建立后不再变, 用静态文本节点即可.
-  for _, line in ipairs(lines) do
+  for _, line in ipairs(confirm_lines(entry)) do
     nodes[#nodes + 1] = W.row({ W.text(W.fit_text(line, ROW_TEXT_W, 0.3), 0.3) }, { align = "cm" })
+  end
+  if not entry.ok then
+    -- 不能回放的只留删除.
+    nodes[#nodes + 1] = button_bar({ delete_button() })
+    return panel("bb_replay_list", nodes)
   end
   nodes[#nodes + 1] = W.row({
     W.text("节奏", 0.32),
@@ -440,19 +482,7 @@ local function confirm_definition()
       enabled = can_start,
       on_click = start_selected,
     }),
-    -- 返回列表由面板底部原版的 "返回" 负责, 这里放删除.
-    W.button({
-      label = "删除",
-      label_fn = function()
-        return delete_armed() and "再点一次删除" or "删除"
-      end,
-      col = true,
-      minw = 2.5,
-      minh = 0.6,
-      scale = 0.4,
-      colour = G.C.RED,
-      on_click = delete_selected,
-    }),
+    delete_button(),
   })
   return panel("bb_replay_list", nodes)
 end
