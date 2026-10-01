@@ -36,7 +36,7 @@ ICON_RESOURCE = "love.png"
 
 KEYSTORE_DEFAULT_ALIAS = "balatro"
 
-# just bbnet-android 的输出, 每个 ABI 一个子目录.
+# just native build android 的输出, 每个 ABI 一个子目录.
 BBNET_DIST = os.path.join(layout.DIST_DIR, "native", "android")
 BBNET_LIB = "libbbnet.so"
 
@@ -146,10 +146,12 @@ def generate_keystore(path, alias, store_pass, key_pass, app_name):
 
 
 def bbnet_replacements(base_apk):
-    """返回要放进 APK 的 bbnet 原生库, 归档内路径 -> 本地文件.
+    """返回要放进 APK 的原生库, 归档内路径 -> 本地文件.
 
     只放运行时 APK 已有的 ABI: 多出一个没有 liblove.so 的 ABI 目录会让系统在该架构的设备上
     选中它, 游戏反而无法启动. 运行时里的 .so 是压缩存储的 (安装时解出), 按同样方式压缩即可.
+
+    bbnet 缺失时该 ABI 只提示: 网络会退回 SMODS.https, Android 录像也会没有颜色转换.
     """
     with zipfile.ZipFile(base_apk) as zf:
         abis = sorted({name.split("/")[1] for name in zf.namelist()
@@ -160,7 +162,7 @@ def bbnet_replacements(base_apk):
         if os.path.isfile(path):
             found["lib/%s/%s" % (abi, BBNET_LIB)] = path
         else:
-            log.info("未找到 %s, 该 ABI 不带 bbnet (先运行 just bbnet-android)"
+            log.info("未找到 %s, 该 ABI 不带 bbnet (先运行 just native android)"
                      % os.path.relpath(path, layout.ROOT_DIR))
     return found
 

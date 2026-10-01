@@ -244,16 +244,19 @@ const char *bbnet_version(void);
 
 导出函数内部都用 `catch_unwind` 包住, panic 不会带崩游戏.
 
-构建 (just recipe):
+构建 (`just native ...`, 实现见 [build_native.py](<../scripts/build_native.py>)):
 
-- `just bbnet-test`: 单元测试.
-- `just bbnet-macos`: 编译 arm64, 放到 `mods/balatrobot/native/macos/libbbnet.dylib`, 打包时随 mod 进入游戏.
+- `just native test`: 单元测试与集成测试. 颜色转换的用例也在其中 ([yuv.rs](<../native/bbnet/src/yuv.rs>)).
+- `just native build macos`: 编译 arm64, 放到 `mods/balatrobot/native/macos/libbbnet.dylib`, 打包时随 mod 进入游戏.
   x86_64 的 rust target 没装, 要做 universal 包时分别编译再用 lipo 合并.
-- `just bbnet-android [abi...]`: 用 cargo-ndk 编译到 `dist/native/android/<abi>/libbbnet.so`, 默认 arm64-v8a
-  和 armeabi-v7a. 后者需要先 `rustup target add armv7-linux-androideabi`. NDK r27 起默认 16KB 页对齐.
+- `just native build android [abi...]`: 用 cargo-ndk 编译到 `dist/native/android/<abi>/libbbnet.so`, 默认 arm64-v8a.
+  armeabi-v7a 需要先 `rustup target add armv7-linux-androideabi`. NDK r27 起默认 16KB 页对齐.
   `just android dist-modded` 打包时, 已有的 .so 会放进 APK 的 `lib/<abi>/`, 只放运行时 APK 已有的 ABI 目录, 缺的打印提示后继续.
-- `just bbnet-windows`: 只能在 Windows 或 CI 上编译, macOS 上缺 MSVC 链接器.
+- `just native build windows`: 只能在 Windows 或 CI 上编译, macOS 上缺 MSVC 链接器.
 - 编译产物不入库. 以后 CI 在各平台预编译.
+
+这些 recipe 都只是转调 python: NDK 查找, target 映射与产物复制写在脚本里, 三个平台共用一份,
+不用为 Windows 单写一套 shell.
 
 加载 ([bbnet.lua](<../mods/balatrobot/agent/net/bbnet.lua>)), 按顺序尝试:
 
@@ -283,12 +286,21 @@ const char *bbnet_version(void);
 
 Android:
 
-- 现有录像通过 `io.popen` 调用 ffmpeg, Android 上没有 ffmpeg, 目前只会写出时间轴 JSON.
-- 在 `bbnet` 中加一个只在 Android 上编译的 media 模块: 用 NDK 的 `AMediaCodec` 编码 H.264 和 AAC, 用 `AMediaMuxer` 封装 mp4. 手写 `extern "C"` 声明, 直接链接 `libmediandk`, 不增加 crate.
-- Lua 读回帧后把像素指针交给 Rust. RGBA 转 YUV 和编码在 Rust 的线程里做. 声音复用现有的 pcm 采集.
+- 现有录像通过 `io.popen` 调用 ffmpeg, Android 上没有 ffmpeg (系统不提供这个二进制, 也塞不进 APK),
+  所以目前只写时间轴 JSON, 拿不到 mp4. 状态行会直说 "时间轴 only (Android 视频编码未实现)".
+- 用 NDK 的 `AMediaCodec` 编码 H.264 与 AAC, `AMediaMuxer` 封装 mp4. 不新增 crate, 也不新增原生库:
+  media 的 ffi 声明放在 [android/ffi.lua](<../mods/balatrobot/agent/record/android/ffi.lua>), 直接加载
+  系统的 `libmediandk`.
+- 颜色转换 (RGBA -> NV12) 放在 bbnet 里 ([yuv.rs](<../native/bbnet/src/yuv.rs>), 导出 `bbnet_rgba_to_nv12`).
+  540p 一帧 50 万像素, 逐像素在 Lua 里转达不到 24fps; 放在 bbnet 是因为那里已经有三个平台的交叉编译链路,
+  不必为一次换算再养一个 C 库和一套构建. 系数按 BT.601 有限范围 (与硬件编码器一致), 色度按 2x2 平均.
+- Lua 读回帧后把像素指针交给原生侧转换, 再喂给编码器. 声音复用现有的 pcm 采集.
 - 剪辑版不重新编码, 按关键帧截取拼接 (`AMediaExtractor` 加 `AMediaMuxer`). 关键帧间隔 1 秒, 剪切精度约 1 秒.
 - 默认 540p 24fps, 可在设置页调整. 卡顿时按墙钟重复上一帧, 音画不会错位.
 - 桌面端继续用 ffmpeg.
+
+进度: 颜色转换与 media 的 ffi 绑定已就绪 (转换有 Rust 单测, 覆盖纯色, 色度抽样与跨度对齐; 导出符号
+已在 APK 的 arm64 `.so` 与 macOS dylib 上核对). 编码器与 muxer 的串接, 以及剪辑的 remux 还没有开始.
 
 ## 游戏内回放
 
@@ -479,7 +491,7 @@ Android:
   分页有单测. 界面外观和真机上的长按中止待验证.
 - 5 完成了一部分: `bbnet` 的 arm64-v8a 交叉编译与 APK 打包 (`just android dist-modded` 已验证 .so 进入
   `lib/arm64-v8a/`), 切到后台自动暂停, 运行中防熄屏. armeabi-v7a 缺 rust target; 真机上的触摸流程未验证.
-- 6 未开始.
+- 6 完成了一部分: 颜色转换与 media 绑定已就绪, 编码与封装未接. 见 "录像" 一节末尾.
 
 录制器的开关与文件名前缀改成运行时可设 (`agent/record/recorder.lua` 的 `set_enabled` / `set_prefix`):
 游戏内回放选了录像时按 `replay-` 前缀录, 结束或开始失败时回滚. 录像本来关着时, 这一步才装载编码相关的

@@ -938,7 +938,50 @@ local function setup()
     LOGGER
   )
   if not cfg.ffmpeg then
-    sendWarnMessage("ffmpeg not found, recording writes timeline JSON only. Set BALATROBOT_FFMPEG to its path", LOGGER)
+    if love._os == "Android" then
+      -- todo remove: 一次性自检, 确认 libmediandk 与 bbnet 的颜色转换在真机可用.
+      local ok_probe, media = pcall(function()
+        return assert(SMODS.load_file("agent/record/android/ffi.lua", MOD_ID))()
+      end)
+      local ok_net, Bbnet = pcall(function()
+        return assert(SMODS.load_file("agent/net/bbnet.lua", MOD_ID))()
+      end)
+      if ok_probe then
+        local probe = media.probe()
+        local convert = "bbnet 不可用"
+        if ok_net and Bbnet.available and Bbnet.available() then
+          -- 2x2 纯白: Y 应在 235 左右, U/V 在 128 左右
+          local ffi_ok, ffi_lib = pcall(require, "ffi")
+          if ffi_ok then
+            local src = ffi_lib.new("uint8_t[16]")
+            for i = 0, 3 do
+              src[i * 4 + 0], src[i * 4 + 1], src[i * 4 + 2], src[i * 4 + 3] = 255, 255, 255, 255
+            end
+            local dst = ffi_lib.new("uint8_t[8]")
+            if Bbnet.rgba_to_nv12(src, 2, 2, 8, dst, 2, 2) then
+              convert = string.format("Y=%d U=%d V=%d", dst[0], dst[4], dst[5])
+            else
+              convert = "转换失败"
+            end
+          end
+        end
+        sendInfoMessage(
+          string.format(
+            "Android 录像自检: media=%s, 转换=%s, H.264=%s, AAC=%s",
+            probe.ok and "ok" or tostring(probe.error),
+            convert,
+            #probe.h264 > 0 and table.concat(probe.h264, "|") or "(无)",
+            #probe.aac > 0 and table.concat(probe.aac, "|") or "(无)"
+          ),
+          LOGGER
+        )
+      else
+        sendWarnMessage("Android 录像自检失败: " .. tostring(media), LOGGER)
+      end
+      sendWarnMessage("Android 上没有 ffmpeg, 这一版只写时间轴 JSON, 还没有 mp4", LOGGER)
+    else
+      sendWarnMessage("ffmpeg not found, recording writes timeline JSON only. Set BALATROBOT_FFMPEG to its path", LOGGER)
+    end
   end
   return true
 end
@@ -980,7 +1023,7 @@ function M.set_enabled(value, reason)
       return false
     end
     M.enabled = true
-    M.status = cfg.ffmpeg and "on" or "on, ffmpeg not found (json only)"
+    M.status = cfg.ffmpeg and "on" or (love._os == "Android" and "时间轴 only (Android 视频编码未实现)" or "on, no ffmpeg (timeline only)")
     if reason then
       sendInfoMessage("Recording enabled by " .. reason, LOGGER)
     end

@@ -77,6 +77,9 @@ void bbnet_free(char *p);
 void bbnet_cancel(int64_t id);
 void bbnet_close(int64_t id);
 const char *bbnet_version(void);
+int bbnet_rgba_to_nv12(const uint8_t *rgba, int32_t width, int32_t height, int32_t rgba_stride,
+                       uint8_t *dst, int32_t y_stride, int32_t uv_stride);
+int64_t bbnet_nv12_size(int32_t width, int32_t height);
 ]]
 
 -------------------------------------------------------------------------------
@@ -188,7 +191,8 @@ local function try_load(path)
   end
   -- 缺符号时这里就会报错, 免得请求时才发现 ABI 不一致.
   local sym_ok, sym_err = pcall(function()
-    local _ = res.bbnet_request, res.bbnet_poll, res.bbnet_free, res.bbnet_cancel, res.bbnet_close
+    local _ = res.bbnet_request, res.bbnet_poll, res.bbnet_free, res.bbnet_cancel, res.bbnet_close,
+      res.bbnet_rgba_to_nv12, res.bbnet_nv12_size
     return res.bbnet_version
   end)
   if not sym_ok then
@@ -542,6 +546,38 @@ function M.request(opts)
     lib.bbnet_close(box[0])
   end)
   return self
+end
+
+--------------------------------------------------------------------------------
+--- 颜色转换 (Android 录像用)
+--------------------------------------------------------------------------------
+
+--- RGBA8 转 NV12. 画布读回的数据交给 MediaCodec 的硬件编码器之前要转成 YUV420,
+--- 逐像素在 Lua 里做太慢, 放在原生库里.
+---@param rgba cdata 指向 RGBA 数据的指针
+---@param width integer
+---@param height integer
+---@param rgba_stride integer 输入每行字节数
+---@param dst cdata 输出缓冲指针
+---@param y_stride integer
+---@param uv_stride integer
+---@return boolean ok
+function M.rgba_to_nv12(rgba, width, height, rgba_stride, dst, y_stride, uv_stride)
+  if not lib then
+    return false
+  end
+  return lib.bbnet_rgba_to_nv12(rgba, width, height, rgba_stride, dst, y_stride, uv_stride) == 0
+end
+
+--- NV12 缓冲需要的字节数.
+---@param width integer
+---@param height integer
+---@return integer
+function M.nv12_size(width, height)
+  if not lib then
+    return 0
+  end
+  return tonumber(lib.bbnet_nv12_size(width, height))
 end
 
 return M

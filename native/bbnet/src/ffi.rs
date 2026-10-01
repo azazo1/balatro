@@ -161,6 +161,56 @@ unsafe fn c_str<'a>(p: *const c_char) -> Option<&'a str> {
     unsafe { CStr::from_ptr(p) }.to_str().ok()
 }
 
+/// RGBA8 转 NV12, 供 Android 录像把画布读回的数据交给硬件编码器.
+///
+/// `int bbnet_rgba_to_nv12(const uint8_t *rgba, int32_t width, int32_t height,
+///                         int32_t rgba_stride, uint8_t *dst, int32_t y_stride, int32_t uv_stride);`
+///
+/// 宽高必须为偶数; 返回 0 成功, -1 参数非法, -2 缓冲太小.
+///
+/// # Safety
+/// `rgba` 须指向至少 `rgba_stride * height` 字节的可读内存; `dst` 须指向至少
+/// `y_stride * height + uv_stride * height / 2` 字节的可写内存.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bbnet_rgba_to_nv12(
+    rgba: *const u8,
+    width: i32,
+    height: i32,
+    rgba_stride: i32,
+    dst: *mut u8,
+    y_stride: i32,
+    uv_stride: i32,
+) -> c_int {
+    if rgba.is_null() || dst.is_null() || width <= 0 || height <= 0 || rgba_stride <= 0 {
+        return -1;
+    }
+    let (w, h, stride) = (width as usize, height as usize, rgba_stride as usize);
+    let (ys, us) = (y_stride.max(0) as usize, uv_stride.max(0) as usize);
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        // SAFETY: 调用方保证缓冲区大小, 见函数文档.
+        let src = unsafe { std::slice::from_raw_parts(rgba, stride * h) };
+        let dst_len = crate::yuv::nv12_size(w, h).max(ys * h + us * (h / 2));
+        let out = unsafe { std::slice::from_raw_parts_mut(dst, dst_len) };
+        crate::yuv::rgba_to_nv12(src, w, h, stride, out, ys, us)
+    }));
+    match result {
+        Ok(Ok(())) => 0,
+        Ok(Err(_)) => -2,
+        Err(_) => -1,
+    }
+}
+
+/// NV12 缓冲需要的字节数, 尺寸非法时为 0. 便于 Lua 一次分配.
+///
+/// `int64_t bbnet_nv12_size(int32_t width, int32_t height);`
+#[unsafe(no_mangle)]
+pub extern "C" fn bbnet_nv12_size(width: i32, height: i32) -> i64 {
+    if width <= 0 || height <= 0 {
+        return 0;
+    }
+    crate::yuv::nv12_size(width as usize, height as usize) as i64
+}
+
 /// 分配 `[长度][数据][NUL]`, 返回指向数据的指针.
 fn alloc_bytes(data: &[u8]) -> *mut c_char {
     let mut buf = Vec::with_capacity(PREFIX + data.len() + 1);

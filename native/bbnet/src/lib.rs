@@ -11,6 +11,7 @@
 //! - `http`: URL 解析, 请求编码, 响应头解析, 响应体解码.
 //! - `net`: TCP 连接, TLS 握手, 跨线程取消.
 //! - `sse`: SSE 事件分帧.
+//! - `yuv`: RGBA 到 NV12 的颜色转换, 供 Android 录像的硬件编码使用.
 
 pub mod error;
 pub mod ffi;
@@ -20,6 +21,7 @@ pub mod registry;
 pub mod sse;
 mod text;
 mod worker;
+pub mod yuv;
 
 /// 库版本, 与 Cargo.toml 保持一致.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

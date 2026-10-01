@@ -49,7 +49,7 @@ Android 的 `versionCode` 由两段版本折算, 保证单调递增, 否则无�
 
 ## 开发
 
-- agent mod 的纯逻辑改动后运行 `just test-agent`, 网络库 `native/bbnet` 改动后运行 `just bbnet-test`.
+- agent mod 的纯逻辑改动后运行 `just test-agent`, 原生库 `native/bbnet` 改动后运行 `just native test`.
 - 内置 agent 的设计与进度见 `docs/builtin-agent.md`.
 - 回放有两种入口: 主菜单 选项 -> 回放 (游戏内, 不需要环境变量), 以及 `just macos replay <回放文件>`
   (命令行, 按退出码结束). 两者共用 `mods/balatrobot/agent/replay/` 下的播放器.

@@ -52,20 +52,21 @@ def die(message):
     raise SystemExit(1)
 
 
-def run(cmd, check=True, capture=False, quiet=False):
+def run(cmd, check=True, capture=False, quiet=False, cwd=None):
     """执行外部命令.
 
     capture 为真时返回捕获的输出文本, 否则返回 None. check 为真时非零退出码会抛错.
-    quiet 为真时丢弃子进程的输出.
+    quiet 为真时丢弃子进程的输出. cwd 指定工作目录 (有些工具按当前目录找配置文件).
     """
     if not quiet:
-        info("执行: %s" % " ".join(cmd))
+        info("执行: %s%s" % (" ".join(cmd), (" (在 %s)" % cwd) if cwd else ""))
     try:
         result = subprocess.run(
             cmd,
             stdout=subprocess.PIPE if (capture or quiet) else None,
             stderr=subprocess.STDOUT if (capture or quiet) else None,
             text=True,
+            cwd=cwd,
         )
     except FileNotFoundError:
         if check:

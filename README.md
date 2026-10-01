@@ -39,14 +39,14 @@ just windows dist    # 打包 Windows 免安装版
 它与原版可同时安装, 存档互不影响, 详见 [docs/modding.md](docs/modding.md). mod 版内置供 agent
 游玩的 HTTP 接口 (默认关闭), 支持在游戏内显示决策消息和按局录制, 见 [docs/agent-api.md](docs/agent-api.md).
 游戏内直接连接大模型的内置 agent 正在开发, 设计见 [docs/builtin-agent.md](docs/builtin-agent.md),
-它的流式网络库 `native/bbnet` 用 Rust 编写, 需要先编译 (`just bbnet-macos`, `just bbnet-android`). 其它 recipe:
+它的流式网络库 `native/bbnet` 用 Rust 编写, 需要先编译 (`just native build macos`, `just native build android`). 其它 recipe:
 
 ```shell
 just check-lua       # 用 LuaJIT 校验 game/ 下的 lua 语法
 just check-scripts   # 校验打包脚本的 python 语法
 just test-scripts    # 运行打包脚本的单元测试
 just test-agent      # 运行 agent mod 的纯逻辑单元测试 (需要 luajit)
-just bbnet-test      # 运行网络库 bbnet 的单元测试 (需要 cargo)
+just native test     # 运行原生库 bbnet 的单元测试 (需要 cargo)
 just mods-check      # 检查 mod 补丁的命中情况
 just clean           # 删除 dist/
 ```
