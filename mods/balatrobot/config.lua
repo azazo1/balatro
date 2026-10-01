@@ -18,6 +18,8 @@ return {
   api_key = "",
   -- 单局 token 上限, 0 为不限. 超过时内置 agent 自动暂停.
   token_limit = 0,
+  -- 最大上下文 (token): 上一次请求的用量到它的 80% 时, 较早的对话交给模型写摘要, 最近的原文保留.
+  context_limit = 256000,
   -- 内置 agent 赢下一局后: "menu" 回主菜单并停止, "endless" 进入无尽模式继续打.
   after_win = "menu",
   -- 内置 agent 的打法策略: user 自己写的一段文字, 拼在系统提示词末尾, 下一次开始时生效. 空为不加.

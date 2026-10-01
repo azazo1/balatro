@@ -275,6 +275,10 @@ local function mode_column()
   for i, v in ipairs(Fields.TOKEN_LIMITS) do
     limit_options[i] = { v, Fields.TOKEN_LIMIT_LABELS[i] }
   end
+  local context_options = {}
+  for i, v in ipairs(Fields.CONTEXT_LIMITS) do
+    context_options[i] = { v, Fields.CONTEXT_LIMIT_LABELS[i] }
+  end
 
   return W.col({
     W.title("agent 模式"),
@@ -330,6 +334,15 @@ local function mode_column()
         config().token_limit = value
         save()
       end, { minw = 1.05, scale = 0.28 }),
+    }),
+    W.row({ W.text("最大上下文 (到 80% 时压缩较早的对话)", SCALE) }, { padding = 0.04 }),
+    W.row({
+      W.radio(context_options, function()
+        return Fields.CONTEXT_LIMITS[Fields.context_limit_index(config().context_limit)]
+      end, function(value)
+        config().context_limit = value
+        save()
+      end, { minw = 0.85, scale = 0.28 }),
     }),
     W.row({ W.text("赢下一局之后", SCALE) }, { padding = 0.04 }),
     W.row({

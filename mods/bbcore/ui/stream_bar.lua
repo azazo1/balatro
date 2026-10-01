@@ -7,6 +7,7 @@
 - 渲染用固定数量的 ref_table 文本节点, 文字长度变化时引擎自动重算布局; 刷新限制在约 18 Hz.
 - 首个增量到达时滑入; 请求结束后停留 LINGER 秒再收起, 期间下一个请求开始输出就直接换内容.
 - 报错立即滑入显示红字; show_error 的文字可以是函数, 每次刷新重新求值, 倒计时因此实时更新.
+- begin_request 可以带一个固定在行首的金色前缀 (压缩上下文时为 "压缩中: "), 带前缀时立刻滑入, 输出接在后面滚动.
 - UIBox 挂在 G.ROOM_ATTACH 上 (POPUP 层, 在覆盖菜单之上), 阶段切换重建 ROOM_ATTACH 时自己重建.
 ]]
 
@@ -40,6 +41,7 @@ local state = {
   hold = nil, ---@type number? 剩余停留秒数, nil 表示一直显示到下一次变化
   request = false, -- 请求进行中
   fresh = false, -- 下一个增量到达时先清空旧内容
+  label = nil, ---@type string? 固定在行首的金色前缀 (例如 "压缩中: "), 后面才是滚动的输出
   dirty = true,
 }
 
@@ -93,7 +95,20 @@ end
 local function compute_pieces()
   local max_width = LINE_WIDTH * FIT
   if state.mode == "stream" then
-    return Text.tail(buffer.segments, max_width, view.measure, MAX_PIECES)
+    local label = state.label
+    if not label then
+      return Text.tail(buffer.segments, max_width, view.measure, MAX_PIECES)
+    end
+    -- 前缀固定在行首, 占掉一段宽度和一个文本节点, 剩下的给滚动的输出.
+    local label_width = 0
+    for _, ch in ipairs(Text.utf8_chars(label)) do
+      label_width = label_width + view.measure(ch)
+    end
+    local pieces = { { kind = "status", text = label } }
+    for _, piece in ipairs(Text.tail(buffer.segments, math.max(0, max_width - label_width), view.measure, MAX_PIECES - 1)) do
+      pieces[#pieces + 1] = piece
+    end
+    return pieces
   end
   local message = state.message
   if type(message) == "function" then
@@ -173,9 +188,21 @@ local function show()
 end
 
 --- 一次请求开始. 首个增量到达前不滑入; 上一段内容还在停留时保持显示, 等新内容到了再替换.
-function M.begin_request()
+--- label 是固定在行首的前缀 (例如 "压缩中: "): 带 label 时立刻清空并滑入显示前缀, 输出接在后面滚动.
+---@param label string?
+function M.begin_request(label)
   state.request = true
-  state.fresh = true
+  state.label = label
+  if label then
+    buffer:clear()
+    state.fresh = false
+    state.mode = "stream"
+    state.message = nil
+    state.hold = nil
+    show()
+  else
+    state.fresh = true
+  end
 end
 
 --- 推一段增量. kind: reasoning / content (error / status 也接受, 按对应颜色显示).
@@ -184,6 +211,10 @@ end
 function M.push(kind, text)
   if not Text.KINDS[kind] or type(text) ~= "string" or text == "" then
     return
+  end
+  if state.fresh then
+    -- 不带前缀的新请求: 上一次 (例如压缩) 的前缀不再显示.
+    state.label = nil
   end
   if state.fresh or state.mode ~= "stream" then
     -- 新请求的第一个增量, 或重试成功后恢复流式显示: 清掉旧内容与红字.
@@ -206,7 +237,8 @@ function M.reset()
   buffer:clear()
   state.fresh = false
   state.dirty = true
-  if state.mode == "stream" and state.request then
+  -- 带前缀的请求 (压缩) 重发时前缀照常显示, 不收起.
+  if state.mode == "stream" and state.request and not state.label then
     -- 重发后的首个增量到达前没有可显示的内容, 收起.
     state.showing = false
   end
@@ -251,6 +283,7 @@ function M.clear()
   state.hold = nil
   state.request = false
   state.fresh = false
+  state.label = nil
   state.dirty = true
   remove_box()
 end

@@ -89,7 +89,9 @@ local function harness()
       end
     end,
     bar = {
-      begin_request = function() end,
+      begin_request = function(label)
+        env.label = label
+      end,
       push = function() end,
       reset = function() end,
       finish = function() end,
@@ -99,8 +101,8 @@ local function harness()
       show_status = function() end,
     },
     client = {
-      start = function(_, messages, _, callbacks)
-        local snapshot = {}
+      start = function(_, messages, tools, callbacks)
+        local snapshot = { tools = tools, label = env.label }
         for i, m in ipairs(messages) do
           snapshot[i] = m
         end
@@ -132,6 +134,14 @@ local function harness()
       message.content = "我想想"
     end
     current.callbacks.on_done(message, usage or { prompt_tokens = 100, completion_tokens = 10 })
+  end
+  --- 让当前请求以一段文字完成 (写摘要的请求).
+  function env.reply_text(text, usage)
+    current.callbacks.on_done({ role = "assistant", content = text }, usage or { prompt_tokens = 50, completion_tokens = 20 })
+  end
+  --- 让当前请求失败.
+  function env.fail(reason, detail)
+    current.callbacks.on_error(reason, detail)
   end
   function env.tick(n)
     for _ = 1, n or 1 do
@@ -330,22 +340,82 @@ do -- 用量汇报后运行控制同步暂停 (单局上限): 队列里的调用
   check("未执行的调用也有结果", paired(env.driver._history.messages))
 end
 
-do -- 进入新底注时压缩历史
-  local env = harness()
-  env.gs = hand_state({ state = "BLIND_SELECT", ante_num = 1 })
-  env.responder = function(method)
-    if method == "select" then
-      env.gs = hand_state({ state = "BLIND_SELECT", ante_num = 2 })
-    end
-    return env.gs
-  end
+--- 先正常打几轮, 让历史里有可以压缩的较早部分. 最后一轮的用量由 last_usage 决定.
+---@param env table
+---@param turns integer
+---@param last_usage table?
+local function play_turns(env, turns, last_usage)
   env.driver.start()
   env.tick()
-  env.reply({ { "select", { reason = "打" } } })
+  for i = 1, turns do
+    env.reply({ { "notify", { message = "第 " .. i .. " 轮的解说" } } }, i == turns and last_usage or nil)
+    env.settle()
+  end
+end
+
+---@param snapshot table? env.requests 里的一项
+---@return boolean
+local function is_compaction(snapshot)
+  return snapshot ~= nil and snapshot[1].content == Prompt.COMPACT_SYSTEM
+end
+
+do -- 压缩: 用量过 80% 时先发写摘要的请求 (不带工具, 带前缀), 完成后较早的部分换成摘要, 最近的原文保留
+  local env = harness()
+  env.cfg.context_limit = 1000
+  play_turns(env, 3, { prompt_tokens = 900, completion_tokens = 10 })
+  local compact = env.requests[#env.requests]
+  check("用量过 80% 时发写摘要的请求", is_compaction(compact), tostring(#env.requests))
+  check("写摘要的请求不带工具, 流式条带压缩前缀", compact and compact.tools == nil and compact.label == "压缩中: ")
+  check("写摘要的请求带上较早的对话", compact and compact[2].content:find("阶段: 出牌", 1, true) ~= nil)
+  local before = env.driver.stats.requests
+  env.reply_text("红色牌组白注, 打到第 1 底注小盲注, 主打对子.")
   env.settle()
-  local msgs = env.requests[2] or {}
-  check("压缩后只剩系统提示与一条用户消息", #msgs == 2 and msgs[2].role == "user", tostring(#msgs))
-  check("压缩后带之前的记录", msgs[2].content:find("select", 1, true))
+  local after = env.requests[#env.requests]
+  check("写摘要的请求计入请求次数与用量", env.driver.stats.requests == before + 1 and env.driver.stats.completion_tokens >= 20)
+  check("摘要之后发正常的请求", after and not is_compaction(after) and after.tools ~= nil)
+  local kept_last = false
+  for _, m in ipairs(after or {}) do
+    for _, call in ipairs(m.tool_calls or {}) do
+      kept_last = kept_last or call["function"].arguments:find("第 3 轮的解说", 1, true) ~= nil
+    end
+  end
+  check(
+    "较早的部分换成摘要, 最近一轮保留原文",
+    after and after[2].role == "user" and after[2].content:find("主打对子", 1, true) ~= nil
+      and not after[2].content:find("阶段: 出牌", 1, true) and kept_last,
+    after and tostring(#after)
+  )
+  check("压缩后历史成对", after and paired(after))
+end
+
+do -- 压缩: 写摘要失败时退回每步一行的记录继续打, 不停下
+  local env = harness()
+  env.cfg.context_limit = 1000
+  play_turns(env, 3, { prompt_tokens = 900, completion_tokens = 10 })
+  env.fail("连接断开")
+  env.settle()
+  local after = env.requests[#env.requests]
+  check("写摘要失败后不停下", env.driver.state ~= "halted", env.driver.state)
+  check(
+    "写摘要失败后退回记录方式, 继续发正常请求",
+    after and not is_compaction(after) and after.tools ~= nil and #after == 2 and after[2].role == "user",
+    after and tostring(#after)
+  )
+end
+
+do -- 压缩: 服务端报上下文超长时压缩后重发一次, 再超长才停下
+  local env = harness()
+  env.cfg.context_limit = 1000
+  play_turns(env, 3)
+  env.fail("400 上下文超长", "maximum context length exceeded")
+  env.settle()
+  check("超长后先压缩", is_compaction(env.requests[#env.requests]) and env.driver.state ~= "halted", env.driver.state)
+  env.reply_text("摘要")
+  env.settle()
+  check("压缩后重发", not is_compaction(env.requests[#env.requests]))
+  env.fail("400 上下文超长", "maximum context length exceeded")
+  env.settle()
+  check("重发后仍超长时停下", env.driver.state == "halted", env.driver.state)
 end
 
 do -- 胜利后回主菜单并停止

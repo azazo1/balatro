@@ -56,11 +56,36 @@ end
 --- 模型只回了文字没有调用工具时, 追加的提醒.
 M.NUDGE = "请调用一个工具继续游戏 (先 notify 解说也可以)."
 
---- 历史压缩后放在开头的说明.
+--- 退路压缩 (写摘要失败时) 放在开头的说明.
 ---@param digest string 之前各步的简要记录
 ---@return string
 function M.recap(digest)
   return "之前的对局记录 (已压缩):\n" .. digest
+end
+
+--- 写摘要请求的系统提示. 这次请求不带工具, 模型只输出摘要正文.
+M.COMPACT_SYSTEM = [[
+你在帮一个玩 Balatro (小丑牌) 的 agent 压缩对话历史. 下面给出它较早的一段对话 (状态, 解说, 操作与结果),
+之后的对话会原样保留, 不用总结. 写一份摘要, 让它只看摘要就能接着打, 包括:
+- 牌组, 赌注, 已经打到哪个底注和盲注, 各盲注的结果.
+- 现在的小丑 (顺序, 成长值), 消耗牌, 已买的优惠券, 牌组的改动 (加强, 删牌, 增牌).
+- 主打的牌型与各牌型等级, 打法计划, 经济与利息打算.
+- 做过的关键决定和原因, 算错或吃亏的地方.
+只写事实和计划, 不要寒暄, 不要调用工具, 不要复述这段说明.
+]]
+
+--- 写摘要请求的用户消息.
+---@param older string history:render_older 的结果
+---@return string
+function M.compact_request(older)
+  return "较早的对话如下:\n\n" .. older .. "\n\n请写摘要."
+end
+
+--- 压缩后放在开头的摘要标题.
+---@param summary string 模型写的摘要
+---@return string
+function M.summary(summary)
+  return "之前的对局摘要 (较早的对话已压缩, 以下是摘要, 之后是最近的对话原文):\n" .. summary
 end
 
 --- 每轮给模型的用户消息.

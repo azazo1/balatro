@@ -8,7 +8,11 @@ local M = {}
 
 -- 单局 token 上限的选项, 0 表示不限.
 M.TOKEN_LIMITS = { 0, 100000, 500000, 1000000, 5000000 }
-M.TOKEN_LIMIT_LABELS = { "不限", "10 万", "50 万", "100 万", "500 万" }
+M.TOKEN_LIMIT_LABELS = { "不限", "100K", "500K", "1M", "5M" }
+
+-- 最大上下文的选项 (token). 上一次请求的用量到它的 80% 时压缩较早的对话.
+M.CONTEXT_LIMITS = { 32000, 64000, 128000, 256000, 500000, 1000000 }
+M.CONTEXT_LIMIT_LABELS = { "32K", "64K", "128K", "256K", "500K", "1M" }
 
 --- 掩码显示 key, 例如 "sk-...ab12".
 ---@param key string?
@@ -92,6 +96,18 @@ function M.token_limit_index(limit)
     end
   end
   return 1
+end
+
+--- 当前最大上下文在选项里的下标, 不在选项里时按默认 (256K).
+---@param limit any
+---@return integer
+function M.context_limit_index(limit)
+  for i, v in ipairs(M.CONTEXT_LIMITS) do
+    if v == limit then
+      return i
+    end
+  end
+  return 4
 end
 
 return M
