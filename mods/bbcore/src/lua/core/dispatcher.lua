@@ -13,6 +13,26 @@ local socket = require("socket")
 ---@type table<integer, string>?
 local STATE_NAME_CACHE = nil
 
+-- 本仓库修改: 讲解 (agent 的 notify) 还在屏幕上或队里时, 改状态的操作等它退去再执行, 这样观众总是
+-- 先看到文字再看到动作. 只读方法 (BB_ACTIVITY.PASSIVE: 查询状态, 查手册等), notify 自己, 以及
+-- start 与 menu 不等. 排队与退去的判断在 runtime/toast.lua (gate_id / gate_open).
+local GATE_EXEMPT = { ["notify"] = true, ["start"] = true, ["menu"] = true }
+-- 等讲解退去的上限. 正常的等待是一两条讲解 (每条读完加停留约 10~40 秒), 这里给足余量;
+-- 它只是显示异常时的兜底 (例如通知被别的东西弄没了), 到点就执行, 免得请求一直挂着.
+local GATE_TIMEOUT = 120
+---@type table[] 等讲解退去的请求, 按到达顺序
+local deferred = {}
+
+--- 这个方法要不要等讲解退去.
+---@param method string
+---@return boolean
+local function gated_method(method)
+  if GATE_EXEMPT[method] then
+    return false
+  end
+  return not (BB_ACTIVITY and BB_ACTIVITY.PASSIVE and BB_ACTIVITY.PASSIVE[method] == true)
+end
+
 ---@param state_value integer
 ---@return string
 local function get_state_name(state_value)
@@ -185,31 +205,32 @@ function BB_DISPATCHER.dispatch(request)
   end
 
   -- TIER 3: Game State Validation
-  if endpoint.requires_state then
+  local function state_check()
+    if not endpoint.requires_state then
+      return true
+    end
     local current_state = G and G.STATE or "UNKNOWN"
-    local state_valid = false
     for _, required_state in ipairs(endpoint.requires_state) do
       if current_state == required_state then
-        state_valid = true
-        break
+        return true
       end
     end
-    if not state_valid then
-      local state_names = {}
-      for _, state in ipairs(endpoint.requires_state) do
-        table.insert(state_names, get_state_name(state))
-      end
-      local current_state_name = get_state_name(current_state)
-      sendWarnMessage(
-        string.format("%s: requires %s, current=%s", request.method, table.concat(state_names, "|"), current_state_name),
-        "BB.STATE"
-      )
-      BB_DISPATCHER.send_error(
-        "Method '" .. request.method .. "' requires one of these states: " .. table.concat(state_names, ", "),
-        BB_ERROR_NAMES.INVALID_STATE
-      )
-      return
+    local state_names = {}
+    for _, state in ipairs(endpoint.requires_state) do
+      table.insert(state_names, get_state_name(state))
     end
+    local current_state_name = get_state_name(current_state)
+    local message = "Method '" .. request.method .. "' requires one of these states: " .. table.concat(state_names, ", ")
+    sendWarnMessage(
+      string.format("%s: requires %s, current=%s", request.method, table.concat(state_names, "|"), current_state_name),
+      "BB.STATE"
+    )
+    return false, message
+  end
+  local state_ok, state_message = state_check()
+  if not state_ok then
+    BB_DISPATCHER.send_error(state_message, BB_ERROR_NAMES.INVALID_STATE)
+    return
   end
 
   -- TIER 4: Execute Endpoint
@@ -228,11 +249,52 @@ function BB_DISPATCHER.dispatch(request)
       sendDebugMessage("Cannot send response - Server not initialized", "BB.DISPATCHER")
     end
   end
-  local exec_success, exec_error = pcall(function()
-    endpoint.execute(params, send_response)
-  end)
-  if not exec_success then
-    sendErrorMessage(request.method .. ": " .. tostring(exec_error), "BB.EXEC")
-    BB_DISPATCHER.send_error(tostring(exec_error), BB_ERROR_NAMES.INTERNAL_ERROR)
+  local function execute()
+    -- 本仓库修改: 等讲解的这段时间里阶段可能变了, 执行前再查一次.
+    local still_ok, still_message = state_check()
+    if not still_ok then
+      BB_DISPATCHER.send_error(still_message, BB_ERROR_NAMES.INVALID_STATE)
+      return
+    end
+    local exec_success, exec_error = pcall(function()
+      endpoint.execute(params, send_response)
+    end)
+    if not exec_success then
+      sendErrorMessage(request.method .. ": " .. tostring(exec_error), "BB.EXEC")
+      BB_DISPATCHER.send_error(tostring(exec_error), BB_ERROR_NAMES.INTERNAL_ERROR)
+    end
+  end
+
+  -- 本仓库修改: 讲解还没退去时先挂起, 由 BB_DISPATCHER.update 在它退去后执行.
+  local gate = (BB_TOAST and gated_method(request.method)) and BB_TOAST.gate_id() or nil
+  if gate then
+    deferred[#deferred + 1] = {
+      method = request.method,
+      gate = gate,
+      at = socket.gettime(),
+      run = execute,
+    }
+    sendDebugMessage(request.method .. ": waiting for agent commentary to clear", "BB.DISPATCHER")
+    return
+  end
+  execute()
+end
+
+--- 每帧调用 (bbcore 的 love.update): 把讲解已经退去的请求按顺序执行掉.
+function BB_DISPATCHER.update()
+  while #deferred > 0 do
+    local item = deferred[1]
+    local ready = (not BB_TOAST) or BB_TOAST.gate_open(item.gate)
+    if not ready and socket.gettime() - item.at < GATE_TIMEOUT then
+      return -- 队首还在等: 后面的也一起等, 顺序不乱
+    end
+    table.remove(deferred, 1)
+    if not ready then
+      sendWarnMessage(
+        string.format("%s: 等讲解退去超过 %d 秒, 直接执行", item.method, GATE_TIMEOUT),
+        "BB.DISPATCHER"
+      )
+    end
+    item.run()
   end
 end

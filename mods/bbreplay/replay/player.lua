@@ -9,7 +9,7 @@
 
 节奏 (BALATROBOT_REPLAY_PACING, 游戏内由确认页选):
 - tight: 上一步完成且动画停下后, 稍等 TIGHT_GAP 秒就做下一步, 去掉原局里 agent 思考的时间.
-  讲解 (notify) 仍按阅读时长等.
+  讲解 (notify) 仍按阅读时长等 (传 wait: true); 回放期间关掉讲解门槛, 原局里操作是怎么排的就怎么排.
 - original: 按原局里两步之间的实际间隔回放, 包括思考的时间; 动画没停时也会等它停下.
 
 弹窗不会一出现就关:
@@ -83,6 +83,12 @@ local function toast(title, text, duration)
   deps.toast.push(title, text, duration)
 end
 
+--- 回放期间关掉 "等讲解退去" 的门槛: 原局里操作是在讲解停留期间执行的, 回放照原样重做.
+--- 结束或开始失败时都要恢复.
+local function set_gate(enabled)
+  deps.toast.gate_enabled = enabled
+end
+
 local REPLAY_SUFFIX = ".replay.json"
 
 --- 参数是这一局的文件夹时 (每局一个文件夹), 取里面的回放文件. 是文件时原样返回.
@@ -154,6 +160,7 @@ end
 local function finish_ingame()
   deps.recorder.end_segment("replay")
   deps.tutorial.restore()
+  set_gate(true)
   local warnings = deps.session.finish()
   M.active = false
   M.status = "off"
@@ -249,6 +256,13 @@ local function run_action(action)
   if deps.manual.LOCAL[action.method] then
     -- 人手动的操作里没有接口的那些: 本地重做, 见 local_tick.
     st.waiting = { method = action.method, sent = now(), pending = true }
+    return
+  end
+  -- 讲解照原局那样按阅读时长等: 端点默认改成不等了, 回放要的仍是原来的节奏.
+  if action.method == "notify" then
+    local params = copy(action.params or {})
+    params.wait = true
+    dispatch(action.method, params, action.reason, false)
     return
   end
   dispatch(action.method, action.params, action.reason, false)
@@ -497,6 +511,7 @@ function M.init_early(options)
   -- 启动时没有别的东西在操作游戏, 这里只是登记, 让 balatrobot 不开端口.
   deps.control.claim(OWNER)
   M.active = true
+  set_gate(false)
   st = { phase = "boot", phase_at = now(), index = 1, prev_done = now(), last_busy = now(), reference = 0 }
 
   local pacing = os.getenv("BALATROBOT_REPLAY_PACING")
@@ -624,6 +639,7 @@ function M.start(options)
   }
   st.warn_until = now() + show_warnings(result, 4)
   M.active = true
+  set_gate(false)
   deps.input_lock.install()
   deps.recorder.annotate("replay", { source = data.source, file = options.path, pacing = cfg.pacing, entry = "ingame" })
   sendInfoMessage(string.format("游戏内回放开始: %s, %d 步, 节奏 %s", options.path, #data.actions, cfg.pacing), LOGGER)

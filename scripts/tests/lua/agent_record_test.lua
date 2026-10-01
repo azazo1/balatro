@@ -251,6 +251,90 @@ do -- 消息截断按 UTF-8 字符, 不切断多字节字符
   check("中文按字计时", Toast.duration_for(string.rep("中", 20)) > Toast.duration_for(string.rep("a", 20)) + 2)
 end
 
+do -- 队列: 一条条显示, 顺序不丢; 讲解的 id 让后面的操作能等它退去
+  G = {
+    ROOM = { T = { x = 0, y = 0, w = 12, h = 12 } },
+    ROOM_ATTACH = {},
+    TILESIZE = 20,
+    UIT = { ROOT = 1, R = 4, C = 3, T = 2 },
+    C = {
+      FILTER = { 1, 1, 1, 1 },
+      BLACK = { 0, 0, 0, 1 },
+      GREY = { 0.5, 0.5, 0.5, 1 },
+      UI = {
+        TEXT_LIGHT = { 1, 1, 1, 1 },
+        TRANSPARENT_DARK = { 0, 0, 0, 0.5 },
+        TEXT_INACTIVE = { 0.5, 0.5, 0.5, 1 },
+        BACKGROUND_INACTIVE = { 0.3, 0.3, 0.3, 1 },
+      },
+    },
+    LANG = { font = { FONT = { getWidth = function(_, text) return #text * 10 end }, squish = 1, FONTSCALE = 0.1 } },
+  }
+  UIBox = function()
+    local box = { REMOVED = false, T = { h = 1, w = 1 } }
+    box.UIRoot = { children = { { children = { { T = { w = 2 } } } } } }
+    box.alignment = { offset = { x = 20, y = 0 } }
+    box.remove = function(self)
+      self.REMOVED = true
+    end
+    return box
+  end
+
+  local fired = {}
+  local read_at = {}
+  local elapsed = 0
+  local function cb(name)
+    return function()
+      fired[#fired + 1] = name
+      read_at[name] = elapsed
+    end
+  end
+
+  check("第一条开始显示", Toast.push("t", "A", 1, cb("A"), { gated = true }) == true)
+  check("显示期间 active", Toast.active())
+  local gate_a = Toast.gate_id()
+  check("记下讲解的 id", gate_a ~= nil)
+  check("讲解还没退去", not Toast.gate_open(gate_a))
+  check("本来会拦后面的操作", Toast.gate_enabled)
+
+  -- B 与 C 排队: 调用方不用等, 它们还没开始显示.
+  Toast.push("t", "B", 1, cb("B"), { gated = true })
+  Toast.push("t", "C", 1, cb("C"), { gated = true })
+  local gate_c = Toast.gate_id()
+  check("等最新一条讲解", gate_c ~= nil and gate_c > gate_a)
+  check("排队时回调还没触发", #fired == 0, table.concat(fired, ","))
+  check("排队也算活动期", Toast.active())
+
+  -- 推进时间, 看三条依次显示, 以及各条的门槛在它退去时才打开.
+  local gate_of = { A = gate_a, C = gate_c }
+  local open_at = {}
+  for _ = 1, 200 do -- 20 秒, 够三条走完 (每条约 3.7 秒)
+    Toast.update(0.1)
+    elapsed = elapsed + 0.1
+    for name, gate in pairs(gate_of) do
+      if not open_at[name] and Toast.gate_open(gate) then
+        open_at[name] = elapsed
+      end
+    end
+  end
+
+  check("按 A,B,C 的顺序一条条显示, 一条都不丢", table.concat(fired, ",") == "A,B,C", table.concat(fired, ","))
+  check("A 的门槛在它退去后才开", open_at.A ~= nil and open_at.A >= read_at.A, tostring(open_at.A))
+  check("A 退去时 B 还没开始读", open_at.A ~= nil and read_at.B ~= nil and open_at.A < read_at.B, tostring(open_at.A))
+  check("C 的门槛也在它退去后才开", open_at.C ~= nil and open_at.C >= read_at.C, tostring(open_at.C))
+  check("三条都退去后不再 active", not Toast.active())
+
+  -- 清空时排队里的也要放行, 否则等它的请求会一直等下去.
+  Toast.push("t", "D", 1, cb("D"), { gated = true })
+  Toast.push("t", "E", 1, cb("E"), { gated = true })
+  local gate_e = Toast.gate_id()
+  check("清空前 E 还在等", not Toast.gate_open(gate_e))
+  Toast.clear()
+  check("清空后不再 active", not Toast.active())
+  check("清空时排队里的回调都触发", #fired == 5, table.concat(fired, ","))
+  check("清空后门槛全部打开", Toast.gate_open(gate_e))
+end
+
 do -- 运行时加载自己的模块必须显式给出 mod id.
   -- SMODS.load_file 只在首次加载 mod 时才可以省 id; 这些文件里的加载可能发生在运行中 (例如设置页打开
   -- 录像开关时装载编码模块, 内置 loop 启动时装载依赖), 省掉 id 会报 "No ID was provided!" 并崩掉游戏.

@@ -110,7 +110,7 @@ local ACTION_TITLES = {
   continue = "继续",
 }
 BB_ACTIVITY.on("message", function(title, text, duration, source)
-  -- notify 自己负责显示, 这样它能等消息读完再返回.
+  -- notify 自己负责显示 (显示后立刻返回, 消息怎么停留由通知自己管); 这里只管操作参数带的 reason.
   if source == "reason" then
     BB_TOAST.push(ACTION_TITLES[title] or title, text, duration)
   end
@@ -125,6 +125,8 @@ love.update = function(dt) ---@diagnostic disable-line: duplicate-set-field
   -- fast/headless 模式下传进来的 dt 是固定步长, 通知停留时间按墙钟算.
   local wall_dt = love.timer.getDelta()
   BB_TOAST.update(wall_dt)
+  -- 等讲解退去的请求: 放在通知之后, 这一帧退场的讲解这一帧就能放行.
+  BB_DISPATCHER.update()
   BB_STREAM.update(wall_dt)
   if not loaded then
     loaded = true

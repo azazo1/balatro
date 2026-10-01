@@ -113,7 +113,8 @@ local DEFS = {
   },
   {
     name = "notify",
-    description = "给观众发一条解说消息 (30~60 字), 讲观察, 对比和估分. 会等观众读完才返回. 操作前先用它讲.",
+    description = "给观众发一条解说消息 (30~60 字), 讲观察, 对比和估分. 立刻返回; 后面的操作会等它退去再生效,"
+      .. " 不用自己等. 操作前先用它讲.",
     parameters = object({
       message = { type = "string", maxLength = 200 },
       title = { type = "string", maxLength = 12, description = "2~4 字的标题" },

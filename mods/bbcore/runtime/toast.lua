@@ -3,14 +3,20 @@ agent 决策消息, 仿原版成就解锁通知 (functions/common_events.lua 的
 黑底灰描边的圆角 UIBox, 外圈 TRANSPARENT_DARK, 从屏幕右侧滑入, 停留后滑出.
 
 - 消息画在游戏自己的 UI 层 (G.I.POPUP, 在覆盖菜单之上), 经过 CRT 等屏幕效果, 录像里也一样.
-- 停留时长按墙钟计; 通知仍在屏幕上时录制把这段视为活动期, 不会被剪掉.
-- 每条通知有阅读时长 (按字数估算) 和额外停留 (LINGER): 阅读时长过后 on_read 回调触发,
-  notify 据此返回, 下一条接着弹出时上一条还在, 观众能对照着看.
-- 阶段切换 (回主菜单, 开新局) 会重建 G.ROOM_ATTACH, 已有的通知随之清空.
+- 停留时长按墙钟计; 通知仍在屏幕上或还排在队里时, 录制把这段视为活动期, 不会被剪掉.
+- 一条一条显示: 有消息正在显示时新来的排队等着, 前一条开始退场时下一条才滑入, 顺序不丢.
+  排队不设上限, 一句解说都不丢 (agent 打得太快时文字会落后于画面, 这是取舍).
+- 每条通知有阅读时长 (按字数估算) 和额外停留 (LINGER): 阅读时长过后 on_read 回调触发.
+- 讲解 (gate 为 true 的那些, 目前是 notify) 还能被后面的操作等: 见 M.gate_id / M.gate_open,
+  改状态的操作要等自己那条讲解退去才执行 (dispatcher 的门槛), 观众先看到文字再看到动作.
+- 阶段切换 (回主菜单, 开新局) 会重建 G.ROOM_ATTACH, 已有的通知与排队的消息随之清空.
 ]]
 
 local M = {
   enabled = true,
+  -- 讲解是否拦后面的操作 (dispatcher 的门槛). 回放时关掉: 原局里操作是在讲解停留期间就执行的,
+  -- 回放照原样重做, 不该再被拦一次 (回放自身用 notify 的 wait 复现原来的节奏).
+  gate_enabled = true,
 }
 
 local MAX_ITEMS = 3
@@ -36,8 +42,14 @@ local READ_MAX = 36
 -- 叠起来的通知底边离屏幕下沿至少留这么多, 再往下的旧通知提前滑出.
 local BOTTOM_MARGIN = 0.3
 
----@type table[]
+---@type table[] 屏幕上的通知 (正在显示或正在退场)
 local items = {}
+---@type table[] 排队等待显示的消息, 先进先出, 不设上限也不丢
+local pending = {}
+--- 消息的编号, 自增. 讲解的 id 用来让后面的操作等它退去.
+local next_id = 0
+---@type table<integer, boolean> 还在队里或屏幕上的讲解
+local gated_inflight = {}
 
 ---@param text string
 ---@return string[] 按 UTF-8 拆分的字符
@@ -224,21 +236,16 @@ local function remove_item(item)
     item.box:remove()
   end
   item.box = nil
+  if item.gated then
+    gated_inflight[item.id] = nil
+  end
 end
 
---- 显示一条消息. on_read 在阅读时长过后 (或通知提前被移除时) 调用一次.
---- 没有显示 (消息关闭, 不在游戏界面) 时返回 false, on_read 不会被调用.
----@param title string?
----@param text string
----@param duration number?
----@param on_read fun()?
----@return boolean shown
-function M.push(title, text, duration, on_read)
-  if not M.enabled or not G.ROOM_ATTACH or type(text) ~= "string" or text == "" then
-    return false
-  end
-  title = M.truncate(title and title ~= "" and title or "Agent", 40)
-  text = M.truncate(text, MAX_CHARS)
+--- 让一条消息开始显示: 建 UIBox 并放进 items.
+---@param entry table
+local function show(entry)
+  local title = M.truncate(entry.title and entry.title ~= "" and entry.title or "Agent", 40)
+  local text = M.truncate(entry.text, MAX_CHARS)
 
   local box = UIBox({
     definition = build_definition(title, text),
@@ -253,17 +260,46 @@ function M.push(title, text, duration, on_read)
   })
   box.bb_toast = true
 
-  local read = M.duration_for(text, duration)
-  table.insert(items, 1, {
-    box = box,
-    attach = G.ROOM_ATTACH,
-    age = 0,
-    read = read,
-    life = math.min(read + LINGER, MAX_WALL),
-    leave_at = nil,
+  entry.box = box
+  entry.attach = G.ROOM_ATTACH
+  entry.age = 0
+  entry.read = M.duration_for(text, entry.duration)
+  entry.life = math.min(entry.read + LINGER, MAX_WALL)
+  entry.leave_at = nil
+  table.insert(items, 1, entry)
+end
+
+--- 显示一条消息. 有消息正在显示时排队等着 (前一条开始退场时下一条才滑入), 调用方立刻返回.
+--- on_read 在阅读时长过后 (或通知提前被移除时) 调用一次.
+--- 没有显示 (消息关闭, 不在游戏界面) 时返回 false, on_read 不会被调用.
+---@param title string?
+---@param text string
+---@param duration number?
+---@param on_read fun()?
+---@param opts {gated: boolean?}? gated 为 true 时这条是讲解, 可供 dispatcher 的门槛等待
+---@return boolean shown
+function M.push(title, text, duration, on_read, opts)
+  if not M.enabled or not G.ROOM_ATTACH or type(text) ~= "string" or text == "" then
+    return false
+  end
+  next_id = next_id + 1
+  local entry = {
+    id = next_id,
+    title = title,
+    text = text,
+    duration = duration,
     on_read = on_read,
-  })
-  -- 超出数量时最旧的一条立即滑出.
+    gated = (opts and opts.gated) == true,
+  }
+  if entry.gated then
+    gated_inflight[entry.id] = true
+  end
+  if #items > 0 or #pending > 0 then
+    pending[#pending + 1] = entry
+  else
+    show(entry)
+  end
+  -- 超出数量时最旧的一条立即滑出. 排队之后同时显示的多是退场中的前一条, 一般到不了这里.
   for i = MAX_ITEMS + 1, #items do
     local old = items[i]
     old.leave_at = old.leave_at or old.age
@@ -272,15 +308,51 @@ function M.push(title, text, duration, on_read)
   return true
 end
 
+--- 还在队里或屏幕上的最新一条讲解的 id, 没有时返回 nil.
+--- 后面的操作等的是自己那条讲解, 也就是它前面最后发出的一条 (队列先进先出, 等它等于等前面的都退去).
+---@return integer?
+function M.gate_id()
+  if not M.gate_enabled then
+    return nil
+  end
+  local newest
+  for id in pairs(gated_inflight) do
+    if not newest or id > newest then
+      newest = id
+    end
+  end
+  return newest
+end
+
+--- 这条讲解是否已经退去 (屏幕上与队里都没有了). id 为 nil 时视为无需等待.
+---@param id integer?
+---@return boolean
+function M.gate_open(id)
+  return id == nil or gated_inflight[id] == nil
+end
+
 --- 是否还有通知显示在屏幕上 (含滑出过程), 录制据此判断活动期.
 ---@return boolean
 function M.active()
-  return #items > 0
+  return #items > 0 or #pending > 0
 end
 
 --- 每帧调用, 放在游戏 update 之后. dt 为墙钟间隔.
 ---@param dt number
 function M.update(dt)
+  -- 一条一条来: 没有还在显示的消息 (前一条已开始退场) 时, 把队首放出来.
+  if #pending > 0 then
+    local showing = false
+    for _, item in ipairs(items) do
+      if not item.leave_at then
+        showing = true
+        break
+      end
+    end
+    if not showing then
+      show(table.remove(pending, 1))
+    end
+  end
   if #items == 0 then
     return
   end
@@ -327,8 +399,15 @@ function M.update(dt)
   items = kept
 end
 
---- 立即移除全部通知.
+--- 立即移除全部通知, 排队里的也一起丢掉 (它们的 on_read 会触发, 等着的调用方不会一直等).
 function M.clear()
+  for _, item in ipairs(pending) do
+    fire_read(item)
+    if item.gated then
+      gated_inflight[item.id] = nil
+    end
+  end
+  pending = {}
   for _, item in ipairs(items) do
     remove_item(item)
   end
