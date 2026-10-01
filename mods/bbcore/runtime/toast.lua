@@ -6,8 +6,10 @@ agent 提示消息, 仿原版成就解锁通知 (functions/common_events.lua 的
 - 右侧: 决策消息 (模型给的 reason) 与 notify 的解说, 由 M.enabled 控制.
 - 左侧: 每次工具调用的记录 (标题是工具中文名, 正文是参数含义, 见 runtime/call_note.lua), 由 M.calls_enabled 控制.
 
-车道用同一套定义表, 只是内容贴着屏幕的一侧摆, 多出来的宽度留在屏幕外:
-右侧 align "cr" 且内容靠左, 左侧 align "cli" 且内容靠右.
+车道用同一套定义表, 但宽度与贴边方式不同:
+- 右侧 align "cr" 且内容靠左: 内层 minw 很宽, 多出来的宽度留在屏幕右边外, 只露出内容 (原版做法).
+- 左侧 align "cli" 且内容靠左: 不设 minw, 框宽跟着内容走, 直接贴屏幕左边.
+  左侧的换行宽度 (CALL_LINE_WIDTH) 也比右侧窄, 弹窗在水平方向就不会拉长.
 
 - 消息画在游戏自己的 UI 层 (G.I.POPUP, 在覆盖菜单之上), 经过 CRT 等屏幕效果, 录像里也一样.
 - 停留时长按墙钟计; 通知仍在屏幕上或还排在队里时, 录制把这段视为活动期, 不会被剪掉.
@@ -36,9 +38,13 @@ local MAX_ITEMS = 3
 -- 英文一行约 31 字符, 字符数上限先到.
 local MAX_CHARS = 300
 local MAX_LINES = 12
-local LINE_WIDTH = 5.2 -- 游戏单位
-local WIDE = 20 -- 定义表里那行的最小宽度: 内容贴屏幕一侧, 多出来的部分留在屏幕外
+local LINE_WIDTH = 5.2 -- 右侧的换行宽度 (游戏单位)
+-- 左侧那条只有一句参数说明, 用更窄的换行宽度, 弹窗在水平方向就不会拉长.
+local CALL_LINE_WIDTH = 4.4
+local WIDE = 20 -- 右侧那行的最小宽度: 内容贴屏幕左边, 多出来的部分留在屏幕右边外
 local MARGIN = 0.8 -- 内容离屏幕边缘的留白
+-- 左侧滑出时的位置: 比最宽的左侧弹窗再往外一些, 保证完全离开屏幕
+local CALL_HIDE_X = -(CALL_LINE_WIDTH + 8)
 local TITLE_SCALE = 0.32
 local TEXT_SCALE = 0.36
 local GAP = 0.12
@@ -125,7 +131,12 @@ local BREAK_AFTER = { [","] = true, ["."] = true, [":"] = true, [";"] = true, ["
 --- 按宽度折行; 超过 MAX_LINES 行时截断并加省略号.
 --- 断行点优先取标点后的空格. 中文里的空格是数字与汉字间的间隔, 在那里断会把 "9 张" 拆开,
 --- 所以含中文的行没有标点可断时按字断, 纯英文行才在空格处断.
-local function wrap(lang, text, scale)
+---@param lang table
+---@param text string
+---@param scale number
+---@param width number 这一条车道允许的宽度 (游戏单位)
+local function wrap(lang, text, scale, width)
+  width = width or LINE_WIDTH
   local lines, current, last_space, last_punct, wide = {}, {}, nil, nil, false
   for _, ch in ipairs(utf8_chars(text)) do
     if ch == "\n" then
@@ -142,7 +153,7 @@ local function wrap(lang, text, scale)
           last_punct = #current
         end
       end
-      if text_width(lang, table.concat(current), scale) > LINE_WIDTH and #current > 1 then
+      if text_width(lang, table.concat(current), scale) > width and #current > 1 then
         local cut
         -- 标点离行首太近时不用, 免得留下很短的一行.
         if last_punct and last_punct >= #current * 0.4 then
@@ -184,21 +195,40 @@ local function wrap(lang, text, scale)
   return lines
 end
 
+--- 左侧那条的标题也按更窄的宽度截断 (标题不折行, 太长会把弹窗撑宽).
+---@param title string
+---@return string
+local function left_title(title)
+  return M.truncate(title, 12)
+end
+
 local function build_definition(title, text, side)
+  local left = side == "left"
   local title_lang = pick_lang(title)
   local text_lang = pick_lang(text)
-  -- 内容贴屏幕的一侧: 左侧那条靠右摆, 多出来的宽度留在屏幕外 (见文件头的说明).
-  local inner = side == "left" and "cr" or "cl"
+  local width = left and CALL_LINE_WIDTH or LINE_WIDTH
+  -- 左侧宽度就由内容决定 (不设 minw), 直接贴屏幕左边; 右侧沿用原版做法: 内层 minw 很宽,
+  -- 内容靠左, 多出来的宽度留在屏幕外.
+  local inner = "cl"
   local rows = {
     {
       n = G.UIT.R,
       config = { align = inner, padding = 0.03 },
       nodes = {
-        { n = G.UIT.T, config = { text = title, scale = TITLE_SCALE, colour = G.C.FILTER, shadow = true, lang = title_lang } },
+        {
+          n = G.UIT.T,
+          config = {
+            text = left and left_title(title) or title,
+            scale = TITLE_SCALE,
+            colour = G.C.FILTER,
+            shadow = true,
+            lang = title_lang,
+          },
+        },
       },
     },
   }
-  for _, line in ipairs(wrap(text_lang, text, TEXT_SCALE)) do
+  for _, line in ipairs(wrap(text_lang, text, TEXT_SCALE, width)) do
     rows[#rows + 1] = {
       n = G.UIT.R,
       config = { align = inner, padding = 0.02 },
@@ -207,14 +237,27 @@ local function build_definition(title, text, side)
       },
     }
   end
-  -- 结构与 create_UIBox_notify_alert 相同: 内层 minw 很宽, 只露出内容那一侧, 其余留在屏幕外.
+  -- 左侧不设 minw (框宽跟着内容走, 水平方向不会拉长); 右侧保留原版那个很宽的 minw.
+  -- 注意别写成 `left and nil or WIDE`: left 为真时也会得到 WIDE.
+  local inner_minw = nil
+  if not left then
+    inner_minw = WIDE
+  end
   return {
     n = G.UIT.ROOT,
     config = { align = inner, r = 0.1, padding = 0.06, colour = G.C.UI.TRANSPARENT_DARK },
     nodes = {
       {
         n = G.UIT.R,
-        config = { align = inner, padding = 0.2, minw = WIDE, r = 0.1, colour = G.C.BLACK, outline = 1.5, outline_colour = G.C.GREY },
+        config = {
+          align = inner,
+          padding = 0.2,
+          minw = inner_minw,
+          r = 0.1,
+          colour = G.C.BLACK,
+          outline = 1.5,
+          outline_colour = G.C.GREY,
+        },
         nodes = {
           { n = G.UIT.C, config = { align = inner, padding = 0.02 }, nodes = rows },
         },
@@ -275,10 +318,11 @@ local function show(entry)
 
   local box = UIBox({
     definition = build_definition(title, text, lane.side),
-    -- 先摆在屏幕外, update 里等尺寸算出来再滑入. 左侧用 "cli": offset.x 就是框的左边缘.
+    -- 先摆在屏幕外, update 里等尺寸算出来再滑入.
+    -- 左侧用 "cli": offset.x 就是框的左边缘, 框宽跟着内容走; 右侧用 "cr": offset.x 是相对屏幕右边的偏移.
     config = {
       align = lane.side == "left" and "cli" or "cr",
-      offset = { x = lane.side == "left" and -WIDE or WIDE, y = 0 },
+      offset = { x = lane.side == "left" and CALL_HIDE_X or WIDE, y = 0 },
       major = G.ROOM_ATTACH,
       bond = "Weak",
       instance_type = "POPUP",
@@ -376,18 +420,19 @@ function M.active()
   return false
 end
 
---- 一条通知在屏幕上的横坐标: 内容贴着屏幕的一侧, 多出来的宽度留在屏幕外.
+--- 一条通知在屏幕上的横坐标.
+--- 左侧: "cli" 下 offset.x 就是框的左边缘, 内容靠左, 直接贴屏幕左边 (框宽由内容决定).
+--- 右侧: "cr" 下 offset.x 是相对屏幕右边的偏移, 靠内容宽度把框推到只露出内容 (原版做法).
 ---@param item table
 ---@param leaving boolean
 ---@return number
 local function offset_x(item, leaving)
   local lane = item.lane
   if lane.side == "left" then
-    -- "cli": offset.x 就是框的左边缘; 内容靠右摆, 所以先退到内容宽度那么多
     if leaving then
-      return -(item.box.T.w + 1)
+      return CALL_HIDE_X
     end
-    return G.ROOM.T.x + MARGIN - math.max(0, WIDE - content_width(item))
+    return G.ROOM.T.x + MARGIN
   end
   if leaving then
     return WIDE

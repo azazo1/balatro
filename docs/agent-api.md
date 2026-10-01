@@ -252,6 +252,9 @@ agent 干的事以原版成就通知的样式显示在屏幕上: 黑底灰边, �
 模板在 `mods/bbcore/runtime/call_note.lua` (手册查询那 4 个方法在 `mods/balatrobot/agent/knowledge/notes.lua`).
 没有参数 (或只给了 `reason`) 时, 正文改成该工具功能的一句话, 例如 `刷新商店` / `花钱刷新商店`.
 
+左侧的弹窗比右侧窄: 换行宽度单独设得更小 (4.4 游戏单位, 右侧 5.2), 标题超过 12 字截断, 框宽跟着内容走
+(右侧沿用原版那种固定很宽, 只露出内容的做法), 所以它在水平方向不会拉长.
+
 - 每次请求都记一条, 含只读的查询方法与内置 loop 的本地调用; 两种模式 (内置与 `just agent-call`) 都有.
 - 不上左侧的: `notify` (它自己在右侧弹), 只读的 `health` / `gamestate` / `screenshot`, `save` / `load` /
   `set` / `add`, 以及内置 loop 自己做的自动步骤 (`continue`, `cash_out`, `menu`, `endless`).

@@ -355,28 +355,36 @@ do -- 两条车道: 左侧的工具调用记录与右侧的决策消息各自排
     LANG = { font = { FONT = { getWidth = function(_, text) return #text * 10 end }, squish = 1, FONTSCALE = 0.1 } },
   }
   local boxes = {}
+  local defs = {}
   UIBox = function(args)
     local box = { REMOVED = false, T = { h = 1, w = 1 }, align = args.config.align }
-    -- 内容宽度 2, 定义表里那行 minw 是 20: 左侧那条框要退到屏幕外, 右侧那条多出来的部分留在屏幕外
+    -- 内容宽度 2 (左侧框宽跟着内容走, 不再有 20 单位的最小宽度)
     box.UIRoot = { children = { { children = { { T = { w = 2 } } } } } }
     box.alignment = { offset = { x = args.config.offset.x, y = 0 } }
     box.remove = function(self)
       self.REMOVED = true
     end
     boxes[#boxes + 1] = box
+    defs[#defs + 1] = args.definition
     return box
   end
 
   check("右侧消息开始显示", Toast.push("右侧", "决策理由", 2) == true)
   check("左侧不受右侧排队影响", Toast.push("左侧", "手牌下标 0, 1", 2, nil, { side = "left" }) == true)
   check("两条车道都建了框", #boxes == 2, tostring(#boxes))
-  check("左侧用 cli 对齐且先藏在屏幕外", boxes[2].align == "cli" and boxes[2].alignment.offset.x == -20, tostring(boxes[2].align))
+  check("左侧用 cli 对齐且先藏在屏幕外", boxes[2].align == "cli" and boxes[2].alignment.offset.x < 0, tostring(boxes[2].align))
 
-  -- 滑入后: 左侧贴屏幕左边, 右侧贴屏幕右边.
-  -- 左侧内容靠框的右边摆 (框宽 20, 内容 2), 所以框的左边缘要退到屏幕外, 内容才落在左边 0.8 处.
+  -- 左侧不设 minw (框宽由内容决定), 右侧保留那个很宽的 minw
+  local function inner_minw(definition)
+    local row = definition.nodes[1]
+    return row.config.minw
+  end
+  check("左侧框不设最小宽度", inner_minw(defs[2]) == nil, tostring(inner_minw(defs[2])))
+  check("右侧框保留宽 minw", inner_minw(defs[1]) == 20, tostring(inner_minw(defs[1])))
+
+  -- 滑入后: 左侧框的左边缘贴屏幕左边, 右侧内容贴屏幕右边
   Toast.update(0.2)
-  local left_content = boxes[2].alignment.offset.x + (20 - 2)
-  check("左侧内容贴屏幕左边", math.abs(left_content - (G.ROOM.T.x + 0.8)) < 1e-6, tostring(boxes[2].alignment.offset.x))
+  check("左侧框贴屏幕左边", boxes[2].alignment.offset.x == G.ROOM.T.x + 0.8, tostring(boxes[2].alignment.offset.x))
   check("右侧内容贴屏幕右边", boxes[1].alignment.offset.x == G.ROOM.T.x - 2 - 0.8, tostring(boxes[1].alignment.offset.x))
 
   -- 左侧那条不拦操作, 关掉开关后不再显示, 右侧照常
@@ -391,6 +399,31 @@ do -- 两条车道: 左侧的工具调用记录与右侧的决策消息各自排
   -- 左侧那条的阅读时长有单独的上限 (正文只有一句参数说明)
   check("左侧时长上限 8 秒", Toast.duration_for(string.rep("中", 200), nil, 8) == 8)
   check("右侧仍按长解说算", Toast.duration_for(string.rep("中", 200)) == 36)
+
+  -- 左侧的换行宽度比右侧窄: 同样一段文字, 左侧折出的行更短 (弹窗水平方向不会拉长)
+  local function longest_line(definition)
+    local rows = definition.nodes[1].nodes[1].nodes
+    local longest = 0
+    for _, row in ipairs(rows) do
+      local text = row.nodes[1].config.text or ""
+      longest = math.max(longest, #text)
+    end
+    return longest
+  end
+  Toast.clear()
+  -- 够长才会折行: 假字体下每字节宽度 = scale/20, 所以要几百字节
+  local long = string.rep("弃牌堆统计与摸牌堆列表", 12)
+  Toast.push("右侧", long, 3)
+  Toast.push("左侧", long, 3, nil, { side = "left" })
+  local right_line = longest_line(defs[#defs - 1])
+  local left_line = longest_line(defs[#defs])
+  check("左侧折行更短", left_line < right_line, tostring(left_line) .. " vs " .. tostring(right_line))
+  -- 标题不折行, 左侧按 12 字截断 (否则长标题会把弹窗撑宽)
+  Toast.clear()
+  Toast.push("左侧", "短正文", 3, nil, { side = "left" })
+  local title_text = defs[#defs].nodes[1].nodes[1].nodes[1].nodes[1].config.text
+  check("左侧标题按 12 字截断", #title_text <= 12 * 3 + 3, tostring(#title_text))
+  Toast.clear()
 end
 
 do -- 运行时加载自己的模块必须显式给出 mod id.
