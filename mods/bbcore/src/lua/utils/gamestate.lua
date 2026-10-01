@@ -775,6 +775,11 @@ function gamestate.get_gamestate()
     -- Round info
     state_data.round = extract_round_info()
 
+    -- 本局最近一次出牌的计分过程 (runtime/scoring.lua 记的), 还没出过牌时这一项不出现
+    if gamestate.scoring then
+      state_data.round.last_hand = gamestate.scoring.read(G.GAME)
+    end
+
     -- Blinds info
     state_data.blinds = gamestate.get_blinds_info()
   end
@@ -832,5 +837,19 @@ function gamestate.check_game_over()
     gamestate.on_game_over = nil
   end
 end
+
+-- ==========================================================================
+-- 出牌计分记录与枚举转换
+-- ==========================================================================
+
+-- 出牌计分的记录 (runtime/scoring.lua 在加载时接上). 只用到它的 read: 从 G.GAME 取 round.last_hand.
+---@field scoring table? {read: fun(game: table?): table?}
+gamestate.scoring = nil
+
+---Converts Balatro suit name to enum format (别的模块也用它, 例如记录计分过程时的卡牌快照)
+gamestate.suit_enum = convert_suit_to_enum
+
+---Converts Balatro rank value to enum format (同上)
+gamestate.rank_enum = convert_rank_to_enum
 
 return gamestate

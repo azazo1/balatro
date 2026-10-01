@@ -10,6 +10,7 @@ BB Core 入口: balatrobot 与 bbreplay 共用的运行时, 由本仓库从 Bala
 - BB_GAMESTATE, BB_ERROR_NAMES / BB_ERROR_CODES: 状态序列化与错误码.
 - BB_OVERLAY: 弹窗拦截, kind / win_settled / animating (runtime/overlay.lua).
 - BB_ACTIVITY: 请求与响应事件 (runtime/activity.lua).
+- BB_SCORING: 一次出牌的计分过程, 写进 gamestate 的 round.last_hand (runtime/scoring.lua).
 - BB_TOAST, BB_STREAM: 决策消息与顶部状态条. BB_WIDGETS: 界面组件.
 - BB_CONTROL: 谁在操作游戏, 回放与 agent 的互斥 (runtime/control.lua).
 - BB_MENU: 选项菜单里的公共入口 (ui/menu.lua, lovely/menu.toml).
@@ -69,6 +70,10 @@ BB_TRANSPORT = assert(SMODS.load_file("runtime/transport.lua"))()
 assert(SMODS.load_file("src/lua/core/dispatcher.lua"))() -- define BB_DISPATCHER
 BB_GAMESTATE = assert(SMODS.load_file("src/lua/utils/gamestate.lua"))()
 assert(SMODS.load_file("src/lua/utils/errors.lua"))()
+-- 一次出牌的计分过程 (写进 gamestate 的 round.last_hand), 装钩子要在游戏函数定义之后.
+BB_SCORING = assert(SMODS.load_file("runtime/scoring.lua"))()
+BB_GAMESTATE.scoring = BB_SCORING -- gamestate 的 round.last_hand 从这里取
+assert(BB_SCORING.install(BB_SCORING.game_deps(BB_GAMESTATE)), "scoring record already installed")
 
 BB_OVERLAY = assert(SMODS.load_file("runtime/overlay.lua"))()
 BB_ACTIVITY = assert(SMODS.load_file("runtime/activity.lua"))()

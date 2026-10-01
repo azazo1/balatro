@@ -36,8 +36,16 @@ return {
   ---@param send_response fun(response: Response.Endpoint)
   execute = function(args, send_response)
     sendDebugMessage("Init play()", "BB.ENDPOINTS")
+    -- 响应送出时收尾: 记录在这一手算完 (chip_total) 时就已经冻结, 这只是防止半截记录留到下一次.
+    local function respond(response)
+      if BB_SCORING then
+        BB_SCORING.close()
+      end
+      send_response(response)
+    end
+
     if #args.cards == 0 then
-      send_response({
+      respond({
         message = "Must provide at least one card to play",
         name = BB_ERROR_NAMES.BAD_REQUEST,
       })
@@ -45,7 +53,7 @@ return {
     end
 
     if #args.cards > G.hand.config.highlighted_limit then
-      send_response({
+      respond({
         message = "You can only play " .. G.hand.config.highlighted_limit .. " cards",
         name = BB_ERROR_NAMES.BAD_REQUEST,
       })
@@ -54,12 +62,17 @@ return {
 
     for _, card_index in ipairs(args.cards) do
       if not G.hand.cards[card_index + 1] then
-        send_response({
+        respond({
           message = "Invalid card index: " .. card_index,
           name = BB_ERROR_NAMES.BAD_REQUEST,
         })
         return
       end
+    end
+
+    -- 参数都合法了, 从这一刻开始记录这一手的计分过程 (写进 gamestate 的 round.last_hand).
+    if BB_SCORING then
+      BB_SCORING.begin()
     end
 
     -- NOTE: Clear any existing highlights before selecting new cards
@@ -87,7 +100,7 @@ return {
     -- because when G.STATE becomes GAME_OVER, the game sets G.SETTINGS.paused = true,
     -- which stops all event processing. This callback is set so that love.update
     -- (which runs even when paused) can detect GAME_OVER immediately.
-    BB_GAMESTATE.on_game_over = send_response
+    BB_GAMESTATE.on_game_over = respond
 
     G.E_MANAGER:add_event(Event({
       trigger = "condition",
@@ -125,7 +138,7 @@ return {
           if G.GAME.won then
             sendDebugMessage("Return play() - won", "BB.ENDPOINTS")
             local state_data = BB_GAMESTATE.get_gamestate()
-            send_response(state_data)
+            respond(state_data)
             return true
           end
 
@@ -146,7 +159,7 @@ return {
           if has_blind1 and has_cash_out_button then
             local state_data = BB_GAMESTATE.get_gamestate()
             sendDebugMessage("Return play() - cash out", "BB.ENDPOINTS")
-            send_response(state_data)
+            respond(state_data)
             return true
           end
         end
@@ -154,7 +167,7 @@ return {
         if draw_to_hand and hand_played and G.buttons and G.STATE == G.STATES.SELECTING_HAND then
           sendDebugMessage("Return play() - same round", "BB.ENDPOINTS")
           local state_data = BB_GAMESTATE.get_gamestate()
-          send_response(state_data)
+          respond(state_data)
           return true
         end
 

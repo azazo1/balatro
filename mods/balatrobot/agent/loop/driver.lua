@@ -4,6 +4,7 @@
 一轮: 看状态 -> (需要时) 追加状态摘要 -> 流式请求模型 -> 逐个执行工具调用 -> 结果写回历史 -> 下一轮.
 
 - 没有选择的步骤自动处理, 不问模型: 解锁弹窗 continue, 结算 cash_out.
+- 出牌那一步的结果开头带上这一手的计分过程 (谁加了多少, 从基础涨到多少), 摘要里只有一行结果.
 - 胜利按配置 after_win 处理 ("endless" 进入无尽模式继续打, "menu" 回主菜单并停止), 输了回主菜单并停止.
 - 人打开了设置等菜单 (overlay 为 other), 或动画没停时等待, 不发请求也不执行动作.
 - 压缩上下文: 上一次请求报的 prompt_tokens + completion_tokens (没报用量时按字数估算) 超过最大上下文
@@ -448,6 +449,22 @@ function M.new(deps)
     queue = nil
   end
 
+  --- 出牌那一步的计分过程: 谁加了多少, 从基础涨到多少 (bbcore 的 runtime/scoring.lua 记的).
+  --- 明细只在这次结果里给一次, 摘要里只有一行结果, 免得每一轮都重发十几行.
+  ---@param method string
+  ---@param response table
+  ---@return string 不是出牌或没有记录时为空串
+  local function scoring_block(method, response)
+    if method ~= "play" then
+      return ""
+    end
+    local record = response.round and response.round.last_hand
+    if type(record) ~= "table" or type(record.text) ~= "string" then
+      return ""
+    end
+    return "计分过程:\n" .. record.text .. "\n\n"
+  end
+
   ---@param value any
   ---@return string
   local function encode_query(value)
@@ -521,7 +538,7 @@ function M.new(deps)
         if fixed_seed then
           done = "完成 (玩家指定了固定种子 " .. fixed_seed .. ", 已按它开局). 当前状态:\n"
         end
-        tool_result(call, done .. summarizer:render(response))
+        tool_result(call, scoring_block(method, response) .. done .. summarizer:render(response))
         fresh = true
         history:note(string.format("%s %s%s", method, deps.json.encode(params), reason and (" (" .. reason .. ")") or ""))
       elseif tools.QUERIES[method] then

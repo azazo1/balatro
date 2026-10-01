@@ -114,6 +114,52 @@ MENU -> BLIND_SELECT -> SELECTING_HAND -> ROUND_EVAL -> SHOP -+
   `notify`, `endless`, `continue`, 手册查询 4 个方法与 `reason`.
 - upstream 文档: <https://coder.github.io/balatrobot/api/>
 
+## 出牌计分
+
+出牌的返回里带 `round.last_hand`: 这一手怎么从牌型基础涨到总分, 内容就是 user 在屏幕上看到的那些飘字.
+它记的是本局最近一次出牌, 下一次 `play` 时被覆盖, 弃牌与买卖不会动它; 还没出过牌时这个字段不出现.
+
+```json
+"round": {
+  "chips": 18125,
+  "hands_left": 3,
+  "last_hand": {
+    "name": "同花", "level": 1,
+    "base": { "chips": 35, "mult": 4 },
+    "chips": 125, "mult": 81, "total": 10125,
+    "cards": [{ "key": "H_K", "suit": "H", "rank": "K", "label": "红桃K", "scoring": true }],
+    "steps": [{ "by": "H_K", "name": "红桃K", "kind": "chips", "amount": 10, "chips": 45, "mult": 4 }],
+    "line": "上一手: 同花 Lv1 = 10125",
+    "text": "上一手: 同花 Lv1 = 10125\n出牌: 红桃K* 红桃Q* 红桃9* 红桃5* 黑桃2\n基础 35x4\n...\n= 10125"
+  }
+}
+```
+
+`text` 是拼好的整段, 卡牌名取游戏当前语言 (默认简体中文), 不想解析字段时直接读它:
+
+```
+上一手: 同花 Lv1 = 10125
+出牌: 红桃K* 红桃Q* 红桃9* 红桃5* 黑桃2
+基础 35x4
+红桃K | +10 筹码 | 45x4
+红桃Q | +10 筹码 | 55x4
+红桃9 | +10 筹码 | 65x4
+红桃5 | +10 筹码 | 75x4
+闪箔红桃K | +50 筹码 | 125x4
+狡诈小丑 | +50 倍率 | 125x54
+全息小丑 | x1.5 倍率 | 125x81
+= 10125
+```
+
+- 每行三列: 变动原因 (哪张牌或哪个小丑), 变动因素 (加了多少筹码或倍率, 乘了几倍), 变动后筹码x倍率.
+- 出牌行里带 `*` 的是真计入牌型的牌, 没带星号的只是被打出去.
+- 被盲注封禁这一手 (画面上的 `Not Allowed!`) 总分为 0, 明细里给一行 `被盲注封禁 | 本手不计分 | 0x0`.
+- 版本加成与重触发这类不改数值的项, 第二列写游戏自己那句提示 (例如 `闪箔红桃K | 再次触发 | 125x81`).
+- `steps[].by` 是卡牌 key, `kind` 取 `chips` / `mult` / `xmult` / `xchips` / `dollars` / `debuff` / `extra` / `blocked`,
+  `chips` 与 `mult` 是这一步之后的当前值, 消费方不用自己从基础推.
+- 只有 `play` 会记. `discard`, `buy`, `use` 等不记, 也不会清掉上一次的 `last_hand`.
+- 记录挂在存档里, 读档继续时上一手仍能看到.
+
 ## 手册查询
 
 `docs_index`, `docs_read`, `docs_search`, `lookup` 查询随 mod 打包的游戏手册, 内容是 `docs/game/` 的 README,

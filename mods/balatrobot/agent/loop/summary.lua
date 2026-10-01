@@ -230,6 +230,11 @@ function M.new(describe)
       out[#out + 1] = "刷新价格: $" .. tostring(round.reroll_cost)
     end
 
+    -- 上一手的计分结果 (bbcore 的 runtime/scoring.lua 记好的一行). 明细太长, 只在出牌那一步的结果里给一次.
+    if round.last_hand and round.last_hand.line then
+      out[#out + 1] = tostring(round.last_hand.line)
+    end
+
     local hand = gs.hand
     if hand and hand.cards and #hand.cards > 0 then
       local parts = {}

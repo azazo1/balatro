@@ -1050,6 +1050,122 @@
           "chips": {
             "type": "integer",
             "description": "Current chips scored in this round"
+          },
+          "last_hand": {
+            "$ref": "#/components/schemas/LastHand"
+          }
+        }
+      },
+      "LastHand": {
+        "type": "object",
+        "description": "Scoring process of the last hand played in this run, in the order the game displayed it",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Poker hand name (e.g. 'Flush'), in the game language"
+          },
+          "level": {
+            "type": "integer",
+            "description": "Poker hand level"
+          },
+          "base": {
+            "type": "object",
+            "description": "Base chips and mult of the poker hand",
+            "properties": {
+              "chips": {
+                "type": "integer"
+              },
+              "mult": {
+                "type": "number"
+              }
+            }
+          },
+          "chips": {
+            "type": "integer",
+            "description": "Final chips of this hand"
+          },
+          "mult": {
+            "type": "number",
+            "description": "Final mult of this hand"
+          },
+          "total": {
+            "type": "number",
+            "description": "Total score of this hand (chips * mult)"
+          },
+          "blocked": {
+            "type": "boolean",
+            "description": "True when the blind debuffed this hand, the score is 0"
+          },
+          "cards": {
+            "type": "array",
+            "description": "Cards played, in the order they were played",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "suit": {
+                  "type": "string"
+                },
+                "rank": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string",
+                  "description": "Card name in the game language"
+                },
+                "scoring": {
+                  "type": "boolean",
+                  "description": "Whether this card took part in scoring"
+                }
+              }
+            }
+          },
+          "steps": {
+            "type": "array",
+            "description": "Scoring steps in the order they happened",
+            "items": {
+              "type": "object",
+              "properties": {
+                "by": {
+                  "type": "string",
+                  "description": "Key of the card this step comes from"
+                },
+                "name": {
+                  "type": "string",
+                  "description": "Card name in the game language"
+                },
+                "kind": {
+                  "type": "string",
+                  "description": "chips / mult / xmult / xchips / dollars / debuff / extra / blocked"
+                },
+                "amount": {
+                  "type": "number",
+                  "description": "Added chips or mult, or the factor for multipliers"
+                },
+                "chips": {
+                  "type": "integer",
+                  "description": "Chips after this step"
+                },
+                "mult": {
+                  "type": "number",
+                  "description": "Mult after this step"
+                },
+                "message": {
+                  "type": "string",
+                  "description": "Message the game printed for this step, when it has one"
+                }
+              }
+            }
+          },
+          "line": {
+            "type": "string",
+            "description": "One line summary, for example 'last hand: Flush Lv1 = 10125'"
+          },
+          "text": {
+            "type": "string",
+            "description": "Ready made text of the whole scoring process"
           }
         }
       },

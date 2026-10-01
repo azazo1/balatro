@@ -46,6 +46,40 @@
 ---@field discards_used integer? Number of discards used in this round
 ---@field reroll_cost integer? Current cost to reroll the shop
 ---@field chips integer? Current chips scored in this round
+---@field last_hand LastHand? 本局最近一次出牌的计分过程, 下一次出牌时被覆盖, 还没出过牌时没有
+
+---@class LastHand
+---@field name string 牌型名 (游戏当前语言, 例如 "同花")
+---@field level integer? 牌型等级
+---@field base LastHand.Pair? 牌型基础的筹码与倍率
+---@field chips number 这一手最终的筹码
+---@field mult number 这一手最终的倍率
+---@field total number 这一手的总分 (chips * mult)
+---@field blocked boolean? 本手被盲注封禁, 不计分
+---@field cards LastHand.Card[] 打出的牌, 顺序与打出时一致
+---@field steps LastHand.Step[] 逐项计分, 按发生顺序
+---@field line string 摘要里用的那一行, 例如 "上一手: 同花 Lv1 = 10125"
+---@field text string 出牌结果里给的整段文本
+
+---@class LastHand.Pair
+---@field chips number
+---@field mult number
+
+---@class LastHand.Card
+---@field key string 卡牌 key (例如 "H_K", "j_sly")
+---@field suit Card.Value.Suit? Suit (only for playing cards)
+---@field rank Card.Value.Rank? Rank (only for playing cards)
+---@field label string 卡牌名 (游戏当前语言, 例如 "红桃K")
+---@field scoring boolean 是否参与计分
+
+---@class LastHand.Step
+---@field by string 造成这一步的卡牌 key (空串表示不是某张牌)
+---@field name string 变动原因, 卡牌名 (游戏当前语言)
+---@field kind string chips / mult / xmult / xchips / dollars / debuff / extra / blocked
+---@field amount number? 变化量 (筹码与倍率), 乘倍率是倍数; 不改变数值的步骤没有
+---@field chips number 这一步之后的筹码
+---@field mult number 这一步之后的倍率
+---@field message string? 游戏自己写的那句话 (版本加成, 重复触发)
 
 ---@class Blind
 ---@field type Blind.Type Type of the blind

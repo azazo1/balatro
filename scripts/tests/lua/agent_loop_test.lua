@@ -216,6 +216,71 @@ do -- 正常一轮: 顺序执行多个调用, 结果按 id 写回, 下一轮不�
   check("动作结果带状态, 不再追加用户消息", msgs[#msgs].role == "tool" and msgs[#msgs].content:find("当前状态", 1, true))
 end
 
+do -- 摘要: 上一手只给一行结果, 明细不塞进摘要 (明细在出牌那一步的结果里给一次)
+  local s = Summary.new()
+  local gs = hand_state({
+    round = {
+      chips = 3915,
+      hands_left = 4,
+      discards_left = 3,
+      last_hand = { line = "上一手: 同花 Lv1 = 3915", text = "红桃K | +10 筹码 | 45x4" },
+    },
+  })
+  local text = s:render(gs)
+  check("摘要带上一手那一行", text:find("\n上一手: 同花 Lv1 = 3915\n", 1, true) ~= nil, text)
+  check("摘要不带明细", not text:find("45x4", 1, true))
+end
+
+do -- 出牌那一步: 结果开头是这一手的计分过程, 后面接新的状态摘要
+  local env = harness()
+  env.responder = function(method)
+    if method == "play" then
+      return hand_state({
+        round = {
+          chips = 3915,
+          hands_left = 3,
+          discards_left = 3,
+          last_hand = {
+            line = "上一手: 同花 Lv1 = 3915",
+            text = "上一手: 同花 Lv1 = 3915\n出牌: 红桃A* 黑桃10\n基础 35x4\n红桃A | +11 筹码 | 46x4\n= 3915",
+          },
+        },
+      })
+    end
+    return env.gs
+  end
+  env.driver.start()
+  env.tick()
+  env.reply({ { "play", { cards = { 0, 1 }, reason = "打同花" } } })
+  env.settle()
+  local tool = env.requests[2][#env.requests[2]]
+  check("出牌结果开头是计分过程", tool.role == "tool" and tool.content:find("^计分过程:\n") ~= nil, tool.content)
+  check("计分过程带逐项明细", tool.content:find("红桃A | +11 筹码 | 46x4", 1, true) ~= nil)
+  check(
+    "明细之后接新的状态摘要",
+    tool.content:find("完成. 当前状态:", 1, true) ~= nil and tool.content:find("本回合: 已得 3915 分", 1, true) ~= nil
+  )
+end
+
+do -- 不是出牌的动作不设计分过程, 但摘要里仍有上一手那一行
+  local env = harness()
+  env.gs = hand_state({
+    round = {
+      chips = 3915,
+      hands_left = 4,
+      discards_left = 3,
+      last_hand = { line = "上一手: 同花 Lv1 = 3915", text = "红桃A | +11 筹码 | 46x4" },
+    },
+  })
+  env.driver.start()
+  env.tick()
+  env.reply({ { "discard", { cards = { 0 }, reason = "弃掉黑桃10" } } })
+  env.settle()
+  local tool = env.requests[2][#env.requests[2]]
+  check("弃牌结果不以计分过程开头", tool.content:find("^计分过程") == nil, tool.content)
+  check("弃牌结果里仍有上一手那一行", tool.content:find("上一手: 同花 Lv1 = 3915", 1, true) ~= nil)
+end
+
 do -- 策略: 开始时拼进系统提示词, 运行中改了不影响这一次, 停止后再开始才换
   local env = harness()
   env.cfg.strategy = "主打同花, 不买加筹码的小丑"
