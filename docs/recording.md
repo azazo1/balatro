@@ -34,9 +34,11 @@
 1. 编码参数设置约 2 秒一个关键帧. 画面本来就写成 fragmented mp4, 这样崩溃时最多丢约 2 秒画面.
 2. 音频线程每秒 flush 一次 pcm.
 3. 开局时就写出合成脚本, 局末再用最终的剪辑区间覆盖. 崩溃后至少能合成出 `-full.mp4`.
-4. 新增 `just macos recordings-recover` (Windows 上是 `just windows recordings-recover`): 扫描 `recordings/`
-   里残留的中间文件, 加 `--run` 补做合成. 脚本本身跨平台, 只依赖 python3 与 ffmpeg; 判断游戏与合成脚本
-   是否在运行, macOS 上用 pgrep, Windows 上用 tasklist 与 PowerShell.
+4. 一局一个文件夹 `<stem>/`, 里面放这一局的全部产物 (两份视频, 时间轴, 回放文件, agent 转录与中间文件),
+   文件名仍带这一局的 `<stem>` 前缀. 建不出文件夹时退回平铺写法, 只记一行警告. 回放列表两种布局都认.
+5. 新增 `just macos recordings-recover` (Windows 上是 `just windows recordings-recover`): 扫描 `recordings/`
+   里残留的中间文件 (每局一个文件夹, 与旧版平铺的两种布局都扫), 加 `--run` 补做合成. 脚本本身跨平台,
+   只依赖 python3 与 ffmpeg; 判断游戏与合成脚本是否运行, macOS 上用 pgrep, Windows 上用 tasklist 与 PowerShell.
 
 ## Windows
 

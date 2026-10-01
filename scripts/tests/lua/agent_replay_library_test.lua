@@ -150,28 +150,38 @@ do
   check("分页: 页码下界收敛到第一页", low == 1, tostring(low))
 end
 
-do -- 删除回放的范围: 只拼出这一局的固定文件名, 不带路径, 不碰同一局的其它段
-  local files = Library.run_files("20261001-162556-SPLIT01.replay.json")
+do -- 一局的位置: 每局一个文件夹与旧版平铺都认, 删除只支持前者
+  local location = Library.locate("20261001-162556-SPLIT01/20261001-162556-SPLIT01.replay.json")
   local set = {}
-  for _, name in ipairs(files or {}) do
+  for _, name in ipairs(location and location.names or {}) do
     set[name] = true
   end
+  check("认文件夹里的回放文件", location and location.folder == "20261001-162556-SPLIT01")
+  check("局名与文件夹名一致", location and location.stem == "20261001-162556-SPLIT01")
   check(
-    "删除这一局的回放, 视频, 时间轴与转录",
+    "这一局的产物: 回放, 视频, 时间轴与转录",
     set["20261001-162556-SPLIT01.replay.json"] and set["20261001-162556-SPLIT01-full.mp4"]
       and set["20261001-162556-SPLIT01-cut.mp4"] and set["20261001-162556-SPLIT01.json"]
       and set["20261001-162556-SPLIT01-agent.jsonl"] and set["20261001-162556-SPLIT01.video.mp4"] or false
   )
   local escaped = false
-  for _, name in ipairs(files or {}) do
+  for _, name in ipairs(location and location.names or {}) do
     escaped = escaped or name:find("[/\\]") ~= nil or not name:find("^20261001%-162556%-SPLIT01[%.%-]")
   end
-  check("删除的文件名都不带路径, 都属于这一局", not escaped)
+  check("产物名都不带路径, 都属于这一局", not escaped)
+  check("文件夹布局可以删", Library.deletable(location))
+
+  local flat = Library.locate("20261001-162556-SPLIT01.replay.json")
+  check("认旧版平铺的回放文件", flat and flat.folder == nil and flat.stem == "20261001-162556-SPLIT01")
+  check("旧版平铺不支持删除", not Library.deletable(flat))
+
   check(
-    "不是回放文件或带路径时不删",
-    Library.run_files("a.json") == nil and Library.run_files("../x.replay.json") == nil
-      and Library.run_files("sub\\x.replay.json") == nil and Library.run_files(".replay.json") == nil
+    "不是回放文件时不认",
+    Library.locate("a.json") == nil and Library.locate("../x.replay.json") == nil
+      and Library.locate("sub\\x.replay.json") == nil and Library.locate(".replay.json") == nil
+      and Library.locate(nil) == nil
   )
+  check("文件名与文件夹名不一致时不认", Library.locate("随便/x.replay.json") == nil)
 end
 
 do -- 回放菜单的布局: 竖直列表里不能出现"C 型节点后面还有兄弟"
@@ -198,13 +208,18 @@ do -- 回放菜单的布局: 竖直列表里不能出现"C 型节点后面还有
     SETTINGS = {},
   }
   local fake_replay = json.encode(replay_data())
+  -- 录像目录: 一个新布局 (每局一个文件夹) 与一个旧版平铺的回放文件. 按 kind 返回目录或文件.
+  -- BROKEN 那个在文件夹里, 用来验证损坏的行也点得进确认页.
   SMODS = {
     NFS = {
-      getDirectoryItemsInfo = function()
-        return {
-          { name = "20240501-123456-ABCD.replay.json", size = #fake_replay, modtime = 1000 },
-          { name = "20240501-000000-BROKEN.replay.json", size = 3, modtime = 1000 },
-        }
+      getDirectoryItemsInfo = function(path, kind)
+        if kind == "directory" then
+          return { { name = "20240501-123456-ABCD" } }
+        end
+        if path:find("20240501%-123456%-ABCD") then
+          return { { name = "20240501-123456-ABCD.replay.json", size = #fake_replay, modtime = 1000 } }
+        end
+        return { { name = "20240501-000000-BROKEN.replay.json", size = 3, modtime = 1000 } }
       end,
       read = function(path)
         return path:find("BROKEN", 1, true) and "{{{" or fake_replay
@@ -337,6 +352,37 @@ do -- 回放菜单的布局: 竖直列表里不能出现"C 型节点后面还有
     ok, err = pcall(broken.on_click)
   end
   check("不能回放的行可以点进确认页", enabled and ok and captured ~= nil, tostring(err))
+
+  -- 删除按钮: 每局一个文件夹的可以删 (删掉整个文件夹), 旧版平铺的不给删, 免得误删别的局.
+  ---@param definition table
+  ---@return table?
+  local function delete_ref_of(definition)
+    for _, ref in ipairs(collect_refs(definition.args.contents, {})) do
+      if tostring(ref.label) == "删除" then
+        return ref
+      end
+    end
+    return nil
+  end
+
+  captured = nil
+  clicked()
+  local folder_entry_delete = captured and delete_ref_of(captured)
+  check("文件夹布局的删除按钮可以点", folder_entry_delete ~= nil and folder_entry_delete.enabled())
+
+  G.FUNCS.bb_replay_list()
+  local flat
+  for _, ref in ipairs(collect_refs(captured.args.contents, {})) do
+    if tostring(ref.label):find("BROKEN", 1, true) then
+      flat = ref
+    end
+  end
+  captured = nil
+  if flat then
+    flat.on_click()
+  end
+  local flat_delete = captured and delete_ref_of(captured)
+  check("旧版平铺的删除按钮不可点", flat_delete ~= nil and not flat_delete.enabled())
 end
 
 if failures > 0 then

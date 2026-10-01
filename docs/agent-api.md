@@ -185,15 +185,19 @@ just macos run-agent off      # 不录制
 just macos run-agent on 1     # 10 倍速, 仅在需要时使用
 ```
 
+一局的产物都放在 `recordings/<开始时间>-<种子>/` 里, 文件名仍带这一局的前缀:
+
 | 文件 | 内容 |
 | --- | --- |
 | `<开始时间>-<种子>-full.mp4` | 完整版, 与实际时长相同, 保留 agent 思考的时间 |
 | `<开始时间>-<种子>-cut.mp4` | 剪辑版, 去掉 agent 思考时的无意义等待 (Android 上暂无) |
 | `<开始时间>-<种子>.json` | 关键时间点, 同时给出两份视频里的时间 |
 | `<开始时间>-<种子>.replay.json` | 回放文件, 见下方 "回放" |
+| `<开始时间>-<种子>-agent.jsonl` | 内置 agent 的转录, 只在内置模式下有 |
 
 - 一局从开局 (或读档) 开始, 到回主菜单, 开下一局或退出为止. 游戏结束后停留在结算界面的部分也会录.
-- 输出在仓库根目录的 `recordings/`. 两份视频在局末由后台进程生成, 一般几秒到十几秒, 游戏可以继续玩或退出.
+- 输出在仓库根目录的 `recordings/`. 一局一个文件夹, 上面表格里的名字都是文件夹内的相对路径.
+  两份视频在局末由后台进程生成, 一般几秒到十几秒, 游戏可以继续玩或退出.
   ffmpeg 的报错在同名 `.ffmpeg.txt`. 每次启动的游戏日志 (含崩溃信息) 在 `recordings/<启动时间>-game.log`.
 - 录制中只写中间文件: `.video.mp4` (约 2 秒一个分片, 写完即落盘), `.pcm` (每秒落盘) 和合成脚本 `.post.sh`
   (Windows 上是 `.post.cmd`).
@@ -284,9 +288,11 @@ JSON 的时间都是秒. `wall` 为开局起的实际时间, 即完整版里的�
 命令行回放从启动开始, 录制成 `recordings/replay-*` 的完整版和剪辑版视频:
 
 ```shell
-just macos replay recordings/<stem>.replay.json            # tight: 去掉 agent 思考的时间
-just macos replay recordings/<stem>.replay.json original   # original: 按原局的实际间隔
+just macos replay recordings/<stem>            # tight: 去掉 agent 思考的时间
+just macos replay recordings/<stem> original   # original: 按原局的实际间隔
 ```
+
+参数是这一局的文件夹 (也可以给里面的 `.replay.json`); 这一局的回放录成 `recordings/replay-*` 的新文件夹.
 
 - 开局前恢复原局的解锁, 发现, 累计数据和画面设置, 否则同一个种子也会抽出不同的牌. 命令行回放用临时
   存档 `Balatro-Replay` 隔离; 游戏内回放改成拦截写入: 回放期间丢掉 `G.SAVE_MANAGER.channel` 上的

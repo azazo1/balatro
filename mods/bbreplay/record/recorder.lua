@@ -1,13 +1,14 @@
 --[[
-整局录制. 由 BALATROBOT_RECORD=on 或设置页的录像开关开启, 每局 (start_run 到回主菜单/下一局/退出) 输出:
-- <stem>-full.mp4: 按墙钟原样录制, 带声音.
-- <stem>-cut.mp4: 同一份素材剪掉 agent 思考时的无意义等待, 见 record/cuts.lua.
-- <stem>.json: 关键时间点, 同时给出两份视频里的时间.
+整局录制. 由 BALATROBOT_RECORD=on 或设置页的录像开关开启, 每局 (start_run 到回主菜单/下一局/退出) 输出.
+一局的产物放在录像目录下以局名命名的文件夹里 (<stem>/), 文件名仍带局名前缀:
+- <stem>/<stem>-full.mp4: 按墙钟原样录制, 带声音.
+- <stem>/<stem>-cut.mp4: 同一份素材剪掉 agent 思考时的无意义等待, 见 record/cuts.lua.
+- <stem>/<stem>.json: 关键时间点, 同时给出两份视频里的时间.
 两份视频在局末由后台脚本生成 (record/post.lua), 录制中只写中间文件 <stem>.video.mp4 与 <stem>.pcm.
 
 崩溃时尽量少丢: 画面约 2 秒一个关键帧 (即一个分片) 并逐个落盘, 声音每秒 flush, 时间线每 2 秒写一次;
 开局时就写出草稿合成脚本 <stem>.post.sh (Windows 上是 <stem>.post.cmd), 剪辑区间变多时覆盖, 局末用最终版覆盖并运行.
-崩溃后用 sh <stem>.post.sh (Windows 上直接运行 .post.cmd) 或 scripts/recordings_recover.py 补做合成.
+崩溃后进这个文件夹用 sh <stem>.post.sh (Windows 上直接运行 .post.cmd) 或 scripts/recordings_recover.py 补做合成.
 Windows 上 ffmpeg 与合成脚本都由 record/win_proc.lua 直接启动, 不弹控制台窗口.
 
 给 agent 控制的接口: M.end_segment / M.start_segment (停止时立即结束一段), M.set_paused (暂停段在剪辑版里剪掉),
@@ -605,18 +606,29 @@ local function start_session(resumed, reason)
   local game = G.GAME or {}
   local seed = game.pseudorandom and game.pseudorandom.seed or "noseed"
   local stem = cfg.prefix .. os.date("%Y%m%d-%H%M%S") .. "-" .. tostring(seed):gsub("[^%w%-_]", "")
-  -- 同一秒内结束一段又开始新的一段时 (M.end_segment 后 M.start_segment), 文件名加序号区分
+  -- 同一秒内结束一段又开始新的一段时 (M.end_segment 后 M.start_segment), 名字加序号区分.
+  -- 一局一个文件夹, 所以看文件夹在不在.
   local suffix = 1
-  while
-    file_exists(cfg.dir .. "/" .. stem .. (suffix > 1 and ("-" .. suffix) or "") .. ".json")
-    or file_exists(cfg.dir .. "/" .. stem .. (suffix > 1 and ("-" .. suffix) or "") .. ".video.mp4")
-  do
+  while file_exists(cfg.dir .. "/" .. stem .. (suffix > 1 and ("-" .. suffix) or "")) do
     suffix = suffix + 1
   end
   if suffix > 1 then
     stem = stem .. "-" .. suffix
   end
-  local base = cfg.dir .. "/" .. stem
+  -- 一局的产物 (时间轴, 回放文件, 两份视频, agent 转录, 中间文件) 都放在这个文件夹里.
+  local folder = cfg.dir .. "/" .. stem
+  local made, folder_err = SMODS.NFS.createDirectory(folder)
+  if made then
+    fix_permissions(folder)
+  else
+    -- 建不出来时退回平铺写法: 别为了目录结构丢掉整局录像. 回放列表两种布局都认.
+    sendWarnMessage(
+      string.format("建不了录像文件夹 %s (%s), 这一局还是平铺着写", folder, tostring(folder_err)),
+      LOGGER
+    )
+    folder = cfg.dir
+  end
+  local base = folder .. "/" .. stem
 
   local sw, sh = love.graphics.getPixelDimensions()
   local h = cfg.height - cfg.height % 2

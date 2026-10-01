@@ -6,6 +6,8 @@
 这里补上: 优先执行现成的 .post.sh (开局时就写出的草稿, 带当时已确定的剪辑区间);
 没有脚本, 或脚本里的路径已经不在这个目录时, 按 mods/bbreplay/record/post.lua 的规则只合成 -full.mp4.
 
+每局一个文件夹 (<stem>/<stem>.*) 与旧版平铺 (<stem>.*) 两种布局都扫.
+
 默认只列出不执行, 加 --run 才合成. 正在录制或正在合成的局会跳过.
 
 用法:
@@ -110,19 +112,40 @@ def human(n):
 
 
 def scan(directory):
-    """按 stem 收集残留的中间文件. 返回 {stem: {suffix: path}}."""
-    stems = {}
+    """按局收集残留的中间文件. 返回 {键: {suffix: path}}.
+
+    键是这一局相对录像目录的路径: 每局一个文件夹时是文件夹名, 旧版平铺时是文件名前缀 (stem).
+    两种布局都扫: 文件夹里的文件, 与直接放在录像目录根下的文件.
+    """
+    runs = {}
     for name in sorted(os.listdir(directory)):
-        for suffix in SUFFIXES:
-            if name.endswith(suffix) and len(name) > len(suffix):
-                stems.setdefault(name[: -len(suffix)], {})[suffix] = os.path.join(directory, name)
-                break
-    return stems
+        folder = os.path.join(directory, name)
+        if os.path.isdir(folder):
+            for inner in sorted(os.listdir(folder)):
+                for suffix in SUFFIXES:
+                    if inner.endswith(suffix) and len(inner) > len(suffix):
+                        key = name + "/" + inner[: -len(suffix)]
+                        runs.setdefault(key, {})[suffix] = os.path.join(folder, inner)
+                        break
+        else:
+            for suffix in SUFFIXES:
+                if name.endswith(suffix) and len(name) > len(suffix):
+                    runs.setdefault(name[: -len(suffix)], {})[suffix] = folder
+                    break
+    return runs
 
 
 def script_of(files):
     """这一局的合成脚本 (.post.sh 或 Windows 的 .post.cmd), 没有时返回 None."""
     return files.get(".post.sh") or files.get(".post.cmd")
+
+
+def display_name(key):
+    """给人看的局名. 每局一个文件夹时 key 是 "<folder>/<stem>", 两者同名时只显示一次."""
+    if "/" in key:
+        folder, stem = key.split("/", 1)
+        return folder if folder == stem else key
+    return key
 
 
 def script_kind(path):
@@ -208,7 +231,7 @@ def recover(stem, files, directory, ffmpeg, args):
     started = time.time()
     is_cmd = bool(script) and script.endswith(".post.cmd")
     if script and is_cmd and not IS_WINDOWS:
-        log.warn("%s: 合成脚本是 Windows 的 .post.cmd, 这里不能运行, 改为只合成 -full.mp4" % stem)
+        log.warn("%s: 合成脚本是 Windows 的 .post.cmd, 这里不能运行, 改为只合成 -full.mp4" % display_name(stem))
         script = None
     if script and script_matches(script, base):
         kind = script_kind(script)
@@ -216,17 +239,17 @@ def recover(stem, files, directory, ffmpeg, args):
         # 草稿脚本带 --clean 才删中间文件; 局末脚本 (或旧版本脚本) 成功后总是删除
         if kind == "draft" and args.clean:
             cmd.append("--clean")
-        log.info("%s: 执行 %s 脚本" % (stem, kind or "旧版"))
+        log.info("%s: 执行 %s 脚本" % (display_name(stem), kind or "旧版"))
         code = subprocess.run(cmd, stdin=subprocess.DEVNULL).returncode
         # 批处理的局末脚本删掉自身后退出码不可靠, 以产物为准.
         ok = (is_cmd and kind == "final") or code == 0
         ok = ok and size_of(base + "-full.mp4") > 0
     else:
         if ffmpeg is None:
-            log.warn("%s: 没有可用的合成脚本, 也找不到 ffmpeg, 跳过" % stem)
+            log.warn("%s: 没有可用的合成脚本, 也找不到 ffmpeg, 跳过" % display_name(stem))
             return False
         why = "脚本里的路径不在这个目录 (目录被移动过)" if script else "没有合成脚本"
-        log.info("%s: %s, 只合成 -full.mp4" % (stem, why))
+        log.info("%s: %s, 只合成 -full.mp4" % (display_name(stem), why))
         ok = fallback_full(ffmpeg, base, args.verbose)
         if ok and args.clean:
             for suffix in SUFFIXES:
@@ -235,9 +258,11 @@ def recover(stem, files, directory, ffmpeg, args):
                     os.remove(path)
     elapsed = time.time() - started
     if ok:
-        log.info("%s: 完成, -full.mp4 %s, 用时 %.1f 秒" % (stem, human(size_of(base + "-full.mp4")), elapsed))
+        log.info("%s: 完成, -full.mp4 %s, 用时 %.1f 秒"
+                 % (display_name(stem), human(size_of(base + "-full.mp4")), elapsed))
     else:
-        log.warn("%s: 合成失败, 中间文件保留, ffmpeg 的报错见 %s.ffmpeg.txt" % (stem, stem))
+        log.warn("%s: 合成失败, 中间文件保留, ffmpeg 的报错见 %s.ffmpeg.txt"
+                 % (display_name(stem), base))
     return ok
 
 
@@ -264,7 +289,7 @@ def main():
         parts = ", ".join("%s %s" % (suffix, human(size_of(path))) for suffix, path in sorted(files.items()))
         kind = script_kind(script_of(files)) if script_of(files) else None
         label = {"active": "跳过", "done": "已合成", "broken": "无法合成", "recover": "待合成"}[status]
-        log.info("[%s] %s: %s%s%s" % (label, stem, parts, " (%s 脚本)" % kind if kind else "",
+        log.info("[%s] %s: %s%s%s" % (label, display_name(stem), parts, " (%s 脚本)" % kind if kind else "",
                                       ", " + note if note else ""))
         if status == "recover":
             todo.append((stem, files))
@@ -279,7 +304,7 @@ def main():
     ffmpeg = find_ffmpeg(args.ffmpeg)
     failed = 0
     for i, (stem, files) in enumerate(todo, 1):
-        log.info("(%d/%d) %s" % (i, len(todo), stem))
+        log.info("(%d/%d) %s" % (i, len(todo), display_name(stem)))
         if not recover(stem, files, directory, ffmpeg, args):
             failed += 1
     log.info("完成 %d 局, 失败 %d 局" % (len(todo) - failed, failed))

@@ -19,6 +19,7 @@ dist-modded mods="mods":
     {{ python }} scripts/package_windows.py --mods {{ mods }} --console
 
 # just windows recordings-recover [--run] [--clean] [录像目录]
-# 扫描录像目录里崩溃后残留的中间文件并补做合成, 默认只列出, --run 执行, --clean 成功后删中间文件.
+# 扫描录像目录里崩溃后残留的中间文件并补做合成, 默认只列出,
+# --run 执行, --clean 成功后删中间文件.
 recordings-recover *args:
     {{ python }} scripts/recordings_recover.py {{ args }}

@@ -71,21 +71,41 @@ local function recordings_dir()
   return love.filesystem.getSaveDirectory() .. "/recordings"
 end
 
---- 列表用的文件系统访问: 目录下的 *.replay.json.
+-- 回放文件的相对路径: 每局一个文件夹时是 "<stem>/<stem>.replay.json".
+local REPLAY_SUFFIX = ".replay.json"
+
+--- 列表用的文件系统访问. 两种布局都列: 子文件夹里的回放文件 (每局一个文件夹), 与录像目录根下的
+--- (旧版平铺). 名字是相对录像目录的路径, 读取与删除都按它拼.
 ---@return BBReplayFS
 local function make_fs()
   local dir = recordings_dir()
+  ---@param info table getDirectoryItemsInfo 返回的项
+  ---@param rel string 相对录像目录的路径
+  local function info_of(info, rel)
+    return {
+      name = rel,
+      size = info.size or 0,
+      mtime = math.floor(info.modtime or 0),
+    }
+  end
   local fs = {}
   function fs.list()
     local out = {}
+    for _, entry in ipairs(SMODS.NFS.getDirectoryItemsInfo(dir, "directory") or {}) do
+      local folder = entry.name or ""
+      if folder ~= "" and folder ~= "." and folder ~= ".." then
+        for _, inner in ipairs(SMODS.NFS.getDirectoryItemsInfo(dir .. "/" .. folder, "file") or {}) do
+          local name = inner.name or ""
+          if name:sub(-#REPLAY_SUFFIX) == REPLAY_SUFFIX then
+            out[#out + 1] = info_of(inner, folder .. "/" .. name)
+          end
+        end
+      end
+    end
     for _, info in ipairs(SMODS.NFS.getDirectoryItemsInfo(dir, "file") or {}) do
       local name = info.name or ""
-      if name:sub(-12) == ".replay.json" then
-        out[#out + 1] = {
-          name = name,
-          size = info.size or 0,
-          mtime = math.floor(info.modtime or 0),
-        }
+      if name:sub(-#REPLAY_SUFFIX) == REPLAY_SUFFIX then
+        out[#out + 1] = info_of(info, name)
       end
     end
     return out
@@ -327,15 +347,15 @@ function delete_armed()
   return confirm.armed_at ~= nil and love.timer.getTime() - confirm.armed_at < DELETE_ARM
 end
 
---- 这一局还在后台合成: 中间文件或合成脚本在 BUSY_WINDOW 秒内改过.
----@param dir string
----@param files string[]
+--- 这一局还在后台合成: 中间文件或合成脚本在 BUSY_WINDOW 秒内改过. base 是这一局的目录加局名.
+---@param base string
+---@param names string[] 产物名 (相对这一局的目录)
 ---@return boolean
-local function still_building(dir, files)
+local function still_building(base, names)
   local now = os.time()
-  for _, name in ipairs(files) do
+  for _, name in ipairs(names) do
     if name:match("%.video%.mp4$") or name:match("%.post%.%a+$") or name:match("%.pcm$") then
-      local info = SMODS.NFS.getInfo(dir .. "/" .. name, "file")
+      local info = SMODS.NFS.getInfo(base .. "/" .. name, "file")
       if info and info.modtime and now - info.modtime < BUSY_WINDOW then
         return true
       end
@@ -344,7 +364,33 @@ local function still_building(dir, files)
   return false
 end
 
---- 确认页上点 "删除": 第一次只改按钮文字, 再点一次删掉这一局的全部文件, 回到列表.
+--- 删掉一个文件夹里的全部文件, 再删文件夹本身. 只用于每局一个文件夹的局.
+---@param path string
+---@return integer removed
+---@return string[] failed
+local function remove_folder(path)
+  local removed, failed = 0, {}
+  for _, info in ipairs(SMODS.NFS.getDirectoryItemsInfo(path, "file") or {}) do
+    local name = info.name or ""
+    local ok, err = SMODS.NFS.remove(path .. "/" .. name)
+    if ok then
+      removed = removed + 1
+    else
+      failed[#failed + 1] = name
+      sendWarnMessage("删除录像文件失败: " .. tostring(err), LOGGER)
+    end
+  end
+  local ok, err = SMODS.NFS.remove(path)
+  if ok then
+    removed = removed + 1
+  else
+    failed[#failed + 1] = path:match("[^/]+$") or path
+    sendWarnMessage("删除录像文件夹失败: " .. tostring(err), LOGGER)
+  end
+  return removed, failed
+end
+
+--- 确认页上点 "删除": 第一次只改按钮文字, 再点一次删掉这一局, 回到列表.
 function delete_selected()
   local entry = confirm.entry
   if not delete_armed() then
@@ -352,32 +398,25 @@ function delete_selected()
     return
   end
   confirm.armed_at = nil
-  local files = deps.library.run_files(entry.name)
-  if not files then
-    deps.toast.push("回放", "文件名不对, 没有删除: " .. tostring(entry.name), 4)
+  local location, why = deps.library.locate(entry.name)
+  if not location then
+    deps.toast.push("回放", why .. ", 没有删除: " .. tostring(entry.name), 4)
+    return
+  end
+  if not deps.library.deletable(location) then
+    deps.toast.push("回放", "旧版平铺的录像不支持删除, 免得误删别的局", 4)
     return
   end
   local dir = recordings_dir()
-  if still_building(dir, files) then
+  local base = dir .. "/" .. location.folder .. "/" .. location.stem
+  if still_building(base, location.names) then
     deps.toast.push("回放", "这一局的视频还在合成, 稍后再删", 4)
     return
   end
-  local removed, failed = 0, {}
-  for _, name in ipairs(files) do
-    local path = dir .. "/" .. name
-    if SMODS.NFS.getInfo(path, "file") then
-      local ok, err = SMODS.NFS.remove(path)
-      if ok then
-        removed = removed + 1
-      else
-        failed[#failed + 1] = name
-        sendWarnMessage("删除回放文件失败: " .. tostring(err), LOGGER)
-      end
-    end
-  end
-  sendInfoMessage(string.format("回放已删除: %s, 删掉 %d 个文件", entry.name, removed), LOGGER)
+  local removed, failed = remove_folder(dir .. "/" .. location.folder)
+  sendInfoMessage(string.format("回放已删除: %s, 删掉 %d 个条目", entry.name, removed), LOGGER)
   if #failed > 0 then
-    deps.toast.push("回放", string.format("删掉 %d 个文件, %d 个删不掉: %s", removed, #failed, failed[1]), 5)
+    deps.toast.push("回放", string.format("删掉 %d 个, %d 个删不掉: %s", removed, #failed, failed[1]), 5)
   else
     deps.toast.push("回放", string.format("已删除这一局 (%d 个文件)", removed), 3)
   end
@@ -387,6 +426,13 @@ function delete_selected()
   if page > 1 then
     page_by(page - 1)
   end
+end
+
+--- 这一局能不能删: 文件名认得出来, 而且是每局一个文件夹的布局. 旧版平铺的不给删.
+---@return boolean
+local function can_delete()
+  local location = confirm.entry and deps.library.locate(confirm.entry.name)
+  return location ~= nil and deps.library.deletable(location)
 end
 
 --- 删除按钮: 点一次变成 "再点一次删除", 再点才删. 返回列表由面板底部原版的 "返回" 负责.
@@ -402,6 +448,7 @@ local function delete_button()
     minh = 0.6,
     scale = 0.4,
     colour = G.C.RED,
+    enabled = can_delete,
     on_click = delete_selected,
   })
 end
@@ -430,6 +477,9 @@ local function confirm_lines(entry)
   end
   if entry.ok and entry.resumed then
     lines[#lines + 1] = "这是读档开局的局, 回放会从原局的存档接着走"
+  end
+  if not can_delete() then
+    lines[#lines + 1] = "旧版平铺的录像 (文件直接放在录像目录里) 不支持删除, 免得误删别的局"
   end
   return lines
 end

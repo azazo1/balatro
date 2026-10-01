@@ -45,8 +45,9 @@ run-agent record="on" fast="0": dist-modded
     echo "游戏日志: $log"
     dist/macos/Balatro-Modded.app/Contents/MacOS/love 2>&1 | tee "$log"
 
-# just macos replay recordings/<stem>.replay.json [tight|original]
-# 按回放文件重玩一局并录制到 recordings/replay-*, 使用临时存档 Balatro-Replay, 期间锁定输入, 按住 Esc 1 秒中止.
+# just macos replay recordings/<stem> [tight|original]
+# 按回放文件重玩一局并录制到 recordings/, 使用临时存档 Balatro-Replay, 期间锁定输入, 按住 Esc 1 秒中止.
+# 参数可以是这一局的文件夹 (每局一个文件夹), 也可以是里面的 .replay.json 文件本身.
 replay file pacing="tight": dist-modded
     #!/usr/bin/env bash
     set -euo pipefail
@@ -59,6 +60,18 @@ replay file pacing="tight": dist-modded
         /*) ;;
         *) file={{ quote(invocation_directory()) }}/"$file" ;;
     esac
+    if [ -d "$file" ]; then
+        # 给的是文件夹: 进去找这一局的回放文件, 只有一个才认.
+        found=()
+        for candidate in "$file"/*.replay.json; do
+            [ -f "$candidate" ] && found+=("$candidate")
+        done
+        if [ "${#found[@]}" -ne 1 ]; then
+            echo "文件夹里没有唯一的回放文件 (找到 ${#found[@]} 个): $file" >&2
+            exit 2
+        fi
+        file="${found[0]}"
+    fi
     if [ ! -f "$file" ]; then
         echo "找不到回放文件: $file" >&2
         exit 2
@@ -73,7 +86,8 @@ replay file pacing="tight": dist-modded
     dist/macos/Balatro-Modded.app/Contents/MacOS/love 2>&1 | tee "$log"
 
 # just macos recordings-recover [--run] [--clean] [录像目录]
-# 扫描 recordings/ 里崩溃后残留的中间文件并补做合成, 默认只列出, --run 执行, --clean 成功后删中间文件.
+# 扫描 recordings/ 里崩溃后残留的中间文件并补做合成, 默认只列出,
+# --run 执行, --clean 成功后删中间文件.
 recordings-recover *args:
     {{ python }} scripts/recordings_recover.py {{ args }}
 

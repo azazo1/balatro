@@ -50,7 +50,7 @@ Android 上的存储位置, 存档目录的权限修正, 以及触摸流程. 录
 | 存档, 进度, 设置 (`settings.jkr`, `<档位>/profile.jkr`, `meta.jkr`, `save.jkr`) | 根目录与档位目录 |
 | mod 配置, 包括内置 agent 的 endpoint 和 key | `config/` |
 | lovely shim 释放的 mod 和日志 | `Mods/` 与 shim 的日志目录 |
-| 录像, 时间轴, 回放文件, agent 转录 | `recordings/` |
+| 录像, 时间轴, 回放文件, agent 转录 (每局一个 `<stem>/` 文件夹) | `recordings/` |
 
 - 新增的写入 (bbnet 的 media 模块, 转录等) 一律用 `love.filesystem.getSaveDirectory()` 下的路径, 不用 Android 的内部目录.
 - 不经过 `love.filesystem` 的写入 (`io.open`, `os.rename`, 编码线程等) 写完要调用 `android_storage.fix_path`,
@@ -77,7 +77,7 @@ Android 上的存储位置, 存档目录的权限修正, 以及触摸流程. 录
 2. 开始: 主菜单打开 选项 → Agent → 开始, 或者手动开局后点 HUD 的 "选项" → Agent → 开始.
 3. 暂停或停止: 选项 → Agent.
 4. 回放: 主菜单 → 选项 → 回放, 选一个文件开始. 长按屏幕 1.5 秒中止.
-5. 取出录像: USB 或 `adb pull` 访问 `Android/data/<包名>/files/save/<存档名>/recordings/`. Android 11 起, 部分文件管理器不能浏览 `Android/data`, 这是系统限制. 用同样的方式把其他设备录下的回放文件放进这个目录, 就能在列表里看到.
+5. 取出录像: USB 或 `adb pull` 访问 `Android/data/<包名>/files/save/<存档名>/recordings/`. 每局一个文件夹, 里面的文件带这一局的前缀. Android 11 起, 部分文件管理器不能浏览 `Android/data`, 这是系统限制. 用同样的方式把其他设备录下的回放文件放进这个目录 (放一个文件夹里, 或直接放根下都认), 就能在列表里看到.
 
 生命周期:
 

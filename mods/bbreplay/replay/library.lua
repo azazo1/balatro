@@ -1,5 +1,9 @@
 --[[
-回放列表: 扫描录像目录下的 *.replay.json, 解析出菜单要用的信息, 判断能不能回放.
+回放列表: 扫描录像目录下的回放文件, 解析出菜单要用的信息, 判断能不能回放.
+布局有两种, 都认:
+- 每局一个文件夹: <录像目录>/<stem>/<stem>.replay.json.
+- 旧版平铺: <录像目录>/<stem>.replay.json. 只在录像目录根下, 列表能显示与回放, 但不支持删除,
+  免得误删同一层里别的局的文件 (见 M.deletable).
 
 回放文件里带存档快照, 可能很大, 所以这里只留列表用的字段 (见 describe), 解析出的完整表立刻丢掉,
 真正开始时再由 player 重新读一遍文件. 解析结果按 文件名 + 大小 + 修改时间 缓存, 文件没变就不重复解析.
@@ -240,21 +244,47 @@ local RUN_SUFFIXES = {
   ".post.cmd",
 }
 
---- 删除一个回放时要删掉的文件名 (不含目录): 这一局的回放文件, 两份视频, 时间轴, agent 转录与残留的中间文件.
---- 只按固定后缀拼出完整文件名, 不做通配, 同一局的其它段 (<stem>-2 等) 不会被带上.
---- name 不是 <stem>.replay.json, 或者带路径分隔符时返回 nil.
----@param name string 回放文件名
----@return string[]?
-function M.run_files(name)
-  local stem = type(name) == "string" and name:match("^(.+)%.replay%.json$")
-  if not stem or stem:find("[/\\]") or stem == "." or stem == ".." then
-    return nil
+--- 一局在录像目录里的位置.
+---@class BBReplayLocation
+---@field folder string? 每局一个文件夹时的文件夹名 (相对录像目录); 旧版平铺的局为 nil
+---@field stem string 回放文件名去掉 .replay.json
+---@field names string[] 这一局的产物名 (相对 folder, 平铺时相对录像目录)
+
+--- 回放文件名 (相对录像目录) 转成位置. 两种布局都认:
+--- 每局一个文件夹 <folder>/<stem>.replay.json, 与旧版平铺的 <stem>.replay.json.
+--- 只认 folder 与 stem 相同的那种: 删除时按文件夹删, 认错了会删到别的局.
+---@param name string? 回放文件名, 可以是相对路径
+---@return BBReplayLocation? location
+---@return string? reason 认不出时的中文原因
+function M.locate(name)
+  if type(name) ~= "string" or name == "" then
+    return nil, "文件名不对"
   end
-  local files = {}
+  local folder, stem = name:match("^([^/]+)/([^/]+)%.replay%.json$")
+  if not stem then
+    stem = name:match("^([^/]+)%.replay%.json$")
+    if not stem then
+      return nil, "文件名不对"
+    end
+  end
+  if stem == "." or stem == ".." or stem:find("\\", 1, true) then
+    return nil, "文件名不对"
+  end
+  if folder and folder ~= stem then
+    return nil, "回放文件与所在文件夹名字不一致"
+  end
+  local names = {}
   for i, suffix in ipairs(RUN_SUFFIXES) do
-    files[i] = stem .. suffix
+    names[i] = stem .. suffix
   end
-  return files
+  return { folder = folder, stem = stem, names = names }
+end
+
+--- 列表里能不能删除这一局. 旧版平铺的文件散在录像目录根下, 与别的局混在一起, 不支持删除.
+---@param location BBReplayLocation
+---@return boolean
+function M.deletable(location)
+  return type(location) == "table" and location.folder ~= nil
 end
 
 --- 分页. 页码从 1 起, 越界时收敛到有效范围.

@@ -83,11 +83,42 @@ local function toast(title, text, duration)
   deps.toast.push(title, text, duration)
 end
 
---- 读一个回放文件并校验, 返回内容或中文的不可回放原因. 列表里的同样判断见 library.describe.
+local REPLAY_SUFFIX = ".replay.json"
+
+--- 参数是这一局的文件夹时 (每局一个文件夹), 取里面的回放文件. 是文件时原样返回.
 ---@param path string
+---@return string? resolved
+---@return string? problem
+local function resolve_replay_path(path)
+  if path:sub(-#REPLAY_SUFFIX) == REPLAY_SUFFIX then
+    return path
+  end
+  local nfs = SMODS and SMODS.NFS
+  if type(nfs) ~= "table" or not nfs.getInfo(path, "directory") then
+    return path
+  end
+  local found = {}
+  for _, name in ipairs(nfs.getDirectoryItems(path) or {}) do
+    if name:sub(-#REPLAY_SUFFIX) == REPLAY_SUFFIX then
+      found[#found + 1] = name
+    end
+  end
+  if #found ~= 1 then
+    return nil, string.format("文件夹里没有唯一的回放文件 (找到 %d 个): %s", #found, path)
+  end
+  return path .. "/" .. found[1]
+end
+
+--- 读一个回放文件并校验, 返回内容或中文的不可回放原因. 列表里的同样判断见 library.describe.
+---@param path string 回放文件, 或存放它的一局文件夹
 ---@return table? data
 ---@return string? problem
 local function read_data(path)
+  local resolved, problem = resolve_replay_path(path)
+  if not resolved then
+    return nil, problem
+  end
+  path = resolved
   local file = io.open(path, "rb")
   local text = file and file:read("*a")
   if file then
