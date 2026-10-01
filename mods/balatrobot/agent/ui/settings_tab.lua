@@ -1,10 +1,11 @@
 --[[
 mod 设置页 (模组 -> BalatroBot -> 配置), 即 MOD.config_tab.
 
-左列: agent 模式与内置 agent 的配置 (endpoint, 模型名, 鉴权方式, key, 单局 token 上限).
+左列: agent 模式与内置 agent 的配置 (endpoint, 模型名, 鉴权方式, key, 单局 token 上限, 赢后处理, 策略).
 右列: 显示, 开发开关, 状态行. 录像与回放的设置在 bbreplay 自己的设置页.
 
-- 原版文本框的字符表没有 '/', 还会把 '0' 改成 'o', 所以 endpoint, 模型名, key 都用 "从剪贴板粘贴" 输入.
+- 原版文本框的字符表没有 '/', 还会把 '0' 改成 'o', 所以 endpoint, 模型名, key, 策略都用 "从剪贴板粘贴" 输入.
+  策略还能复制回剪贴板, 改完再粘回来.
 - key 只显示掩码, 不写进日志. 配置以明文存在存档目录的 config/balatrobot.jkr.
 - 状态行等文字每帧由根节点的 func 刷新, 按钮的可点与颜色由 widgets 的 bb_button_state 刷新.
 ]]
@@ -22,6 +23,7 @@ local M = {}
 local COL_W = 6.2 -- 每列宽度
 local LABEL_W = 1.3 -- 行首标签宽度
 local VALUE_W = 2.9 -- 当前值宽度
+local STRATEGY_W = 1.9 -- 策略预览宽度: 比 VALUE_W 窄, 行尾多了复制与清除两个按钮, 整行与 key 一行等宽
 local SCALE = 0.3
 
 ---@class BBSettingsDeps
@@ -39,6 +41,7 @@ local view = {
   endpoint = "",
   model = "",
   key = "",
+  strategy = "",
   mode_note = "",
   action_note = "",
   agent_line = "",
@@ -97,6 +100,8 @@ local function refresh_values()
   view.endpoint = (c.endpoint and c.endpoint ~= "") and fit(c.endpoint) or "未设置"
   view.model = (c.model and c.model ~= "") and fit(c.model) or "未设置"
   view.key = Fields.mask_key(c.api_key)
+  local preview = Fields.strategy_preview(c.strategy)
+  view.strategy = preview and fit(preview, STRATEGY_W) or "未设置"
 end
 
 -- 状态行每帧刷新, 只做字符串拼接.
@@ -157,9 +162,60 @@ local function paste(field)
   config()[field] = value
   save()
   refresh_values()
-  view.action_note = "已粘贴"
+  view.action_note = field == "strategy" and "已粘贴策略, 下一次开始时生效" or "已粘贴"
   -- 只记字段名, 不记内容.
   sendInfoMessage("Builtin agent " .. field .. " updated from clipboard", LOGGER)
+end
+
+--- 行尾的小按钮 (复制, 清除).
+---@param label string
+---@param colour table?
+---@param enabled (fun(): boolean)?
+---@param on_click fun()
+---@return table
+local function small_button(label, colour, enabled, on_click)
+  return W.button({
+    label = label,
+    col = true,
+    minw = 0.8,
+    scale = SCALE,
+    colour = colour,
+    enabled = enabled,
+    on_click = on_click,
+  })
+end
+
+local function has_strategy()
+  return Fields.strategy_preview(config().strategy) ~= nil
+end
+
+--- 策略一行: 预览, 粘贴, 复制, 清除. 预览比其它行窄, 给多出的两个按钮让位.
+local function strategy_row()
+  return W.row({
+    W.col({ W.text("策略", SCALE) }, { minw = LABEL_W }),
+    W.col({ W.live(view, "strategy", SCALE, G.C.UI.TEXT_LIGHT) }, { minw = STRATEGY_W }),
+    W.button({
+      label = "粘贴",
+      col = true,
+      minw = 0.8,
+      scale = SCALE,
+      colour = G.C.BLUE,
+      on_click = function()
+        paste("strategy")
+      end,
+    }),
+    small_button("复制", G.C.BLUE, has_strategy, function()
+      local ok = pcall(love.system.setClipboardText, config().strategy)
+      view.action_note = ok and "已复制策略到剪贴板" or "复制失败"
+    end),
+    small_button("清除", nil, has_strategy, function()
+      config().strategy = ""
+      save()
+      refresh_values()
+      view.action_note = "已清除策略, 下一次开始时生效"
+      sendInfoMessage("Builtin agent strategy cleared", LOGGER)
+    end),
+  }, { padding = 0.02 })
 end
 
 ---@param label string
@@ -284,8 +340,10 @@ local function mode_column()
         save()
       end, { minw = 2.2, scale = 0.28 }),
     }),
+    strategy_row(),
     W.row({ W.live(view, "action_note", 0.27, G.C.UI.TEXT_INACTIVE) }),
     W.row({ W.text("endpoint 填 chat completions 的完整地址, 从剪贴板粘贴.", 0.26, G.C.UI.TEXT_INACTIVE) }),
+    W.row({ W.text("策略: 自己写的打法要求, 粘贴后下一次开始时生效.", 0.26, G.C.UI.TEXT_INACTIVE) }),
     W.row({ W.text("key 以明文保存在本机存档目录 (config/balatrobot.jkr).", 0.26, G.C.UI.TEXT_INACTIVE) }),
     W.row({
       W.text(

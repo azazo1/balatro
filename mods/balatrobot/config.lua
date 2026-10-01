@@ -20,6 +20,8 @@ return {
   token_limit = 0,
   -- 内置 agent 赢下一局后: "menu" 回主菜单并停止, "endless" 进入无尽模式继续打.
   after_win = "menu",
+  -- 内置 agent 的打法策略: user 自己写的一段文字, 拼在系统提示词末尾, 下一次开始时生效. 空为不加.
+  strategy = "",
 
   -- 录像: 是否录制, 保留方式 ("skip" 或 "keep"). 设了 BALATROBOT_RECORD 环境变量时以环境变量为准.
   record = false,

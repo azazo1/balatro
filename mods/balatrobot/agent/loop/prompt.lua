@@ -37,6 +37,22 @@ M.SYSTEM = [[
 - 期望分不是保证分, 要区分确定能过关和概率能过关.
 ]]
 
+--- 系统提示词: 默认部分, 有 user 的策略时在末尾单独加一节.
+--- 策略只管打法; 规则要点和解说要求仍按上面的默认, 避免策略里一句 "少说话" 把解说关掉.
+---@param strategy string? 设置页里的策略文字
+---@return string
+function M.system(strategy)
+  if type(strategy) ~= "string" or not strategy:find("%S") then
+    return M.SYSTEM
+  end
+  return M.SYSTEM
+    .. "\n## 玩家指定的策略\n"
+    .. "下面是玩家给的打法要求. 选牌, 弃牌, 买卖, 经济这些决策按它来, 和上面的打法建议冲突时以它为准;\n"
+    .. "规则要点和解说要求仍按上面的写法.\n\n"
+    .. strategy
+    .. "\n"
+end
+
 --- 模型只回了文字没有调用工具时, 追加的提醒.
 M.NUDGE = "请调用一个工具继续游戏 (先 notify 解说也可以)."
 

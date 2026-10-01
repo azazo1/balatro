@@ -1,5 +1,5 @@
 --[[
-设置页字段的纯逻辑: key 掩码, 剪贴板内容清洗, token 上限选项. 不依赖 G/SMODS, 可以用 luajit 单测.
+设置页字段的纯逻辑: key 掩码, 剪贴板内容清洗, 策略预览, token 上限选项. 不依赖 G/SMODS, 可以用 luajit 单测.
 
 key 在界面上只显示首尾各几位, 露出的字数随长度增加, 但总共不超过约四分之一; 很短的 key 全部遮住.
 ]]
@@ -26,8 +26,9 @@ function M.mask_key(key)
   return key:sub(1, head) .. "..." .. key:sub(n - tail + 1) .. " (" .. n .. " 位)"
 end
 
---- 清洗剪贴板内容. field 为 endpoint / model / api_key.
+--- 清洗剪贴板内容. field 为 endpoint / model / api_key / strategy.
 --- 返回清洗后的值, 或 nil 与原因 (不回显内容, 避免把 key 显示出来).
+--- strategy 是给模型看的一段说明, 保留换行, 不限长度, 只统一换行符并去掉其它控制字符.
 ---@param field string
 ---@param text any
 ---@return string? value
@@ -39,6 +40,10 @@ function M.clean_paste(field, text)
   text = text:gsub("^%s+", ""):gsub("%s+$", "")
   if text == "" then
     return nil, "剪贴板为空"
+  end
+  if field == "strategy" then
+    text = text:gsub("\r\n?", "\n"):gsub("[%z\1-\8\11\12\14-\31\127]", "")
+    return text
   end
   if #text > 4096 then
     return nil, "剪贴板内容太长"
@@ -65,6 +70,16 @@ function M.clean_paste(field, text)
     return nil, "未知字段: " .. tostring(field)
   end
   return text
+end
+
+--- 策略在设置页一行里的预览: 换行与连续空白并成一个空格, 之后再按宽度截取.
+---@param strategy string?
+---@return string? 空时为 nil
+function M.strategy_preview(strategy)
+  if type(strategy) ~= "string" or not strategy:find("%S") then
+    return nil
+  end
+  return (strategy:gsub("%s+", " "):gsub("^ ", ""):gsub(" $", ""))
 end
 
 --- 当前 token 上限在选项里的下标, 不在选项里时按 "不限".

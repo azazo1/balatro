@@ -206,6 +206,29 @@ do -- 正常一轮: 顺序执行多个调用, 结果按 id 写回, 下一轮不�
   check("动作结果带状态, 不再追加用户消息", msgs[#msgs].role == "tool" and msgs[#msgs].content:find("当前状态", 1, true))
 end
 
+do -- 策略: 开始时拼进系统提示词, 运行中改了不影响这一次, 停止后再开始才换
+  local env = harness()
+  env.cfg.strategy = "主打同花, 不买加筹码的小丑"
+  env.driver.start()
+  env.tick()
+  local system = env.requests[1] and env.requests[1][1].content or ""
+  check(
+    "策略拼在系统提示词末尾",
+    system:sub(1, #Prompt.SYSTEM) == Prompt.SYSTEM and system:find("主打同花", #Prompt.SYSTEM, true) ~= nil
+  )
+  env.cfg.strategy = "主打对子"
+  env.reply({ { "notify", { message = "先看看" } } })
+  env.settle()
+  local running = env.requests[2] and env.requests[2][1].content or ""
+  check("运行中改策略不影响这一次", running:find("主打同花", 1, true) ~= nil and not running:find("主打对子", 1, true))
+  env.driver.stop()
+  env.cfg.strategy = ""
+  env.driver.start()
+  env.tick()
+  local fresh = env.requests[#env.requests][1].content
+  check("清除策略后再开始, 系统提示词与默认一致", fresh == Prompt.SYSTEM)
+end
+
 do -- 只有解说没有动作时, 下一轮不重复附状态
   local env = harness()
   env.driver.start()

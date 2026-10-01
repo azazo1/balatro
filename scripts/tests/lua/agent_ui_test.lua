@@ -138,6 +138,12 @@ do -- 剪贴板清洗
   check("key 去掉 Bearer 前缀", Fields.clean_paste("api_key", "Bearer sk-123") == "sk-123")
   check("拒绝中间换行", Fields.clean_paste("api_key", "sk-1\nsk-2") == nil)
   check("空剪贴板", Fields.clean_paste("model", "   ") == nil and Fields.clean_paste("model", nil) == nil)
+  -- 策略是多行的说明: 保留换行, 不限长度, 只统一 CRLF 并去掉其它控制字符.
+  check("策略保留换行", Fields.clean_paste("strategy", "主打同花\r\n少花钱\1") == "主打同花\n少花钱")
+  local long = string.rep("同花", 5000)
+  check("策略不限长度", Fields.clean_paste("strategy", long) == long)
+  check("策略预览并成一行", Fields.strategy_preview("  主打同花\n\n少花钱 ") == "主打同花 少花钱")
+  check("空策略没有预览", Fields.strategy_preview(" \n ") == nil and Fields.strategy_preview(nil) == nil)
 end
 
 do -- runner: 没有 driver 时不启动; 停止与出错各通知一次录像; 超过 token 上限自动暂停

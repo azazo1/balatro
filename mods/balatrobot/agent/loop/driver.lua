@@ -18,7 +18,7 @@ deps:
 - call(method, params, reason, cb) -> ok, err: 进程内调用端点, cb(response)
 - abandon(): 放弃等待中的调用
 - gamestate() -> table; overlay() -> "unlock"|"win"|"other"|nil; busy() -> boolean (动画或游戏暂停)
-- config() -> {endpoint, model, api_key, auth, after_win}
+- config() -> {endpoint, model, api_key, auth, after_win, strategy}
 - json {encode, decode}; now() -> 秒
 - bar: begin_request(), push(kind, text), reset(), finish(), show_error(text 或 fun(): string, hold), show_status(text, hold)
 - describe(key) -> {name, effect}? (给摘要用)
@@ -57,7 +57,12 @@ function M.new(deps)
     last_error = nil,
   }
 
-  local history = history_mod.new(prompt.SYSTEM)
+  -- 系统提示词带 user 的策略, 每次从停止状态开始时按当时的配置重建, 运行中改了策略不影响这一次.
+  local function system_prompt()
+    local cfg = deps.config and deps.config() or {}
+    return prompt.system and prompt.system(cfg.strategy) or prompt.SYSTEM
+  end
+  local history = history_mod.new(system_prompt())
   local summarizer = summary_mod.new(deps.describe)
   local req = nil -- 进行中的模型请求
   local queue = nil -- {calls, index}
@@ -427,9 +432,15 @@ function M.new(deps)
       return
     end
     if self.state == "stopped" then
+      history.system = system_prompt()
       history:reset()
       summarizer:forget()
       last_ante = nil
+      local strategy = (deps.config and deps.config() or {}).strategy
+      if type(strategy) == "string" and strategy:find("%S") then
+        -- 只记长度, 策略内容在设置页里看.
+        log("info", string.format("Agent strategy applied (%d bytes)", #strategy))
+      end
     end
     nudges, fail_key, fail_count = 0, nil, 0
     fresh, note, pause_requested = false, nil, false
