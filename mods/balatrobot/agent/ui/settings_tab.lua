@@ -11,8 +11,9 @@ mod 设置页 (模组 -> BalatroBot -> 配置), 即 MOD.config_tab.
 
 ---@type table agent/ui/widgets.lua, init 时注入
 local W
-local Fields = assert(SMODS.load_file("agent/ui/fields.lua"))()
-local Text = assert(SMODS.load_file("agent/ui/stream_text.lua"))()
+local MOD_ID = "balatrobot"
+local Fields = assert(SMODS.load_file("agent/ui/fields.lua", MOD_ID))()
+local Text = assert(SMODS.load_file("agent/ui/stream_text.lua", MOD_ID))()
 
 local LOGGER = "BB.AGENT.SETTINGS"
 

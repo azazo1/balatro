@@ -32,6 +32,9 @@ agent 暂停期间一律不算活动.
 ]]
 
 local LOGGER = "BB.AGENT.RECORD"
+-- 运行时加载自己的模块必须显式给出 mod id: SMODS.load_file 只在首次加载 mod 时才可以省 id,
+-- 少了它会报 "No ID was provided!" (设置页打开录像开关时崩过).
+local MOD_ID = "balatrobot"
 local MAX_QUEUE = 8
 local START_GRACE = 1.5 -- 开局后固定算作活动的秒数, 覆盖开局动画
 local QUIT_WAIT = 5
@@ -826,10 +829,10 @@ local function setup()
     return false
   end
 
-  Cuts = assert(SMODS.load_file("agent/record/cuts.lua"))()
-  Timeline = assert(SMODS.load_file("agent/record/timeline.lua"))()
-  Audio = assert(SMODS.load_file("agent/record/audio.lua"))()
-  Post = assert(SMODS.load_file("agent/record/post.lua"))()
+  Cuts = assert(SMODS.load_file("agent/record/cuts.lua", MOD_ID))()
+  Timeline = assert(SMODS.load_file("agent/record/timeline.lua", MOD_ID))()
+  Audio = assert(SMODS.load_file("agent/record/audio.lua", MOD_ID))()
+  Post = assert(SMODS.load_file("agent/record/post.lua", MOD_ID))()
 
   cfg.fps = math.floor(env_number("BALATROBOT_RECORD_FPS", 30))
   cfg.height = math.floor(env_number("BALATROBOT_RECORD_HEIGHT", 720))

@@ -1,7 +1,7 @@
 -- 本仓库新增: 游戏手册的目录索引 (文件路径, 标题, 行数) 与 README 的 "按决策查阅" 表. 只读, 任何状态可用.
 -- 手册的读取逻辑见 agent/knowledge/.
 
-BB_KNOWLEDGE = BB_KNOWLEDGE or assert(SMODS.load_file("agent/knowledge/store.lua"))()
+BB_KNOWLEDGE = BB_KNOWLEDGE or assert(SMODS.load_file("agent/knowledge/store.lua", "balatrobot"))()
 
 ---@type Endpoint
 return {

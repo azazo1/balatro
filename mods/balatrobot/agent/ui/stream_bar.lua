@@ -10,7 +10,8 @@
 - UIBox 挂在 G.ROOM_ATTACH 上 (POPUP 层, 在覆盖菜单之上), 阶段切换重建 ROOM_ATTACH 时自己重建.
 ]]
 
-local Text = assert(SMODS.load_file("agent/ui/stream_text.lua"))()
+local MOD_ID = "balatrobot"
+local Text = assert(SMODS.load_file("agent/ui/stream_text.lua", MOD_ID))()
 
 local M = {}
 

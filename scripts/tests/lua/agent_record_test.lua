@@ -191,6 +191,50 @@ do -- 消息截断按 UTF-8 字符, 不切断多字节字符
   check("中文按字计时", Toast.duration_for(string.rep("中", 20)) > Toast.duration_for(string.rep("a", 20)) + 2)
 end
 
+do -- 运行时加载自己的模块必须显式给出 mod id.
+  -- SMODS.load_file 只在首次加载 mod 时才可以省 id; 这些文件里的加载可能发生在运行中 (例如设置页打开
+  -- 录像开关时装载编码模块, 内置 loop 启动时装载依赖), 省掉 id 会报 "No ID was provided!" 并崩掉游戏.
+  -- 扫 agent/ 下所有 lua (含子目录; balatrobot.lua 不在其中, 它在 mod 首次加载时执行, 可以省 id).
+  local RUNTIME_FILES = {}
+  local pipe = io.popen("find mods/balatrobot/agent -name '*.lua' | sort")
+  for name in (pipe and pipe:read("*a") or ""):gmatch("[^\n]+") do
+    RUNTIME_FILES[#RUNTIME_FILES + 1] = name
+  end
+  if pipe then
+    pipe:close()
+  end
+  check("扫到了 agent 下的 lua", #RUNTIME_FILES >= 40, tostring(#RUNTIME_FILES))
+  --- 去掉注释, 免得把用法示例当成代码 (行注释与块注释都处理, 不处理字符串里的 --).
+  ---@param text string
+  ---@return string
+  local function strip_comments(text)
+    text = text:gsub("%-%-%[%[.-%]%]", "")
+    text = text:gsub("%-%-[^\n]*", "")
+    return text
+  end
+
+  --- 找出 load_file 只传了一个参数的地方.
+  ---@param text string
+  ---@return string[] bare
+  local function bare_loads(text)
+    local out = {}
+    for path in strip_comments(text):gmatch('SMODS%.load_file%s*%(%s*"[^"]*"%s*%)') do
+      out[#out + 1] = path
+    end
+    return out
+  end
+  for _, file in ipairs(RUNTIME_FILES) do
+    local handle = assert(io.open(file, "rb"))
+    local bare = bare_loads(handle:read("*a"))
+    handle:close()
+    check(
+      "运行时加载带 mod id: " .. file:match("[^/]+$"),
+      #bare == 0,
+      bare[1] and ("缺少 id: " .. bare[1]) or nil
+    )
+  end
+end
+
 if failures > 0 then
   print(failures .. " 项失败")
   os.exit(1)

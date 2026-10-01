@@ -57,6 +57,7 @@ test-scripts:
 # 用 LuaJIT 运行 agent mod 的纯逻辑单元测试 (录制, 回放, 回放列表, 端点在进程内调用, 模型协议, 内置 agent 主循环).
 test-agent:
     luajit scripts/tests/lua/agent_record_test.lua
+    luajit scripts/tests/lua/agent_record_toggle_test.lua
     luajit scripts/tests/lua/agent_replay_test.lua
     luajit scripts/tests/lua/agent_replay_library_test.lua
     luajit scripts/tests/lua/agent_local_call_test.lua

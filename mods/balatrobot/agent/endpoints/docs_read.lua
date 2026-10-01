@@ -1,7 +1,7 @@
 -- 本仓库新增: 读取游戏手册的一个文件, 带行号. 可按 section (标题文字或锚点 id) 切章节, 或 offset/limit 分页.
 -- 大文件不带 section/offset 时只返回大纲. 只读, 任何状态可用.
 
-BB_KNOWLEDGE = BB_KNOWLEDGE or assert(SMODS.load_file("agent/knowledge/store.lua"))()
+BB_KNOWLEDGE = BB_KNOWLEDGE or assert(SMODS.load_file("agent/knowledge/store.lua", "balatrobot"))()
 
 ---@class Request.Endpoint.DocsRead.Params
 ---@field path string 相对手册根目录的路径, 可带 "#锚点"

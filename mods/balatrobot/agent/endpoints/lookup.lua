@@ -1,6 +1,6 @@
 -- 本仓库新增: 按 id, 中文名或英文名查卡牌/对象的精简记录, 并带出机制文档中提到它的行. 只读, 任何状态可用.
 
-BB_KNOWLEDGE = BB_KNOWLEDGE or assert(SMODS.load_file("agent/knowledge/store.lua"))()
+BB_KNOWLEDGE = BB_KNOWLEDGE or assert(SMODS.load_file("agent/knowledge/store.lua", "balatrobot"))()
 
 ---@class Request.Endpoint.Lookup.Params
 ---@field keys string[] id, 中文名或英文名
