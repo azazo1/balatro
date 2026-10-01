@@ -89,7 +89,7 @@ MENU -> BLIND_SELECT -> SELECTING_HAND -> ROUND_EVAL -> SHOP -+
 | `SELECTING_HAND` | `play {"cards"}`, `discard {"cards"}`, `rearrange {"hand"}` |
 | `ROUND_EVAL` | `cash_out` |
 | `SHOP` | `buy {"card"或"voucher"或"pack"}`, `reroll`, `sell {"joker"或"consumable"}`, `next_round` |
-| `SMODS_BOOSTER_OPENED` | `pack {"card","targets"?}` 或 `pack {"skip":true}` |
+| `SMODS_BOOSTER_OPENED` | `pack {"card","targets"?}` 或 `pack {"skip":true}`, `sell {"joker"或"consumable"}` |
 | 任意 | `gamestate`, `health`, `use {"consumable","cards"?}`, `rearrange`, `menu`, `save`/`load {"path"}`, `screenshot {"path"}` |
 
 `set` 和 `add` 可以直接改金钱, 盲注分数, 添加卡牌, 用于调试, 正常游玩不要用.
