@@ -34,7 +34,7 @@ def main() -> int:
     errors: list[str] = []
     data = json.loads((DOCS / "data/catalog.json").read_text(encoding="utf-8"))
     version = (ROOT / "game/version.jkr").read_text(encoding="utf-8").splitlines()[0].removesuffix("-FULL")
-    if data["schema_version"] != 1 or data["game_version"] != version or version != "1.0.1n":
+    if data["schema_version"] != 1 or data["game_version"] != version or version != "1.0.1o":
         errors.append("数据结构或游戏版本不匹配")
     records = data["records"]
     ids = [r["id"] for r in records]

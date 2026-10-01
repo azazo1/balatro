@@ -1,6 +1,6 @@
 # 来源与版本约束
 
-本手册的目标是本仓库的 Balatro 1.0.1n, 而不是 wiki 当前最新版本的抽象规则. 确认版本的依据是 [版本文件](<../../game/version.jkr#L1-L3>). 游戏原型, 本地化和实际执行分支分别提供对象身份, 卡面说明和真实行为.
+本手册的目标是本仓库的 Balatro 1.0.1o, 而不是 wiki 当前最新版本的抽象规则. 确认版本的依据是 [版本文件](<../../game/version.jkr#L1-L3>). 游戏原型, 本地化和实际执行分支分别提供对象身份, 卡面说明和真实行为.
 
 ## 证据优先级
 
@@ -32,9 +32,9 @@
 ## Wiki 核对与版本边界
 
 - [Update 1.0.1n, oldid=11805](<https://balatrowiki.org/w/Update_1.0.1n?oldid=11805>): 页面介绍 Friends of Jimbo 3 和人头牌外观替换. 不能据此推断与源码未逐行比较过的版本在所有机制上相同.
-- [Update 1.0.1o, oldid=24326](<https://balatrowiki.org/w/Update_1.0.1o?oldid=24326>): 后续版本资料, 不作为本手册的数值来源.
+- [Update 1.0.1o, oldid=24326](<https://balatrowiki.org/w/Update_1.0.1o?oldid=24326>): 本手册的目标版本. 与 1.0.1n 的源码逐文件比较过, 改动只有新增联名皮肤, 制作人员的 Collabs 页和高对比度开关, 卡牌原型, 卡面文本与规则代码不变.
 - [Jokers](<https://balatrowiki.org/w/Jokers>): 页面标明集合基于 1.0.1o, 用来核对 150 张和 70%/25%/5% 稀有度等. 本地原型的 150 张, 61 普通/64 罕见/20 稀有/5 传奇需独立统计.
-- [The Shop](<https://balatrowiki.org/w/The_Shop>): 商店概览, 其中引用的算法版本并非统一为 1.0.1n. 精确生成公式见 [商店](<rules/shop-and-packs.md>) 和 [随机池](<rules/random-pools.md>).
+- [The Shop](<https://balatrowiki.org/w/The_Shop>): 商店概览, 其中引用的算法版本并非统一为 1.0.1o. 精确生成公式见 [商店](<rules/shop-and-packs.md>) 和 [随机池](<rules/random-pools.md>).
 - [Guide: Activation Sequence](<https://balatrowiki.org/w/Guide:_Activation_Sequence>): 计分阶段交叉核对, 真实调用顺序见 [计分](<rules/scoring.md>).
 - [Ankh](<https://balatrowiki.org/w/Ankh>): 复制小丑和消耗牌空槽限制交叉核对, 见 [使用机制](<mechanics/consumable-mechanics.md>).
 
@@ -71,4 +71,4 @@ just game-docs
 just check-game-docs
 ```
 
-生成器专门校验 1.0.1n 和预期集合数量. 版本变更时应重新阅读代码, 而不是放宽断言后继续发布旧机制手册.
+生成器专门校验 1.0.1o 和预期集合数量. 版本变更时应重新阅读代码, 而不是放宽断言后继续发布旧机制手册.

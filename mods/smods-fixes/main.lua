@@ -1,4 +1,4 @@
--- 本仓库的兼容 mod: 修复 Steamodded 在 Balatro 1.0.1n 上的问题. 改游戏源码的修复在 lovely/ 下的补丁里,
+-- 本仓库的修复 mod: 修复 Steamodded 自身的问题, 与游戏版本无关. 改游戏源码的修复在 lovely/ 下的补丁里,
 -- 运行时就能修的放在这里.
 
 -- 原版 create_toggle 与 create_option_cycle 用 ipairs(args.info) 逐行画说明文字, 要求是字符串数组.

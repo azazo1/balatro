@@ -21,11 +21,13 @@ _RELEASE_RE = re.compile(r"^([0-9]+\.[0-9]+(?:\.[0-9]+)?[A-Za-z]*)-([0-9]+)\.([0
 # 只含上游版本时的形式, 用于解析非发布构建.
 _UPSTREAM_RE = re.compile(r"^[0-9]+\.[0-9]+(?:\.[0-9]+)?[A-Za-z]*$")
 
-# Android 的 versionCode 必须单调递增, 这里给各段分配固定的十进制位.
-# 上游 major/minor/patch 各两位, 仓库 major/minor/patch 各一位.
-_GAME_MAJOR_SCALE = 10_000_000
-_GAME_MINOR_SCALE = 100_000
-_GAME_PATCH_SCALE = 1_000
+# Android 的 versionCode 必须单调递增, 这里给各段分配固定的十进制位, 共 9 位, 不会超出上限.
+# 上游 major/minor 各一位, patch 两位, 字母后缀两位 (无后缀为 0, a=1 ... z=26),
+# 仓库 major/minor/patch 各一位. 字母后缀必须参与折算: 上游按 1.0.1n -> 1.0.1o 这样递增.
+_GAME_MAJOR_SCALE = 100_000_000
+_GAME_MINOR_SCALE = 10_000_000
+_GAME_PATCH_SCALE = 100_000
+_GAME_LETTER_SCALE = 1_000
 _REPO_MAJOR_SCALE = 100
 _REPO_MINOR_SCALE = 10
 _REPO_PATCH_SCALE = 1
@@ -112,17 +114,27 @@ def _numbers(text, count):
     return digits[:count]
 
 
+def _letter(upstream):
+    """取上游版本末尾的字母后缀序号: 无后缀为 0, a=1 ... z=26, 多于一个字母时报错."""
+    suffix = re.search(r"[A-Za-z]*$", upstream).group(0).lower()
+    if len(suffix) > 1:
+        log.die("上游版本的字母后缀只支持一个字母: %s" % upstream)
+    return ord(suffix) - ord("a") + 1 if suffix else 0
+
+
 def android_version_code(version=None):
     """把版本串折算成 Android 的整数 versionCode.
 
-    必须单调递增, 否则同一设备上无法覆盖安装. 因此上游三段与仓库三段各占固定十进制位:
+    必须单调递增, 否则同一设备上无法覆盖安装. 因此上游各段, 上游字母后缀与仓库三段各占固定十进制位:
 
-        1.0.1n        -> 10001000
-        1.0.1n-0.1.0  -> 10001010
-        1.0.1n-0.2.0  -> 10001020
-        1.0.2n-0.1.0  -> 10002010
+        1.0.1n        -> 100114000
+        1.0.1n-0.1.0  -> 100114010
+        1.0.1n-0.2.0  -> 100114020
+        1.0.1o-0.1.0  -> 100115010
+        1.0.2-0.1.0   -> 100200010
 
-    上游升补丁或仓库升版本都会让结果变大, 单调性成立.
+    上游升补丁, 升字母后缀或仓库升版本都会让结果变大, 单调性成立. 无后缀排在有后缀之前,
+    即 1.0.1 < 1.0.1a, 与上游的发布顺序一致.
     """
     text = version or build_version()
     upstream, repo = split(text)
@@ -130,8 +142,9 @@ def android_version_code(version=None):
         log.die("上游版本格式不正确: %s" % upstream)
 
     g_major, g_minor, g_patch = _numbers(upstream, 3)
-    if g_major > 99 or g_minor > 99 or g_patch > 99:
-        log.die("上游版本各段需在 99 以内: %s" % upstream)
+    if g_major > 9 or g_minor > 9 or g_patch > 99:
+        log.die("上游版本 major/minor 需在 9 以内, patch 需在 99 以内: %s" % upstream)
+    g_letter = _letter(upstream)
 
     r_major = r_minor = r_patch = 0
     if repo:
@@ -140,7 +153,7 @@ def android_version_code(version=None):
             log.die("仓库版本各段需在 9 以内: %s" % repo)
 
     code = (g_major * _GAME_MAJOR_SCALE + g_minor * _GAME_MINOR_SCALE + g_patch * _GAME_PATCH_SCALE
-            + r_major * _REPO_MAJOR_SCALE + r_minor * _REPO_MINOR_SCALE + r_patch * _REPO_PATCH_SCALE)
+            + g_letter * _GAME_LETTER_SCALE + r_major * _REPO_MAJOR_SCALE + r_minor * _REPO_MINOR_SCALE + r_patch * _REPO_PATCH_SCALE)
     if code > _MAX_VERSION_CODE:
         log.die("折算出的 versionCode 超出上限: %d" % code)
     return code

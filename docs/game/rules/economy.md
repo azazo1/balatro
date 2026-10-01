@@ -1,6 +1,6 @@
 # 经济与结算
 
-适用版本: Balatro 1.0.1n. 本文区分立即入账的金钱和领取时入账的结算钱, 说明利息, 租金, 购入价, 卖价及支付条件. 商店商品生成和开包详见 [商店](<shop-and-packs.md>), 单卡完整效果见 [小丑目录](<../cards/jokers.md>) 和 [消耗牌机制](<../mechanics/consumable-mechanics.md>).
+适用版本: Balatro 1.0.1o. 本文区分立即入账的金钱和领取时入账的结算钱, 说明利息, 租金, 购入价, 卖价及支付条件. 商店商品生成和开包详见 [商店](<shop-and-packs.md>), 单卡完整效果见 [小丑目录](<../cards/jokers.md>) 和 [消耗牌机制](<../mechanics/consumable-mechanics.md>).
 
 ## 1. 金钱不是分数
 

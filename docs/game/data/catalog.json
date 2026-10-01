@@ -2014,7 +2014,7 @@
     "Voucher": 32
   },
   "description_semantics": "静态规则文本中的动态值用方括号标记. 不能代替实际局内 ability 状态. unlock_condition 是原型条件, initially_unlocked 不是当前存档解锁状态.",
-  "game_version": "1.0.1n",
+  "game_version": "1.0.1o",
   "hands": {
     "Five of a Kind": {
       "chips": 120,

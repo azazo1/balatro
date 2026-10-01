@@ -334,7 +334,7 @@ just macos replay recordings/<stem>.replay.json original   # original: 按原局
 - upstream 一加载就开端口并修改游戏设置. 这里改为默认关闭, 由开关或环境变量启用.
 - 游戏内开关只启停 HTTP 服务, 不执行 upstream 的设置调整.
 - upstream 的设置调整会跳过开场动画, 关 CRT/bloom/阴影, 静音, 4 倍速, 并写进存档. 这里不再调用它,
-  见上方环境变量表. 存档里 `skip_splash` 为 `Yes` 时 (1.0.1n 没有这个选项, 只可能是早期版本写的),
+  见上方环境变量表. 存档里 `skip_splash` 为 `Yes` 时 (原版游戏没有这个选项, 只可能是早期版本写的),
   启动时把这些设置恢复为原版默认值.
 - 跳过教程保留: 全新存档里教程进度要等第一帧才创建, 入口里提前把教程标记为完成.
 - `src/lua/settings.lua` 末尾导出了 headless 等函数供 `agent/settings.lua` 调用.

@@ -1,4 +1,4 @@
--- 从 1.0.1n 游戏原型和本地化生成 agent 卡牌参考目录.
+-- 从 1.0.1o 游戏原型和本地化生成 agent 卡牌参考目录.
 -- 只加载静态原型和描述函数, 不启动 LÖVE, 不读取或写入存档.
 local function read_source(path)
     local f = assert(io.open(path, 'rb'))
@@ -236,7 +236,7 @@ local categories = {
 }
 local rarity = {'普通 Common','罕见 Uncommon','稀有 Rare','传奇 Legendary'}
 local version = read_source('game/version.jkr'):match('([^\n]+)'):gsub('%-FULL','')
-assert(version == '1.0.1n', '生成器只针对 1.0.1n 校验')
+assert(version == '1.0.1o', '生成器只针对 1.0.1o 校验')
 local catalog = {schema_version=1, game_version=version, records=array(), counts={},
     description_semantics='静态规则文本中的动态值用方括号标记. 不能代替实际局内 ability 状态. unlock_condition 是原型条件, initially_unlocked 不是当前存档解锁状态.'}
 for _, category in ipairs(categories) do
@@ -314,7 +314,7 @@ end
 log('挑战和 52 张基础扑克牌')
 catalog.challenges=array(copy(G.CHALLENGES)); catalog.counts.Challenge=#G.CHALLENGES
 assert(#catalog.challenges==20)
-local challenge_md={'# 挑战目录\n\n版本: 1.0.1n. 共 20 项. [总索引](<../README.md>). 这里记录完整初始条件和禁用项, 自定义规则的实际含义见 [牌组与挑战机制](<../mechanics/run-modifiers.md>).\n'}
+local challenge_md={'# 挑战目录\n\n版本: '..version..'. 共 20 项. [总索引](<../README.md>). 这里记录完整初始条件和禁用项, 自定义规则的实际含义见 [牌组与挑战机制](<../mechanics/run-modifiers.md>).\n'}
 lang='zh'
 for i,c in ipairs(catalog.challenges) do
     for _, field in ipairs({'jokers','consumeables','vouchers'}) do c[field]=array(c[field] or {}) end

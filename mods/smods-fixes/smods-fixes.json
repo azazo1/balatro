@@ -1,0 +1,14 @@
+{
+  "id": "smods_fixes",
+  "name": "Smods Fixes",
+  "display_name": "Smods Fixes",
+  "author": ["azazo1"],
+  "description": "Fixes for Steamodded bugs: deterministic boss pool order, and string info in option widgets. Patches only, no gameplay changes.",
+  "prefix": "smfix",
+  "main_file": "main.lua",
+  "priority": -100,
+  "version": "0.1.0",
+  "badge_colour": "666666",
+  "badge_text_colour": "FFFFFF",
+  "dependencies": []
+}

@@ -3,7 +3,7 @@
 
 1. 游戏设置: 早期版本在 agent 模式下调用 upstream 的 BB_SETTINGS.setup, 把跳过开场动画,
    关 CRT/bloom/阴影, 静音, reduced_motion, 4 倍速, 关 vsync 写进了存档.
-   原版 1.0.1n 没有 skip_splash 的界面入口, 值为 "Yes" 只可能来自这里, 以此识别并恢复原版默认值.
+   原版游戏 (1.0.1n, 1.0.1o) 没有 skip_splash 的界面入口, 值为 "Yes" 只可能来自这里, 以此识别并恢复原版默认值.
 2. mod 配置: 按版本号逐步迁移, 见 migrate_config.
 ]]
 

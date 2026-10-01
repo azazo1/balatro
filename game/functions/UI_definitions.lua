@@ -2304,7 +2304,7 @@ function G.UIDEF.settings_tab(tab)
       G.F_RUMBLE and create_toggle({label = localize('b_set_rumble'), ref_table = G.SETTINGS, ref_value = 'rumble'}) or nil,
       create_slider({label = localize('b_set_screenshake'),w = 4, h = 0.4, ref_table = G.SETTINGS, ref_value = 'screenshake', min = 0, max = 100}),
       create_toggle({label = localize('ph_display_stickers'), ref_table = G.SETTINGS, ref_value = 'run_stake_stickers'}),
-      --create_toggle({label = localize('b_high_contrast_cards'), ref_table = G.SETTINGS, ref_value = 'colourblind_option', callback = G.FUNCS.refresh_contrast_mode}),
+      create_toggle({label = localize('b_high_contrast_cards'), ref_table = G.SETTINGS, ref_value = 'colourblind_option', callback = G.FUNCS.refresh_contrast_mode}),
       create_toggle({label = localize('b_reduced_motion'), ref_table = G.SETTINGS, ref_value = 'reduced_motion'}),
       G.F_CRASH_REPORTS and create_toggle({label = localize('b_set_crash_reports'), ref_table = G.SETTINGS, ref_value = 'crashreports', info = localize('ml_crash_report_info')}) or nil,
     }}
@@ -4270,33 +4270,278 @@ function create_UIBox_deck_unlock(deck_center)
   return t
 end
 
+function G.UIDEF.multiline_credit_text(_lines)
+  local t = {}
+  for k, v in ipairs(_lines) do
+    t[#t+1] = {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
+      {n=G.UIT.T, config={text = v, scale = 0.28, colour = G.C.WHITE}},
+    }}
+  end
+
+  return t
+end
+
+function G.UIDEF.viewed_collab_option(_new_option)
+  G.viewed_collab = G.viewed_collab or 'The Binding of Isaac'
+
+  local curr_collab = G.collab_credits[G.viewed_collab] or G.collab_credits['The Binding of Isaac']
+  local collab_sprite = Sprite(0,0,0.8*G.CARD_W,0.8*G.CARD_H,G.ASSET_ATLAS[curr_collab.art..'_1'], {x=2,y=0})
+
+  return  {n=G.UIT.ROOT, config={align = "cm", colour = G.C.BLACK, r = 0.1}, nodes={
+    {n=G.UIT.R, config={align = "cm", padding = 0.1}, nodes={
+      {n=G.UIT.T, config={text = G.viewed_collab, scale = 0.5, colour = G.C.WHITE}}
+    }},
+    {n=G.UIT.R, config={align = "cm", padding = 0}, nodes={
+      {n=G.UIT.C, config={align = "cm", padding = 0.1, minw = 9, minh = 4.2}, nodes={
+        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes=G.UIDEF.multiline_credit_text({
+          'All rights reserved. No part of this work may be',
+          'reproduced in any form or by any means— graphic,',
+          'electronic, or mechanical, including recording,',
+          'online distribution, or information storage and retrieval',
+          'systems—without the written permission of the publisher',
+          'or the designated rightsholder, as applicable.'
+        })},
+        curr_collab.ml_text and {n=G.UIT.R, config={align = "cl", padding = 0}, nodes=G.UIDEF.multiline_credit_text(curr_collab.ml_text)} or nil,
+      }},
+      {n=G.UIT.C, config={align = "cm", padding = 0.1, minw = 3, minh = 4.2}, nodes={
+        {n=G.UIT.R, config={align = "cm", padding = 0.0}, nodes={
+          {n=G.UIT.R, config={align = "cm", colour = G.C.WHITE, r = 0.3}, nodes={
+            {n=G.UIT.O, config={colour = G.C.BLUE, object = collab_sprite, hover = true, can_collide = false}},
+          }},
+        }},
+        curr_collab.artist and {n=G.UIT.R, config={align = "cm", padding = 0.07, r = 0.1, outline = 0.7, outline_colour = G.C.WHITE}, nodes={
+          {n=G.UIT.R, config={align = "cm", padding = 0}, nodes={
+            {n=G.UIT.T, config={text = "Art created by:", scale = 0.3, colour = G.C.WHITE}},
+          }},
+          {n=G.UIT.R, config={align = "cm", padding = 0}, nodes={
+            {n=G.UIT.T, config={text = curr_collab.artist, scale = 0.3, colour = G.C.GOLD}}
+          }},
+          curr_collab.artist_link and {n=G.UIT.R, config={align = "cm", padding = 0}, nodes={
+            {n=G.UIT.T, config={text = curr_collab.artist_link, scale = 0.3, colour = G.C.BLUE}}
+          }} or nil
+        }} or nil
+      }}
+    }}
+  }}
+end
+
 function G.UIDEF.credits()
   local text_scale = 0.75
   local t =   create_UIBox_generic_options({contents ={
       {n=G.UIT.R, config={align = "cm", padding = 0}, nodes={
         create_tabs(
         {tabs = {
-          {
-            label = "Music",
-            chosen = true,
-            tab_definition_function = function() return 
-              {n=G.UIT.ROOT, config={align = "cm", padding = 0.2, colour = G.C.BLACK, r = 0.1, emboss = 0.05, minh = 6, minw = 6}, nodes={
-                {n=G.UIT.R, config={align = "cm", padding = 0}, nodes={
-                  {n=G.UIT.T, config={text = "Original Soundtrack", scale = text_scale*0.8, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
-                }},
-                {n=G.UIT.R, config={align = "cm", padding = 0}, nodes={
-                  {n=G.UIT.T, config={text = "composed by ", scale = text_scale*0.8, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
-                  {n=G.UIT.T, config={text = "LouisF", scale = text_scale*0.8, colour = G.C.BLUE, shadow = true}}
-                }},
-                G.F_EXTERNAL_LINKS and {n=G.UIT.R, config={align = "cm", padding = 0}, nodes={
-                  UIBox_button({label = {'Instagram'}, button = 'louisf_insta'})
-                }} or nil,
-                {n=G.UIT.R, config={align = "cm", padding = 0.2}, nodes={
-                  {n=G.UIT.T, config={text = "Modified with their permission", scale = text_scale*0.5, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
-                }},
-              }}
-            end,
-          },
+            {
+              label = "Production",
+              chosen = true,
+              tab_definition_function = function() return 
+                {n=G.UIT.ROOT, config={align = "cm", padding = 0.2, colour = G.C.BLACK, r = 0.1, emboss = 0.05, minh = 6, minw = 10}, nodes={
+                      {n=G.UIT.C, config={align = "cm", padding = 0.2,outline_colour = G.C.JOKER_GREY, r = 0.1, outline = 1}, nodes={
+                      {n=G.UIT.R, config={align = "cm", padding = 0}, nodes={
+                        {n=G.UIT.T, config={text = "Original Soundtrack", scale = text_scale*0.8, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
+                      }},
+                      {n=G.UIT.R, config={align = "cm", padding = 0}, nodes={
+                        {n=G.UIT.T, config={text = "composed by ", scale = text_scale*0.8, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
+                        {n=G.UIT.T, config={text = "LouisF", scale = text_scale*0.8, colour = G.C.BLUE, shadow = true}}
+                      }},
+                      G.F_EXTERNAL_LINKS and {n=G.UIT.R, config={align = "cm", padding = 0}, nodes={
+                        UIBox_button({label = {'Instagram'}, button = 'louisf_insta'})
+                      }} or nil,
+                      {n=G.UIT.R, config={align = "cm", padding = 0.2}, nodes={
+                        {n=G.UIT.T, config={text = "Modified with their permission", scale = text_scale*0.5, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
+                      }},
+                    }},
+                    {n=G.UIT.C, config={align = "tm", padding = 0.1,outline_colour = G.C.JOKER_GREY, r = 0.1, outline = 1}, nodes={
+                      {n=G.UIT.R, config={align = "cm", padding = 0}, nodes={
+                        {n=G.UIT.T, config={text = "Porting", scale = text_scale*0.6, colour = G.C.WHITE, shadow = true}},
+                      }},
+                      {n=G.UIT.R, config={align = "cm", padding = 0}, nodes={
+                        {n=G.UIT.T, config={text = "PlayStation", scale = text_scale*0.45, colour = G.C.GOLD, shadow = true}},
+                      }},
+                      {n=G.UIT.R, config={align = "tm", padding = 0}, nodes={
+                        {n=G.UIT.C, config={align = "tl", padding = 0.03}, nodes={
+                          {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
+                            {n=G.UIT.T, config={text = 'Maarten De Meyer', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
+                          }},
+                        }},
+                      }},
+                      {n=G.UIT.R, config={align = "cm", padding = 0}, nodes={
+                        {n=G.UIT.T, config={text = "Xbox", scale = text_scale*0.45, colour = G.C.GOLD, shadow = true}},
+                      }},
+                      {n=G.UIT.R, config={align = "tm", padding = 0}, nodes={
+                        {n=G.UIT.C, config={align = "tl", padding = 0.03}, nodes={
+                          {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
+                            {n=G.UIT.T, config={text = 'Maarten De Meyer', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
+                          }},
+                        }},
+                      }},
+                      {n=G.UIT.R, config={align = "cm", padding = 0}, nodes={
+                        {n=G.UIT.T, config={text = "Android", scale = text_scale*0.45, colour = G.C.GOLD, shadow = true}},
+                      }},
+                      {n=G.UIT.R, config={align = "tm", padding = 0}, nodes={
+                        {n=G.UIT.C, config={align = "tl", padding = 0.03}, nodes={
+                          {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
+                            {n=G.UIT.T, config={text = 'Maarten De Meyer', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
+                          }},
+                        }},
+                      }},
+                      {n=G.UIT.R, config={align = "cm", padding = 0}, nodes={
+                        {n=G.UIT.T, config={text = "Apple Platforms", scale = text_scale*0.45, colour = G.C.GOLD, shadow = true}},
+                      }},
+                      {n=G.UIT.R, config={align = "tm", padding = 0}, nodes={
+                        {n=G.UIT.C, config={align = "tl", padding = 0.03}, nodes={
+                          {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
+                            {n=G.UIT.T, config={text = 'Maarten De Meyer', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
+                          }},
+                        }},
+                      }},
+                      {n=G.UIT.R, config={align = "cm", padding = 0}, nodes={
+                        {n=G.UIT.T, config={text = "Mac (Steam)", scale = text_scale*0.45, colour = G.C.GOLD, shadow = true}},
+                      }},
+                      {n=G.UIT.R, config={align = "tm", padding = 0}, nodes={
+                        {n=G.UIT.C, config={align = "tl", padding = 0.03}, nodes={
+                          {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
+                            {n=G.UIT.T, config={text = 'william341', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
+                          }},
+                        }},
+                      }},
+                    }},
+                  {n=G.UIT.C, config={align = "cm", padding = 0.1,outline_colour = G.C.JOKER_GREY, r = 0.1, outline = 1}, nodes={
+                    {n=G.UIT.R, config={align = "cm", padding = 0}, nodes={
+                      {n=G.UIT.T, config={text = "Localization", scale = text_scale*0.6, colour = G.C.WHITE, shadow = true}},
+                    }},
+                    {n=G.UIT.R, config={align = "cm", padding = 0}, nodes={
+                      {n=G.UIT.T, config={text = "Universally Speaking", scale = text_scale*0.6, colour = G.C.FILTER, shadow = true}},
+                    }},
+                    {n=G.UIT.R, config={align = "tm", padding = 0}, nodes={
+                      {n=G.UIT.C, config={align = "tl", padding = 0.05}, nodes={
+                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
+                          {n=G.UIT.T, config={text = 'German', scale = text_scale*0.35, colour = G.C.FILTER, shadow = true}},
+                        }},
+                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
+                          {n=G.UIT.T, config={text = 'Spanish Latam', scale = text_scale*0.35, colour = G.C.FILTER, shadow = true}},
+                        }},
+                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
+                          {n=G.UIT.T, config={text = 'French', scale = text_scale*0.35, colour = G.C.FILTER, shadow = true}},
+                        }},
+                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
+                          {n=G.UIT.T, config={text = 'Indonesian', scale = text_scale*0.35, colour = G.C.FILTER, shadow = true}},
+                        }},
+                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
+                          {n=G.UIT.T, config={text = 'Italian', scale = text_scale*0.35, colour = G.C.FILTER, shadow = true}},
+                        }},
+                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
+                          {n=G.UIT.T, config={text = 'Japanese', scale = text_scale*0.35, colour = G.C.FILTER, shadow = true}},
+                        }},
+                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
+                          {n=G.UIT.T, config={text = 'Korean', scale = text_scale*0.35, colour = G.C.FILTER, shadow = true}},
+                        }},
+                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
+                          {n=G.UIT.T, config={text = 'Dutch', scale = text_scale*0.35, colour = G.C.FILTER, shadow = true}},
+                        }},
+                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
+                          {n=G.UIT.T, config={text = 'Polish', scale = text_scale*0.35, colour = G.C.FILTER, shadow = true}},
+                        }},
+                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
+                          {n=G.UIT.T, config={text = 'Portuguese Brasilian', scale = text_scale*0.35, colour = G.C.FILTER, shadow = true}},
+                        }},
+                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
+                          {n=G.UIT.T, config={text = 'Russian', scale = text_scale*0.35, colour = G.C.FILTER, shadow = true}},
+                        }},
+                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
+                          {n=G.UIT.T, config={text = 'Simplified Chinese', scale = text_scale*0.35, colour = G.C.FILTER, shadow = true}},
+                        }},
+                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
+                          {n=G.UIT.T, config={text = 'Traditional Chinese', scale = text_scale*0.35, colour = G.C.FILTER, shadow = true}},
+                        }},
+                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
+                          {n=G.UIT.T, config={text = 'Project managers', scale = text_scale*0.35, colour = G.C.FILTER, shadow = true}},
+                        }},
+                      }},
+                      {n=G.UIT.C, config={align = "tl", padding = 0.05}, nodes={
+                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
+                          {n=G.UIT.T, config={text = 'Dominik May, Lisa-Marie Beck', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
+                        }},
+                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
+                          {n=G.UIT.T, config={text = 'Román René Orozco, Javier Gómez', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
+                        }},
+                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
+                          {n=G.UIT.T, config={text = 'Romain Vervaecke, Claire Gérard', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
+                        }},
+                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
+                          {n=G.UIT.T, config={text = 'Yopi Jalu Paksi, Sutarto Mohammad', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
+                        }},
+                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
+                          {n=G.UIT.T, config={text = 'Oliver Cozzio, Giulia Benassi', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
+                        }},
+                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
+                          {n=G.UIT.T, config={text = 'Takashi Fujimoto, Ai Parlow', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
+                        }},
+                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
+                          {n=G.UIT.T, config={text = 'Haejung Lee, Sanghyun Bae', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
+                        }},
+                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
+                          {n=G.UIT.T, config={text = 'Ellis Jongsma, Erik Nusselder', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
+                        }},
+                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
+                          {n=G.UIT.T, config={text = 'Mariusz Wlodarczyk, Bartosz Klofik', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
+                        }},
+                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
+                          {n=G.UIT.T, config={text = 'Samuel Modesto, R. Cali', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
+                        }},
+                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
+                          {n=G.UIT.T, config={text = 'Yuliia Tatsenko, Natalia Rudane', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
+                        }},
+                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
+                          {n=G.UIT.T, config={text = 'Shuai Fang, Liqi Ye', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
+                        }},
+                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
+                          {n=G.UIT.T, config={text = 'Pauline Lin, AngelRabbitBB', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
+                        }},
+                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
+                          {n=G.UIT.T, config={text = 'Ruoyang Yuan, Tania Carè', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
+                        }},
+                      }},
+                    }},
+                  }},
+                    {n=G.UIT.C, config={align = "tm", padding = 0.1,outline_colour = G.C.JOKER_GREY, r = 0.1, outline = 1}, nodes={
+                      {n=G.UIT.R, config={align = "cm", padding = 0}, nodes={
+                        {n=G.UIT.T, config={text = "Testing/QA", scale = text_scale*0.6, colour = G.C.WHITE, shadow = true}},
+                      }},
+                      {n=G.UIT.R, config={align = "tm", padding = 0}, nodes={
+                        {n=G.UIT.C, config={align = "tl", padding = 0.03}, nodes={
+                          {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
+                            {n=G.UIT.T, config={text = 'Vishwak Kondapalli', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
+                          }},
+                          {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
+                            {n=G.UIT.T, config={text = 'Basha Syed', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
+                          }},
+                          {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
+                            {n=G.UIT.T, config={text = 'CampfireCollective', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
+                          }},
+                          {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
+                            {n=G.UIT.T, config={text = 'drspectred', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
+                          }},
+                          {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
+                            {n=G.UIT.T, config={text = 'TheRealEvab', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
+                          }},
+                          {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
+                            {n=G.UIT.T, config={text = 'Brightqwerty', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
+                          }},
+                          {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
+                            {n=G.UIT.T, config={text = 'MrWizzrd', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
+                          }},
+                          {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
+                            {n=G.UIT.T, config={text = 'mcpower', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
+                          }},
+                        }},
+                      
+                  }},
+                  }},
+                  
+                }}
+              end,
+            },
             {
               label = "Publishing",
               tab_definition_function = function() return 
@@ -4554,197 +4799,221 @@ function G.UIDEF.credits()
               end,
             },
             {
-              label = "Production",
-              tab_definition_function = function() return 
-                {n=G.UIT.ROOT, config={align = "cm", padding = 0.2, colour = G.C.BLACK, r = 0.1, emboss = 0.05, minh = 6, minw = 10}, nodes={
-                    {n=G.UIT.C, config={align = "tm", padding = 0.1,outline_colour = G.C.JOKER_GREY, r = 0.1, outline = 1}, nodes={
-                      {n=G.UIT.R, config={align = "cm", padding = 0}, nodes={
-                        {n=G.UIT.T, config={text = "Porting", scale = text_scale*0.6, colour = G.C.WHITE, shadow = true}},
-                      }},
-                      {n=G.UIT.R, config={align = "cm", padding = 0}, nodes={
-                        {n=G.UIT.T, config={text = "PlayStation", scale = text_scale*0.45, colour = G.C.GOLD, shadow = true}},
-                      }},
-                      {n=G.UIT.R, config={align = "tm", padding = 0}, nodes={
-                        {n=G.UIT.C, config={align = "tl", padding = 0.03}, nodes={
-                          {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
-                            {n=G.UIT.T, config={text = 'Maarten De Meyer', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
-                          }},
-                        }},
-                      }},
-                      {n=G.UIT.R, config={align = "cm", padding = 0}, nodes={
-                        {n=G.UIT.T, config={text = "Xbox", scale = text_scale*0.45, colour = G.C.GOLD, shadow = true}},
-                      }},
-                      {n=G.UIT.R, config={align = "tm", padding = 0}, nodes={
-                        {n=G.UIT.C, config={align = "tl", padding = 0.03}, nodes={
-                          {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
-                            {n=G.UIT.T, config={text = 'Maarten De Meyer', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
-                          }},
-                        }},
-                      }},
-                      {n=G.UIT.R, config={align = "cm", padding = 0}, nodes={
-                        {n=G.UIT.T, config={text = "Android", scale = text_scale*0.45, colour = G.C.GOLD, shadow = true}},
-                      }},
-                      {n=G.UIT.R, config={align = "tm", padding = 0}, nodes={
-                        {n=G.UIT.C, config={align = "tl", padding = 0.03}, nodes={
-                          {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
-                            {n=G.UIT.T, config={text = 'Maarten De Meyer', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
-                          }},
-                        }},
-                      }},
-                      {n=G.UIT.R, config={align = "cm", padding = 0}, nodes={
-                        {n=G.UIT.T, config={text = "Apple Platforms", scale = text_scale*0.45, colour = G.C.GOLD, shadow = true}},
-                      }},
-                      {n=G.UIT.R, config={align = "tm", padding = 0}, nodes={
-                        {n=G.UIT.C, config={align = "tl", padding = 0.03}, nodes={
-                          {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
-                            {n=G.UIT.T, config={text = 'Maarten De Meyer', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
-                          }},
-                        }},
-                      }},
-                      {n=G.UIT.R, config={align = "cm", padding = 0}, nodes={
-                        {n=G.UIT.T, config={text = "Mac (Steam)", scale = text_scale*0.45, colour = G.C.GOLD, shadow = true}},
-                      }},
-                      {n=G.UIT.R, config={align = "tm", padding = 0}, nodes={
-                        {n=G.UIT.C, config={align = "tl", padding = 0.03}, nodes={
-                          {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
-                            {n=G.UIT.T, config={text = 'william341', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
-                          }},
-                        }},
-                      }},
-                    }},
-                  {n=G.UIT.C, config={align = "cm", padding = 0.1,outline_colour = G.C.JOKER_GREY, r = 0.1, outline = 1}, nodes={
-                    {n=G.UIT.R, config={align = "cm", padding = 0}, nodes={
-                      {n=G.UIT.T, config={text = "Localization", scale = text_scale*0.6, colour = G.C.WHITE, shadow = true}},
-                    }},
-                    {n=G.UIT.R, config={align = "cm", padding = 0}, nodes={
-                      {n=G.UIT.T, config={text = "Universally Speaking", scale = text_scale*0.6, colour = G.C.FILTER, shadow = true}},
-                    }},
-                    {n=G.UIT.R, config={align = "tm", padding = 0}, nodes={
-                      {n=G.UIT.C, config={align = "tl", padding = 0.05}, nodes={
-                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
-                          {n=G.UIT.T, config={text = 'German', scale = text_scale*0.35, colour = G.C.FILTER, shadow = true}},
-                        }},
-                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
-                          {n=G.UIT.T, config={text = 'Spanish Latam', scale = text_scale*0.35, colour = G.C.FILTER, shadow = true}},
-                        }},
-                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
-                          {n=G.UIT.T, config={text = 'French', scale = text_scale*0.35, colour = G.C.FILTER, shadow = true}},
-                        }},
-                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
-                          {n=G.UIT.T, config={text = 'Indonesian', scale = text_scale*0.35, colour = G.C.FILTER, shadow = true}},
-                        }},
-                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
-                          {n=G.UIT.T, config={text = 'Italian', scale = text_scale*0.35, colour = G.C.FILTER, shadow = true}},
-                        }},
-                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
-                          {n=G.UIT.T, config={text = 'Japanese', scale = text_scale*0.35, colour = G.C.FILTER, shadow = true}},
-                        }},
-                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
-                          {n=G.UIT.T, config={text = 'Korean', scale = text_scale*0.35, colour = G.C.FILTER, shadow = true}},
-                        }},
-                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
-                          {n=G.UIT.T, config={text = 'Dutch', scale = text_scale*0.35, colour = G.C.FILTER, shadow = true}},
-                        }},
-                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
-                          {n=G.UIT.T, config={text = 'Polish', scale = text_scale*0.35, colour = G.C.FILTER, shadow = true}},
-                        }},
-                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
-                          {n=G.UIT.T, config={text = 'Portuguese Brasilian', scale = text_scale*0.35, colour = G.C.FILTER, shadow = true}},
-                        }},
-                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
-                          {n=G.UIT.T, config={text = 'Russian', scale = text_scale*0.35, colour = G.C.FILTER, shadow = true}},
-                        }},
-                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
-                          {n=G.UIT.T, config={text = 'Simplified Chinese', scale = text_scale*0.35, colour = G.C.FILTER, shadow = true}},
-                        }},
-                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
-                          {n=G.UIT.T, config={text = 'Traditional Chinese', scale = text_scale*0.35, colour = G.C.FILTER, shadow = true}},
-                        }},
-                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
-                          {n=G.UIT.T, config={text = 'Project managers', scale = text_scale*0.35, colour = G.C.FILTER, shadow = true}},
-                        }},
-                      }},
-                      {n=G.UIT.C, config={align = "tl", padding = 0.05}, nodes={
-                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
-                          {n=G.UIT.T, config={text = 'Dominik May, Lisa-Marie Beck', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
-                        }},
-                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
-                          {n=G.UIT.T, config={text = 'Román René Orozco, Javier Gómez', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
-                        }},
-                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
-                          {n=G.UIT.T, config={text = 'Romain Vervaecke, Claire Gérard', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
-                        }},
-                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
-                          {n=G.UIT.T, config={text = 'Yopi Jalu Paksi, Sutarto Mohammad', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
-                        }},
-                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
-                          {n=G.UIT.T, config={text = 'Oliver Cozzio, Giulia Benassi', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
-                        }},
-                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
-                          {n=G.UIT.T, config={text = 'Takashi Fujimoto, Ai Parlow', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
-                        }},
-                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
-                          {n=G.UIT.T, config={text = 'Haejung Lee, Sanghyun Bae', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
-                        }},
-                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
-                          {n=G.UIT.T, config={text = 'Ellis Jongsma, Erik Nusselder', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
-                        }},
-                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
-                          {n=G.UIT.T, config={text = 'Mariusz Wlodarczyk, Bartosz Klofik', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
-                        }},
-                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
-                          {n=G.UIT.T, config={text = 'Samuel Modesto, R. Cali', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
-                        }},
-                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
-                          {n=G.UIT.T, config={text = 'Yuliia Tatsenko, Natalia Rudane', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
-                        }},
-                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
-                          {n=G.UIT.T, config={text = 'Shuai Fang, Liqi Ye', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
-                        }},
-                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
-                          {n=G.UIT.T, config={text = 'Pauline Lin, AngelRabbitBB', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
-                        }},
-                        {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
-                          {n=G.UIT.T, config={text = 'Ruoyang Yuan, Tania Carè', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
-                        }},
-                      }},
-                    }},
-                  }},
-                    {n=G.UIT.C, config={align = "tm", padding = 0.1,outline_colour = G.C.JOKER_GREY, r = 0.1, outline = 1}, nodes={
-                      {n=G.UIT.R, config={align = "cm", padding = 0}, nodes={
-                        {n=G.UIT.T, config={text = "Testing/QA", scale = text_scale*0.6, colour = G.C.WHITE, shadow = true}},
-                      }},
-                      {n=G.UIT.R, config={align = "tm", padding = 0}, nodes={
-                        {n=G.UIT.C, config={align = "tl", padding = 0.03}, nodes={
-                          {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
-                            {n=G.UIT.T, config={text = 'Vishwak Kondapalli', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
-                          }},
-                          {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
-                            {n=G.UIT.T, config={text = 'Basha Syed', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
-                          }},
-                          {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
-                            {n=G.UIT.T, config={text = 'CampfireCollective', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
-                          }},
-                          {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
-                            {n=G.UIT.T, config={text = 'drspectred', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
-                          }},
-                          {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
-                            {n=G.UIT.T, config={text = 'TheRealEvab', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
-                          }},
-                          {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
-                            {n=G.UIT.T, config={text = 'Brightqwerty', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
-                          }},
-                          {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
-                            {n=G.UIT.T, config={text = 'MrWizzrd', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
-                          }},
-                          {n=G.UIT.R, config={align = "cl", padding = 0}, nodes={
-                            {n=G.UIT.T, config={text = 'mcpower', scale = text_scale*0.35, colour = G.C.UI.TEXT_LIGHT, shadow = true}},
-                          }},
-                        }},
-                      
-                  }},
-                  }},
-                  
+              label = "Collabs",
+              tab_definition_function = function()
+                G.collab_credits = G.collab_credits or {
+
+                  ['Vault-Tec'] = {
+                    artist = 'Franek',
+                    ml_text = {
+                      '© 2025 ZeniMax.  ZeniMax and Bethesda Game Studios',
+                      'are trademarks of the ZeniMax group of companies. ',
+                      'All rights reserved.',
+                    },
+                    art = 'collab_FO'
+                  },
+                  ['The Witcher'] = {
+                    artist = nil,
+                    ml_text = {
+                      '© 2024 CD PROJEKT S.A. All rights reserved. CD PROJEKT,',
+                      'the CD PROJEKT logo, The Witcher and The Witcher Logo,',
+                      'Geralt, Geralt of Rivia and Yennefer are trademarks and/or',
+                      'registered trademarks of CD PROJEKT S.A. in the US and/or',
+                      'other countries. The Witcher game is set in the universe',
+                      'created by Andrzej Sapkowski in his series of books.'
+                    },
+                    art = 'collab_TW'
+                  },
+                  ['Cyberpunk 2077'] = {
+                    artist = nil,
+                    ml_text = {
+                      'Cyberpunk 2077 © 2024 CD PROJEKT S.A. All rights reserved.'
+                    },
+                    art = 'collab_CYP'
+                  },
+                  ['Shovel Knight'] = {
+                    artist = 'Neato',
+                    artist_link = 'twitch.tv/neato',
+                    ml_text = {
+                      'Shovel Knight © 2024 Yacht Club Games, LLC. All Rights Reserved.'
+                    },
+                    art = 'collab_SK'
+                  },
+                  ['Don\'t Starve'] = {
+                    artist = nil,
+                    ml_text = {
+                      '“KLEI” “DON\'T STARVE” © 2024 All Rights Reserved',
+                      'Klei Entertainment 2024'
+                    },
+                    art = 'collab_DS'
+                  },
+                  ['Assassin\'s Creed'] = {
+                    artist = 'Franek',
+                    ml_text = {
+                      'Assassin\'s Creed © 2025 Ubisoft Entertainment.',
+                      'All Rights Reserved.'
+                    },
+                    art = 'collab_AC'
+                  },
+                  ['Slay the Princess'] = {
+                    artist = 'Franek',
+                    ml_text = {
+                      'Slay the Princess (c) 2025 Black Tabby Games. All Rights Reserved.',
+                      '"SLAY THE PRINCESS" - Canadian Trademark App: 2351515',
+                      'SLAY THE PRINCESS LOGO - Canadian Trademark App: 2351516',
+                      '"BLACK TABBY GAMES" - Canadian Trademark App: 2351514'
+                    },
+                    art = 'collab_STP'
+                  },
+                  ['Among Us'] = {
+                    artist = nil,
+                    ml_text = {
+                      'Among Us © 2024 Innersloth LLC. All Rights Reserved.'
+                    },
+                    art = 'collab_AU'
+                  },
+                  ['The Binding of Isaac'] = {
+                    artist = 'Neato',
+                    artist_link = 'twitch.tv/neato',
+                    ml_text = {
+                      'The Binding of Isaac is copyright McMillen Games, Inc.',
+                      'All Rights Reserved'
+                    },
+                    art = 'collab_TBoI'
+                  },
+                  ['Cult of the Lamb'] = {
+                    artist = nil,
+                    ml_text = {
+                      'Cult of the Lamb © 2024 Massive Monster All Rights Reserved'
+                    },
+                    art = 'collab_CL'
+                  },
+                  ['Divinity Original Sin 2'] = {
+                    artist = nil,
+                    ml_text = {
+                      '©2024 Larian Studios. Larian Studios, Divinity, Divinity: Original Sin',
+                      'and the Larian Studios logo are registered trademarks of Larian Studios',
+                      'Games Limited affiliates. All rights reserved.'
+                    },
+                    art = 'collab_D2'
+                  },
+                  ['Critical Role'] = {
+                    artist = 'Grace Berrios',
+                    artist_link = '@lassflores',
+                    ml_text = {
+                      '2025 © Gilmore’s Glorious Goods LLC. All Rights Reserved.',
+                      'Critical Role, Vox Machina, Mighty Nein, Bells Hells, character names,',
+                      'associated logos and images are all trademarks of Critical Role LLC."'
+                    },
+                    art = 'collab_CR'
+                  },
+                  ['Bugsnax'] = {
+                    artist = 'Neato',
+                    artist_link = 'twitch.tv/neato',
+                    ml_text = {
+                      '© 2025 Bugsnax © Young Horses Inc. All Rights Reserved.'
+                    },
+                    art = 'collab_BUG'
+                  },
+                  ['Vampire Survivors'] = {
+                    artist = nil,
+                    ml_text = nil,
+                    art = 'collab_VS'
+                  },
+                  ['Slay the Spire'] = {
+                    artist = 'Neato',
+                    artist_link = 'twitch.tv/neato',
+                    ml_text = {
+                      'Slay the Spire ©2024 Mega Crit Games, LLC. All Rights Reserved.'
+                    },
+                    art = 'collab_STS'
+                  },
+                  ['Potion Craft'] = {
+                    artist = nil,
+                    ml_text = {
+                      'Potion Craft © 2024 tinyBuild, LLC. All Rights Reserved.'
+                    },
+                    art = 'collab_PC'
+                  },
+                  ['Warframe'] = {
+                    artist = nil,
+                    ml_text = {
+                      'Warframe ©2024 Digital Extremes Ltd. All rights reserved. Warframe',
+                      'and the Warframe logo are registered trademarks of Digital Extremes Ltd.'
+                    },
+                    art = 'collab_WF'
+                  },
+                  ['Dead By Daylight'] = {
+                    artist = nil,
+                    ml_text = {
+                      '© 2015-2025 and BEHAVIOUR, DEAD BY DAYLIGHT and other related trademarks',
+                      'and logos belong to Behaviour Interactive Inc. All rights reserved.'
+                    },
+                    art = 'collab_DBD'
+                  },
+                  ['Dave the Diver'] = {
+                    artist = nil,
+                    ml_text = {
+                      'Dave the Diver © Mintrocket. All Rights Reserved.'
+                    },
+                    art = 'collab_DTD'
+                  },
+                  ['Stardew Valley'] = {
+                    artist = 'ConcernedApe',
+                    ml_text = {
+                      '"Stardew Valley" is a trademark of ConcernedApe LLC. All Rights Reserved'
+                    },
+                    art = 'collab_SV'
+                  },
+                  ['Enter the Gungeon'] = {
+                    artist = nil,
+                    ml_text = {
+                      'Enter the Gungeon © 2024 Devolver Digital Inc.All Rights Reserved.'
+                    },
+                    art = 'collab_EG'
+                  },
+                  ['1000xRESIST'] = {
+                    artist = nil,
+                    ml_text = nil,
+                    art = 'collab_XR'
+                  },
+                  ['Civilization VII'] = {
+                    artist = nil,
+                    ml_text = {
+                      'CIVILIZATION Licensed Assets Courtesy of 2K Games, Inc.',
+                      '© 2025 Take-Two Interactive Software, Inc. and its subsidiaries.'
+                    },
+                    art = 'collab_C7'
+                  },
+                  ['Rust'] = {
+                    artist = nil,
+                    ml_text = {
+                      'Rust (c) 2025 Facepunch Studios Ltd. All Rights Reserved.'
+                    },
+                    art = 'collab_R'
+                  },
+                }
+
+                local middle = {n=G.UIT.R, config={align = "cm", minh = 4.8, minw = 12.3}, nodes={
+                  {n=G.UIT.O, config={id = nil, func = 'CREDITS_check_collab', object = Moveable()}},
+                }}
+              
+                local collab_options = {}
+                for k, v in pairs(G.collab_credits) do
+                  collab_options[#collab_options+1] = k
+                end
+                
+                table.sort(collab_options)
+
+                G.viewed_collab = collab_options[1]
+
+                return 
+                      {n=G.UIT.ROOT, config={align = "cm", padding = 0.2, colour = G.C.L_BLACK, r = 0.1, emboss = 0.05, minh = 6, minw = 10}, nodes={
+                      {n=G.UIT.C, config={align = "cm", padding = 0.2,outline_colour = G.C.JOKER_GREY, r = 0.1, outline = 1}, nodes={
+                        create_option_cycle({options = 
+                        collab_options, opt_callback = 'change_viewed_collab', current_option = 1, colour = G.C.RED, w = 4, mid = middle
+                        })
+                    }}
                 }}
               end,
             },
