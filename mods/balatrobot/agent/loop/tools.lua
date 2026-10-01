@@ -93,7 +93,8 @@ local DEFS = {
   },
   {
     name = "use",
-    description = "使用消耗牌. consumable 为下标, 需要选牌的用 cards 给手牌下标.",
+    description = "使用消耗牌槽里的牌, 出牌, 商店和开着补充包时都能用. consumable 为下标, 需要选牌的用 cards 给手牌下标"
+      .. " (只在出牌或发了手牌的卡包里).",
     parameters = object({
       consumable = INDEX,
       cards = { type = "array", items = { type = "integer", minimum = 0 } },

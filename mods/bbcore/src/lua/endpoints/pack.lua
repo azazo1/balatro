@@ -217,6 +217,23 @@ return {
         end
       end
 
+      -- 本仓库修改: 卡包里直接使用的消耗牌 (塔罗, 星球, 幻灵) 按原版 "使用" 按钮的条件检查, 例如命运之轮
+      -- 没有能加版本的小丑, 审判没有空的小丑槽时按钮是灰的. 选进槽位的牌 (selectable_from_pack) 不是 "使用", 不查.
+      -- skip_check 跳过动画中的锁: 那只影响按钮能不能点的时机, 接口调用前已等动画停下.
+      local select_to = booster_obj and card.selectable_from_pack and card:selectable_from_pack(booster_obj)
+      if card.ability and card.ability.consumeable and not select_to and not card:can_use_consumeable(false, true) then
+        if G.hand then
+          for i = #G.hand.highlighted, 1, -1 do
+            G.hand:remove_from_highlighted(G.hand.highlighted[i], true)
+          end
+        end
+        send_response({
+          message = "Card '" .. tostring(card_key) .. "' cannot be used now (the game's Use button is disabled for it)",
+          name = BB_ERROR_NAMES.NOT_ALLOWED,
+        })
+        return true
+      end
+
       -- Log what we're selecting
       local card_name = card.ability and card.ability.name or "Unknown"
       local card_set = card.ability and card.ability.set or card.set or "card"

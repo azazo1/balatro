@@ -36,7 +36,9 @@ return {
     },
   },
 
-  requires_state = { G.STATES.SELECTING_HAND, G.STATES.SHOP },
+  -- 本仓库修改: 原版开着补充包时也能用消耗牌槽里的牌 (smods 给 can_use_consumeable 补了 SMODS_BOOSTER_OPENED),
+  -- 需要选牌的在发了手牌的卡包 (秘术, 幻灵) 里对着手牌用.
+  requires_state = { G.STATES.SELECTING_HAND, G.STATES.SHOP, G.STATES.SMODS_BOOSTER_OPENED },
 
   ---@param args Request.Endpoint.Use.Params
   ---@param send_response fun(response: Response.Endpoint)
@@ -58,11 +60,15 @@ return {
     local requires_cards = consumable_card.ability.consumeable.max_highlighted ~= nil
 
     -- Step 3: State Validation for Card-Selecting Consumables
-    if requires_cards and G.STATE ~= G.STATES.SELECTING_HAND then
+    -- 本仓库修改: 开着发了手牌的补充包 (秘术, 幻灵) 时也能选手牌.
+    local hand_available = G.STATE == G.STATES.SELECTING_HAND
+      or (G.STATE == G.STATES.SMODS_BOOSTER_OPENED and G.hand and #G.hand.cards > 0)
+    if requires_cards and not hand_available then
       send_response({
         message = "Consumable '"
           .. consumable_card.ability.name
-          .. "' requires card selection and can only be used in SELECTING_HAND state",
+          .. "' requires card selection and can only be used in SELECTING_HAND state"
+          .. " or in a booster pack that dealt hand cards",
         name = BB_ERROR_NAMES.INVALID_STATE,
       })
       return
@@ -190,6 +196,8 @@ return {
     }
 
     -- Call game's use_card function
+    -- 本仓库修改: 记下使用前的阶段, use_card 用完后会切回它 (出牌, 商店或补充包).
+    local prev_state = G.STATE
     G.FUNCS.use_card(mock_element, true, true)
 
     -- Completion Detection
@@ -198,7 +206,7 @@ return {
       blocking = false,
       func = function()
         -- Condition 1: State restored
-        local state_restored = G.STATE == G.STATES.SELECTING_HAND or G.STATE == G.STATES.SHOP
+        local state_restored = G.STATE == prev_state
 
         -- Condition 2: Controller unlocked
         local controller_unlocked = not G.CONTROLLER.locks.use
