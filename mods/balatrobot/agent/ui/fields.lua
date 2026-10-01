@@ -30,7 +30,7 @@ function M.mask_key(key)
   return key:sub(1, head) .. "..." .. key:sub(n - tail + 1) .. " (" .. n .. " 位)"
 end
 
---- 清洗剪贴板内容. field 为 endpoint / model / api_key / strategy.
+--- 清洗剪贴板内容. field 为 endpoint / model / api_key / strategy / seed.
 --- 返回清洗后的值, 或 nil 与原因 (不回显内容, 避免把 key 显示出来).
 --- strategy 是给模型看的一段说明, 保留换行, 不限长度, 只统一换行符并去掉其它控制字符.
 ---@param field string
@@ -47,6 +47,17 @@ function M.clean_paste(field, text)
   end
   if field == "strategy" then
     text = text:gsub("\r\n?", "\n"):gsub("[%z\1-\8\11\12\14-\31\127]", "")
+    return text
+  end
+  if field == "seed" then
+    -- 与原版种子输入框一致: 最多 8 位, 自动转大写, 只有字母和数字.
+    text = text:upper()
+    if not text:find("^[A-Z0-9]+$") then
+      return nil, "种子只能是字母和数字"
+    end
+    if #text > 8 then
+      return nil, "种子最多 8 位"
+    end
     return text
   end
   if #text > 4096 then

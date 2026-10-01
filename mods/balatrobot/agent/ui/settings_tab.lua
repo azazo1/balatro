@@ -42,6 +42,7 @@ local view = {
   model = "",
   key = "",
   strategy = "",
+  seed = "",
   mode_note = "",
   action_note = "",
   agent_line = "",
@@ -102,6 +103,7 @@ local function refresh_values()
   view.key = Fields.mask_key(c.api_key)
   local preview = Fields.strategy_preview(c.strategy)
   view.strategy = preview and fit(preview, STRATEGY_W) or "未设置"
+  view.seed = (c.seed and c.seed ~= "") and c.seed or "随机"
 end
 
 -- 状态行每帧刷新, 只做字符串拼接.
@@ -162,7 +164,13 @@ local function paste(field)
   config()[field] = value
   save()
   refresh_values()
-  view.action_note = field == "strategy" and "已粘贴策略, 下一次开始时生效" or "已粘贴"
+  if field == "strategy" then
+    view.action_note = "已粘贴策略, 下一次开始时生效"
+  elseif field == "seed" then
+    view.action_note = "已设置种子, 内置 agent 开局时使用"
+  else
+    view.action_note = "已粘贴"
+  end
   -- 只记字段名, 不记内容.
   sendInfoMessage("Builtin agent " .. field .. " updated from clipboard", LOGGER)
 end
@@ -242,6 +250,19 @@ local function value_row(label, ref_value, field, extra)
     nodes[#nodes + 1] = extra
   end
   return W.row(nodes, { padding = 0.02 })
+end
+
+--- 种子一行: 当前种子 (空为 "随机"), 粘贴, 清除. 要放在 value_row 之后, 局部函数没有提升.
+local function seed_row()
+  return value_row("种子", "seed", "seed", small_button("清除", nil, function()
+    return (config().seed or "") ~= ""
+  end, function()
+    config().seed = ""
+    save()
+    refresh_values()
+    view.action_note = "已清除种子, 内置 agent 开局随机"
+    sendInfoMessage("Builtin agent seed cleared", LOGGER)
+  end))
 end
 
 ---@param label string
@@ -353,10 +374,12 @@ local function mode_column()
         save()
       end, { minw = 2.2, scale = 0.28 }),
     }),
+    seed_row(),
     strategy_row(),
     W.row({ W.live(view, "action_note", 0.27, G.C.UI.TEXT_INACTIVE) }),
     W.row({ W.text("endpoint 填 chat completions 的完整地址, 从剪贴板粘贴.", 0.26, G.C.UI.TEXT_INACTIVE) }),
     W.row({ W.text("策略: 自己写的打法要求, 粘贴后下一次开始时生效.", 0.26, G.C.UI.TEXT_INACTIVE) }),
+    W.row({ W.text("种子: 最多 8 位字母和数字, 空为随机; 固定种子的局按原版规则不计解锁和统计.", 0.26, G.C.UI.TEXT_INACTIVE) }),
     W.row({ W.text("key 以明文保存在本机存档目录 (config/balatrobot.jkr).", 0.26, G.C.UI.TEXT_INACTIVE) }),
     W.row({
       W.text(

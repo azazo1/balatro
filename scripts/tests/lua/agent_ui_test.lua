@@ -144,6 +144,13 @@ do -- 剪贴板清洗
   check("策略不限长度", Fields.clean_paste("strategy", long) == long)
   check("策略预览并成一行", Fields.strategy_preview("  主打同花\n\n少花钱 ") == "主打同花 少花钱")
   check("空策略没有预览", Fields.strategy_preview(" \n ") == nil and Fields.strategy_preview(nil) == nil)
+  -- 种子与原版输入框一致: 转大写, 最多 8 位, 只有字母和数字.
+  check("种子转大写", Fields.clean_paste("seed", " abc123 ") == "ABC123")
+  check(
+    "种子超长或带符号时不收",
+    Fields.clean_paste("seed", "ABCDEFGHI") == nil and Fields.clean_paste("seed", "AB-12") == nil
+      and Fields.clean_paste("seed", "AB 12") == nil
+  )
 end
 
 do -- runner: 没有 driver 时不启动; 停止与出错各通知一次录像; 超过 token 上限自动暂停

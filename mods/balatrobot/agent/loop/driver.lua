@@ -22,7 +22,8 @@ deps:
 - call(method, params, reason, cb) -> ok, err: 进程内调用端点, cb(response)
 - abandon(): 放弃等待中的调用
 - gamestate() -> table; overlay() -> "unlock"|"win"|"other"|nil; busy() -> boolean (动画或游戏暂停)
-- config() -> {endpoint, model, api_key, auth, after_win, strategy, context_limit}
+- config() -> {endpoint, model, api_key, auth, after_win, strategy, context_limit, seed}
+  seed 非空时 start 一律用它开局, 覆盖模型给的种子.
 - json {encode, decode}; now() -> 秒
 - bar: begin_request(label?), push(kind, text), reset(), finish(), show_error(text 或 fun(): string, hold), show_status(text, hold)
   label 是固定显示在行首的前缀 (压缩时为 "压缩中: ").
@@ -459,6 +460,15 @@ function M.new(deps)
       tool_result(call, "失败: " .. tostring(reason))
       return
     end
+    -- 设置页给了固定种子时, 开局一律用它, 模型给的种子 (或没给) 都不算.
+    local fixed_seed = nil
+    if method == "start" then
+      local seed = (deps.config() or {}).seed
+      if type(seed) == "string" and seed ~= "" then
+        fixed_seed = seed
+        params.seed = seed
+      end
+    end
     local key = name .. " " .. tostring(fn.arguments)
 
     calling = true
@@ -488,7 +498,11 @@ function M.new(deps)
           summarizer:forget()
           report("new_run")
         end
-        tool_result(call, "完成. 当前状态:\n" .. summarizer:render(response))
+        local done = "完成. 当前状态:\n"
+        if fixed_seed then
+          done = "完成 (玩家指定了固定种子 " .. fixed_seed .. ", 已按它开局). 当前状态:\n"
+        end
+        tool_result(call, done .. summarizer:render(response))
         fresh = true
         history:note(string.format("%s %s%s", method, deps.json.encode(params), reason and (" (" .. reason .. ")") or ""))
       elseif tools.QUERIES[method] then

@@ -239,6 +239,30 @@ do -- 策略: 开始时拼进系统提示词, 运行中改了不影响这一次,
   check("清除策略后再开始, 系统提示词与默认一致", fresh == Prompt.SYSTEM)
 end
 
+do -- 固定种子: 设置了就覆盖模型给的种子 (没给也补上), 结果里告诉模型
+  local env = harness()
+  env.gs = hand_state({ state = "MENU" })
+  env.cfg.seed = "ABC123"
+  env.driver.start()
+  env.tick()
+  env.reply({
+    { "start", { deck = "RED", stake = "WHITE", seed = "ZZZZ", reason = "开局" } },
+  })
+  env.settle()
+  local start = env.calls[1]
+  check("固定种子覆盖模型给的种子", start and start.method == "start" and start.params.seed == "ABC123")
+  local msgs = env.requests[2] or {}
+  check("开局结果告诉模型用了固定种子", msgs[#msgs] and msgs[#msgs].content:find("ABC123", 1, true) ~= nil)
+
+  local plain = harness()
+  plain.gs = hand_state({ state = "MENU" })
+  plain.driver.start()
+  plain.tick()
+  plain.reply({ { "start", { deck = "RED", stake = "WHITE", reason = "开局" } } })
+  plain.settle()
+  check("没设种子时按模型给的参数开局", plain.calls[1] and plain.calls[1].params.seed == nil)
+end
+
 do -- 只有解说没有动作时, 下一轮不重复附状态
   local env = harness()
   env.driver.start()
