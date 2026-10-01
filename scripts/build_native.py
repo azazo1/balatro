@@ -1,9 +1,12 @@
 """编译与测试原生库 native/bbnet (网络与录像用的颜色转换都在这一个库里).
 
     python3 scripts/build_native.py test                    # 跑单元测试与集成测试
-    python3 scripts/build_native.py build macos             # 输出到 mod 目录
+    python3 scripts/build_native.py build macos             # 输出到 dist/native/macos/
     python3 scripts/build_native.py build windows           # 输出到 dist/native/windows/
     python3 scripts/build_native.py build android [abi...]  # 输出到 dist/native/android/<abi>/
+
+产物都在 dist/ 下, 不进 mod 源码目录: 打包时由各平台的打包脚本只放入本平台的库 (桌面放进
+mod 树的 balatrobot/native/<平台>/, Android 放进 APK 的 lib/<abi>/), 免得一个平台的库混进别的平台的包.
 
 用 python 而不是 justfile 里的 shell, 是为了在 Windows 上也能跑.
 """
@@ -20,15 +23,14 @@ from lib import layout, log  # noqa: E402
 CRATE_DIR = os.path.join(layout.ROOT_DIR, "native", "bbnet")
 MANIFEST = os.path.join(CRATE_DIR, "Cargo.toml")
 
-# 桌面平台: (Rust target, 库文件名, 产物位置).
-# macOS 直接进 mod 的原生目录, 随 mod 树进安装包; Windows 放 dist/, 打包时放在 exe 旁边.
+NATIVE_OUT = os.path.join(layout.DIST_DIR, "native")
+# 桌面平台: (Rust target, 库文件名). 文件名与 mods/balatrobot/agent/net/bbnet.lua 的 LIB_FILE 一致.
+# macOS 只编 arm64: Intel Mac 上加载失败, 内置 agent 退回 SMODS.https 的非流式请求.
 DESKTOP = {
-    "macos": ("aarch64-apple-darwin", "libbbnet.dylib",
-              os.path.join(layout.MODS_DIR, "balatrobot", "native", "macos")),
-    "windows": ("x86_64-pc-windows-msvc", "bbnet.dll",
-                os.path.join(layout.DIST_DIR, "native", "windows")),
+    "macos": ("aarch64-apple-darwin", "libbbnet.dylib"),
+    "windows": ("x86_64-pc-windows-msvc", "bbnet.dll"),
 }
-ANDROID_OUT = os.path.join(layout.DIST_DIR, "native", "android")
+ANDROID_OUT = os.path.join(NATIVE_OUT, "android")
 # Android ABI -> Rust target. cargo-ndk 自己也有这张表, 这里只用来检查 target 有没有装.
 ANDROID_TARGETS = {
     "arm64-v8a": "aarch64-linux-android",
@@ -36,6 +38,11 @@ ANDROID_TARGETS = {
     "x86_64": "x86_64-linux-android",
     "x86": "i686-linux-android",
 }
+
+
+def desktop_lib(platform):
+    """just native build <桌面平台> 产出的库路径."""
+    return os.path.join(NATIVE_OUT, platform, DESKTOP[platform][1])
 
 
 def android_lib(abi):
@@ -52,6 +59,24 @@ def _probe(cmd):
     return result.returncode == 0, result.stdout or ""
 
 
+def _target_missing(target):
+    """rust target 没装时返回说明. 没有 rustup (例如发行版自带的 rust) 时不判断, 交给编译报错."""
+    ok, installed = _probe(["rustup", "target", "list", "--installed"])
+    if ok and target not in installed.split():
+        return "没装 rust target %s (rustup target add %s)" % (target, target)
+    return None
+
+
+def desktop_missing(platform):
+    """编译这个桌面平台还缺什么, 返回说明; 都齐了返回 None. 不退出进程, 供打包时判断."""
+    if not shutil.which("cargo"):
+        return "找不到 cargo"
+    if platform == "windows" and sys.platform != "win32":
+        # 需要 MSVC 链接器 link.exe, 在别的系统上交叉编译会在链接时失败.
+        return "Windows 版只能在 Windows 上编译 (需要 MSVC 链接器)"
+    return _target_missing(DESKTOP[platform][0])
+
+
 def android_missing(abi):
     """编译这个 ABI 还缺什么, 返回说明; 都齐了返回 None. 不退出进程, 供打包时判断."""
     target = ANDROID_TARGETS.get(abi)
@@ -61,11 +86,7 @@ def android_missing(abi):
         return "找不到 cargo"
     if not _probe(["cargo", "ndk", "--version"])[0]:
         return "找不到 cargo-ndk (cargo install cargo-ndk)"
-    ok, installed = _probe(["rustup", "target", "list", "--installed"])
-    # 没有 rustup (例如发行版自带的 rust) 时不判断, 交给编译报错.
-    if ok and target not in installed.split():
-        return "没装 rust target %s (rustup target add %s)" % (target, target)
-    return None
+    return _target_missing(target)
 
 
 def find_ndk():
@@ -95,11 +116,28 @@ def find_ndk():
 
 def build_desktop(platform):
     # Windows 需要 MSVC 链接器, 在 macOS 上交叉编译会因缺少 link.exe 失败, 请在 Windows 或 CI 上运行.
-    target, name, out_dir = DESKTOP[platform]
+    target, name = DESKTOP[platform]
     log.run(["cargo", "build", "--manifest-path", MANIFEST, "--release", "--target", target])
-    out = os.path.join(layout.ensure_dir(out_dir), name)
+    out = desktop_lib(platform)
+    layout.ensure_dir(os.path.dirname(out))
     shutil.copyfile(os.path.join(CRATE_DIR, "target", target, "release", name), out)
     log.info("已生成 %s" % os.path.relpath(out, layout.ROOT_DIR))
+
+
+def desktop_native_files(platform, skip):
+    """打包桌面带 mod 的版本时调用: 编译本平台的 bbnet, 返回 modding.game_source 的 native_files.
+
+    每次都编译 (cargo 增量编译, 没改动时很快), 既不会漏带, 也不会带上改代码之前编的旧库.
+    编不出来就报错退出; skip 为真 (--no-native) 时只打一条警告, 返回空.
+    """
+    if skip:
+        log.warn("--no-native: 不带 bbnet, 内置 agent 只能用非流式请求")
+        return {}
+    missing = desktop_missing(platform)
+    if missing:
+        log.die("编译不了 %s 的 bbnet: %s\n确实不需要时, 加 --no-native 打包" % (platform, missing))
+    build_desktop(platform)
+    return {"%s/%s" % (platform, DESKTOP[platform][1]): desktop_lib(platform)}
 
 
 def build_android(abis):

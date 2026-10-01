@@ -41,6 +41,10 @@ KNOWLEDGE_MOD = "balatrobot"
 KNOWLEDGE_DIR = "knowledge"
 KNOWLEDGE_ITEMS = ("README.md", "rules", "mechanics", "cards", "data/README.md", "data/catalog.json")
 
+# 原生库: 打包时放进 balatrobot mod 的 native/<平台>/, 与 mods/balatrobot/agent/net/bbnet.lua 的查找路径一致.
+NATIVE_MOD = "balatrobot"
+NATIVE_DIR = "native"
+
 _SENTINEL_RE = re.compile(rb"@@LOVELY_SHIM_MOD_DIR_[0-9]+@@")
 _TEXT_EXTS = (".lua", ".toml", ".json", ".txt", ".fs", ".vs", ".glsl", ".frag", ".vert", ".md")
 _BEFORE_CALL = "require(%s).before(%s);"
@@ -175,6 +179,33 @@ def copy_knowledge(source, mods_root):
     return count
 
 
+def place_native(native_files, mods_root):
+    """把原生库放进 balatrobot mod 的 native/, 返回放入的文件数.
+
+    native_files 是 native/ 下的相对路径 (如 macos/libbbnet.dylib) -> 本地文件. mod 源码目录里残留的
+    native/ 先整个删掉: 那里可能有开发时编的别的平台的库, 不能混进当前平台的包. 放入发生在计算清单之前,
+    原生库随 mod 一起释放到磁盘 (ffi.load 只能加载真实文件) 并计入 bundle_hash.
+    """
+    mod_dir = os.path.join(mods_root, NATIVE_MOD)
+    if not os.path.isdir(mod_dir):
+        if native_files:
+            raise PatchError("没有 %s mod, 放不了原生库" % NATIVE_MOD)
+        return 0
+    dest_root = os.path.join(mod_dir, NATIVE_DIR)
+    if os.path.isdir(dest_root):
+        log.info("移除 mod 目录里残留的 %s/%s" % (NATIVE_MOD, NATIVE_DIR))
+        shutil.rmtree(dest_root)
+    for rel in sorted(native_files or {}):
+        src = native_files[rel]
+        if not os.path.isfile(src):
+            raise PatchError("找不到原生库 %s" % src)
+        dest = os.path.join(dest_root, *rel.split("/"))
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        shutil.copyfile(src, dest)
+        log.info("加入原生库 %s/%s/%s" % (NATIVE_MOD, NATIVE_DIR, rel))
+    return len(native_files or {})
+
+
 # ---------------------------------------------------------------- 报告
 
 @dataclass
@@ -238,10 +269,11 @@ def _module_entries(patches):
 
 
 def build_tree(game_dir, mods_dir, out_dir, identity, build_version, strict=False,
-               knowledge_dir=KNOWLEDGE_SOURCE):
+               knowledge_dir=KNOWLEDGE_SOURCE, native_files=None):
     """在 out_dir 生成带 mod 的游戏源码树, 返回 Report. out_dir 必须不存在.
 
     knowledge_dir 为游戏手册目录, 复制进 balatrobot mod; 为 None 时不复制.
+    native_files 见 place_native; 为空时树里不带原生库 (Android 的原生库放在 APK 的 lib/ 下).
     """
     if os.path.exists(out_dir):
         raise PatchError("输出目录已存在: %s" % out_dir)
@@ -263,6 +295,7 @@ def build_tree(game_dir, mods_dir, out_dir, identity, build_version, strict=Fals
         log.warn("mod 目录里没有任何 mod")
     if knowledge_dir is not None:
         copy_knowledge(knowledge_dir, mods_root)
+    place_native(native_files, mods_root)
 
     patches, variables = loader.load_patches(sources)
     report.patches = len(patches)

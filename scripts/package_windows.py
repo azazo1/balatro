@@ -7,7 +7,7 @@ Windows 版的做法是把 .love 追加到 love.exe 末尾: LÖVE 内部用 Phys
 由于这个仓库里的运行时是重新分发的官方 LÖVE, 不含 Steam 原生模块, 游戏会以无 Steam
 模式运行: 成就与进度由本地存档记录, 与 macOS 版行为一致.
 
-本脚本可以在任何平台运行, 不依赖 Windows 环境.
+原版包可以在任何平台打. 带 mod 的包要编译 bbnet.dll, 只能在 Windows 上打; 在别的系统上加 --no-native.
 
 用法:
     python3 scripts/package_windows.py
@@ -23,6 +23,7 @@ import tempfile
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from lib import archive, gamezip, layout, log, modding, runtime, version as versionlib
+import build_native  # noqa: E402  打包带 mod 的版本时顺带编译 bbnet
 
 log.set_prefix("windows")
 
@@ -70,7 +71,8 @@ def main():
         os.makedirs(bundle_dir)
 
         love_payload = os.path.join(work_dir, "%s.love" % layout.APP_NAME)
-        gamezip.build(modding.game_source(args, work_dir, version), love_payload)
+        native = build_native.desktop_native_files("windows", args.no_native) if args.mods else None
+        gamezip.build(modding.game_source(args, work_dir, version, native), love_payload)
 
         exe_name = "%s.exe" % layout.APP_NAME
 

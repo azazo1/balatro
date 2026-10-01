@@ -6,6 +6,6 @@ test:
     {{ python }} scripts/build_native.py test
 
 # just native build macos|windows|android [abi...]
-# 编译原生库, macOS 版放进 mod 目录, 其余放 dist/native/<平台>/ (android 默认 arm64-v8a).
+# 编译原生库到 dist/native/<平台>/ (android 默认 arm64-v8a). 打 modded 包时会自动编译, 一般不用单独跑.
 build platform *abis:
     {{ python }} scripts/build_native.py build {{ platform }} {{ abis }}

@@ -62,8 +62,6 @@ def parse_args():
     parser.add_argument("--install", action="store_true",
                         help="打包完成后安装到已连接的设备")
     parser.add_argument("--keep-work", action="store_true", help="保留临时目录")
-    parser.add_argument("--no-native", action="store_true",
-                        help="带 mod 时不编译也不放入原生库 bbnet (内置 agent 与录像不可用), 默认必须带")
     modding.add_arguments(parser)
     return parser.parse_args()
 

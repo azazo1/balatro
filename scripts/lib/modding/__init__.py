@@ -21,20 +21,27 @@ def add_arguments(parser):
                         help="打包带 mod 的版本, 从 DIR 读取 mod, 省略 DIR 时使用 mods/")
     parser.add_argument("--strict-mods", action="store_true",
                         help="有补丁未命中时构建失败")
+    parser.add_argument("--no-native", action="store_true",
+                        help="带 mod 时不编译也不放入原生库 bbnet, 默认必须带. 没有它时内置 agent "
+                        "在桌面上只能用非流式请求, 在 Android 上连不上模型, Android 录像也只有时间轴")
 
 
 def flavor(args):
     return layout.MODDED if args.mods else layout.VANILLA
 
 
-def game_source(args, work_dir, build_version):
-    """返回要打包的游戏源码目录. 未启用 mod 时就是 game/, 否则在 work_dir 下生成补丁后的源码树."""
+def game_source(args, work_dir, build_version, native_files=None):
+    """返回要打包的游戏源码目录. 未启用 mod 时就是 game/, 否则在 work_dir 下生成补丁后的源码树.
+
+    native_files 放进 balatrobot mod 的 native/ 下, 见 build.place_native.
+    """
     if not args.mods:
         return layout.GAME_DIR
     out = os.path.join(work_dir, "game")
     try:
         build_tree(layout.GAME_DIR, os.path.abspath(args.mods), out,
-                   layout.MODDED.identity, build_version, args.strict_mods)
+                   layout.MODDED.identity, build_version, args.strict_mods,
+                   native_files=native_files)
     except PatchError as exc:
         log.die(str(exc))
     return out

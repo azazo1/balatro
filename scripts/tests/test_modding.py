@@ -227,6 +227,21 @@ class BuildTreeTest(unittest.TestCase):
         out2 = self.build_with_knowledge("out2", knowledge)
         self.assertNotEqual(hash_of(out), hash_of(out2))
 
+    def test_native_only_current_platform_and_listed(self):
+        """mod 源码目录里残留的别的平台的库不能进包, 只放调用方给的本平台的库, 并进清单随 mod 释放."""
+        self.write(self.mods, "balatrobot/balatrobot.lua", "\n")
+        self.write(self.mods, "balatrobot/native/macos/libbbnet.dylib", "stale\n")
+        dll = os.path.join(self.tmp.name, "bbnet.dll")
+        self.write(self.tmp.name, "bbnet.dll", "dll\n")
+        out = os.path.join(self.tmp.name, "out")
+        build.build_tree(self.game, self.mods, out, None, "t", knowledge_dir=None,
+                         native_files={"windows/bbnet.dll": dll})
+        native = os.path.join(out, "lovely_shim/mods/balatrobot/native")
+        self.assertEqual(build.list_files(native), ["windows/bbnet.dll"])
+        self.assertIn('"balatrobot/native/windows/bbnet.dll"', self.read(out, "lovely_shim/manifest.lua"))
+        # 源码目录里的残留只是没进包, 不会被删
+        self.assertTrue(os.path.isfile(os.path.join(self.mods, "balatrobot/native/macos/libbbnet.dylib")))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -20,6 +20,7 @@ import tempfile
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from lib import archive, gamezip, icns, info_plist, layout, log, modding, runtime, version as versionlib
+import build_native  # noqa: E402  打包带 mod 的版本时顺带编译 bbnet
 
 log.set_prefix("macos")
 
@@ -80,7 +81,8 @@ def main():
 
         # .love 的文件名决定默认存档目录, 保持 Balatro; 带 mod 的版本在 conf 里另行覆盖存档标识.
         love_name = "%s.love" % layout.APP_NAME
-        game_src = modding.game_source(args, work_dir, version)
+        native = build_native.desktop_native_files("macos", args.no_native) if args.mods else None
+        game_src = modding.game_source(args, work_dir, version, native)
         gamezip.build(game_src, os.path.join(resources, love_name))
 
         values = {

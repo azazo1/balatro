@@ -19,7 +19,7 @@ dist/
 __pycache__/
 *.pyc
 
-# bbnet 原生库的编译目录与复制进 mod 的产物
+# bbnet 原生库的编译目录. 产物在 dist/native/ 下, 打包时才放进 mod 树; mod 目录里旧位置的残留也忽略.
 /native/bbnet/target/
 /mods/balatrobot/native/
 

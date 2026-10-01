@@ -107,12 +107,19 @@ const char *bbnet_version(void);
 构建 (`just native ...`, 实现见 [build_native.py](<../scripts/build_native.py>)):
 
 - `just native test`: 单元测试与集成测试. 颜色转换的用例也在其中 ([yuv.rs](<../native/bbnet/src/yuv.rs>)).
-- `just native build macos`: 编译 arm64, 放到 `mods/balatrobot/native/macos/libbbnet.dylib`, 打包时随 mod 进入游戏.
-  x86_64 的 rust target 没装, 要做 universal 包时分别编译再用 lipo 合并.
-- `just native build android [abi...]`: 用 cargo-ndk 编译到 `dist/native/android/<abi>/libbbnet.so`, 默认 arm64-v8a.
-  armeabi-v7a 需要先 `rustup target add armv7-linux-androideabi`. NDK r27 起默认 16KB 页对齐.
-  `just android dist-modded` 打包时, 已有的 .so 会放进 APK 的 `lib/<abi>/`, 只放运行时 APK 已有的 ABI 目录, 缺的打印提示后继续.
-- `just native build windows`: 只能在 Windows 或 CI 上编译, macOS 上缺 MSVC 链接器.
+- `just native build <平台>`: 编译到 `dist/native/<平台>/`, 一般不用单独跑, 打包时会自动编译.
+  - macos: 只编 arm64. x86_64 的 rust target 没装, 要做 universal 包时分别编译再用 lipo 合并; Intel Mac 上退回 SMODS.https.
+  - windows: 只能在 Windows 上编译, 别的系统上缺 MSVC 链接器.
+  - android `[abi...]`: 用 cargo-ndk 编译到 `dist/native/android/<abi>/libbbnet.so`, 默认 arm64-v8a.
+    armeabi-v7a 需要先 `rustup target add armv7-linux-androideabi`. NDK r27 起默认 16KB 页对齐.
+
+打包 (三个平台的 `dist-modded` 都一样): 每次都重新编译本平台的 bbnet (cargo 增量编译, 没改动时只要几秒),
+既不会漏带, 也不会带上改代码之前编的旧库. 编不出来就报错退出, 确实不需要时加 `--no-native`.
+
+- 桌面: 放进 mod 树的 `balatrobot/native/<平台>/`, 随 mod 释放到存档目录后由 `ffi.load` 加载. mod 源码目录里
+  `mods/balatrobot/native/` 的残留会先清掉, 免得一个平台的库混进别的平台的包.
+- Android: 放进 APK 的 `lib/<abi>/`, 只放运行时 APK 已有的 ABI. arm64-v8a 是必需的; 其余 ABI 缺编译条件时
+  警告并跳过, 那类设备上内置 agent 连不上模型, 录像只有时间轴.
 - 编译产物不入库. 以后 CI 在各平台预编译.
 
 这些 recipe 都只是转调 python: NDK 查找, target 映射与产物复制写在脚本里, 三个平台共用一份,

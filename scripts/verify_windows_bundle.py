@@ -7,6 +7,7 @@ workflow 的 YAML 块标量里造成缩进问题.
 用法:
     python3 scripts/verify_windows_bundle.py dist/windows/Balatro-1.0.1o-win64
     python3 scripts/verify_windows_bundle.py --modded dist/windows/Balatro-Modded-1.0.1o-win64
+    python3 scripts/verify_windows_bundle.py --modded --no-native dist/windows/Balatro-Modded-1.0.1o-win64
 """
 import io
 import os
@@ -24,12 +25,15 @@ LOVE_EXE_SIZE = 387072
 REQUIRED_DEPS = ("love.dll", "SDL2.dll", "OpenAL32.dll", "lua51.dll", "mpg123.dll")
 # 带 mod 的载荷里必有的运行时清单, 见 lib/modding/build.py.
 MODDED_MARKER = "lovely_shim/manifest.lua"
+# 带 mod 的载荷里的原生库, 见 lib/modding/build.py 的 place_native. --no-native 打的包用 --no-native 校验.
+MODDED_NATIVE = "lovely_shim/mods/balatrobot/native/windows/bbnet.dll"
 
 
 def main():
     args = sys.argv[1:]
     modded = "--modded" in args
-    args = [a for a in args if a != "--modded"]
+    no_native = "--no-native" in args
+    args = [a for a in args if a not in ("--modded", "--no-native")]
     if len(args) != 1:
         print(__doc__.strip(), file=sys.stderr)
         return 2
@@ -64,6 +68,8 @@ def main():
     required = ["main.lua", "conf.lua"]
     if modded:
         required.append(MODDED_MARKER)
+        if not no_native:
+            required.append(MODDED_NATIVE)
     for need in required:
         if need not in names:
             log.die("载荷缺少 %s" % need)

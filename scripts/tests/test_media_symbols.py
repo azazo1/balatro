@@ -135,7 +135,7 @@ class MediaSymbolsTest(unittest.TestCase):
 
     def test_bbnet_declarations_match_the_real_library(self):
         """cdef.lua 里声明的 bbnet_* 符号要与 libbbnet 的导出一致."""
-        lib = os.path.join(layout.ROOT_DIR, "mods", "balatrobot", "native", "macos", "libbbnet.dylib")
+        lib = build_native.desktop_lib("macos")
         if not os.path.isfile(lib):
             self.skipTest("还没编译 macos 版 bbnet (just native build macos)")
         output = subprocess.run(

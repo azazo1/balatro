@@ -181,8 +181,6 @@ Agent 面板:
 - 内置 agent 赢下一局后的默认处理: 默认回主菜单并停止, 设置页可以改成继续无尽模式 (`after_win`).
   命令行与自动化场景没有界面, 就用配置文件的默认值.
 - 顶部居中的流式条在商店和补充包界面是否被原版 UI 占用, 实现后截图确认.
-- 桌面的 `libbbnet.dylib` 在 `mods/balatrobot/native/macos/` 下, 随 mod 进入所有平台的包 (APK 里多约 1.4MB).
-  按平台剔除要同时改 mod 清单与 bundle hash, 暂不处理.
 - Android 上 `ffi.load` 能否只用库名找到 `libbbnet.so` (找不到时从 `/proc/self/maps` 拼路径), 需要真机确认.
 - 手机上逐帧读回画面的性能能否撑住 540p 24fps, 需要真机测试.
 - 回放时是否重现内置 agent 的思考流. 转录带时间戳, original 节奏可以原样重放; tight 节奏要压缩时间.
