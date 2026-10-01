@@ -1,19 +1,31 @@
 --[[
-agent 决策消息, 仿原版成就解锁通知 (functions/common_events.lua 的 notify_alert):
-黑底灰描边的圆角 UIBox, 外圈 TRANSPARENT_DARK, 从屏幕右侧滑入, 停留后滑出.
+agent 提示消息, 仿原版成就解锁通知 (functions/common_events.lua 的 notify_alert):
+黑底灰描边的圆角 UIBox, 外圈 TRANSPARENT_DARK, 从屏幕侧面滑入, 停留后滑出.
+
+两条车道, 各自排队互不影响:
+- 右侧: 决策消息 (模型给的 reason) 与 notify 的解说, 由 M.enabled 控制.
+- 左侧: 每次工具调用的记录 (标题是工具中文名, 正文是参数含义, 见 runtime/call_note.lua), 由 M.calls_enabled 控制.
+
+车道用同一套定义表, 只是内容贴着屏幕的一侧摆, 多出来的宽度留在屏幕外:
+右侧 align "cr" 且内容靠左, 左侧 align "cli" 且内容靠右.
 
 - 消息画在游戏自己的 UI 层 (G.I.POPUP, 在覆盖菜单之上), 经过 CRT 等屏幕效果, 录像里也一样.
 - 停留时长按墙钟计; 通知仍在屏幕上或还排在队里时, 录制把这段视为活动期, 不会被剪掉.
-- 一条一条显示: 有消息正在显示时新来的排队等着, 前一条开始退场时下一条才滑入, 顺序不丢.
+- 一条一条显示: 同一条车道上已有消息正在显示时新来的排队等着, 前一条开始退场时下一条才滑入, 顺序不丢.
   排队不设上限, 一句解说都不丢 (agent 打得太快时文字会落后于画面, 这是取舍).
 - 每条通知有阅读时长 (按字数估算) 和额外停留 (LINGER): 阅读时长过后 on_read 回调触发.
+  左侧那条的正文短, 阅读时长另有一个更小的上限 (CALL_READ_MAX).
 - 讲解 (gate 为 true 的那些, 目前是 notify) 还能被后面的操作等: 见 M.gate_id / M.gate_open,
   改状态的操作要等自己那条讲解退去才执行 (dispatcher 的门槛), 观众先看到文字再看到动作.
+  左侧那条不拦操作.
 - 阶段切换 (回主菜单, 开新局) 会重建 G.ROOM_ATTACH, 已有的通知与排队的消息随之清空.
 ]]
 
 local M = {
+  -- 右侧: 决策消息与解说.
   enabled = true,
+  -- 左侧: 工具调用记录.
+  calls_enabled = true,
   -- 讲解是否拦后面的操作 (dispatcher 的门槛). 回放时关掉: 原局里操作是在讲解停留期间就执行的,
   -- 回放照原样重做, 不该再被拦一次 (回放自身用 notify 的 wait 复现原来的节奏).
   gate_enabled = true,
@@ -25,6 +37,8 @@ local MAX_ITEMS = 3
 local MAX_CHARS = 300
 local MAX_LINES = 12
 local LINE_WIDTH = 5.2 -- 游戏单位
+local WIDE = 20 -- 定义表里那行的最小宽度: 内容贴屏幕一侧, 多出来的部分留在屏幕外
+local MARGIN = 0.8 -- 内容离屏幕边缘的留白
 local TITLE_SCALE = 0.32
 local TEXT_SCALE = 0.36
 local GAP = 0.12
@@ -39,13 +53,21 @@ local READ_NARROW = 0.06
 local READ_MIN = 2.5
 -- 180 字的中文约 34 秒读完; 加上 LINGER 不超过 MAX_WALL.
 local READ_MAX = 36
+-- 左侧那条的阅读时长上限: 正文只有一句参数说明.
+local CALL_READ_MAX = 8
 -- 叠起来的通知底边离屏幕下沿至少留这么多, 再往下的旧通知提前滑出.
 local BOTTOM_MARGIN = 0.3
 
----@type table[] 屏幕上的通知 (正在显示或正在退场)
-local items = {}
----@type table[] 排队等待显示的消息, 先进先出, 不设上限也不丢
-local pending = {}
+---@class BB.Toast.Lane
+---@field side "right"|"left"
+---@field items table[] 屏幕上这一侧的通知 (正在显示或正在退场)
+---@field pending table[] 这一侧排队等待显示的消息, 先进先出, 不设上限也不丢
+
+---@type table<string, BB.Toast.Lane>
+local lanes = {
+  right = { side = "right", items = {}, pending = {} },
+  left = { side = "left", items = {}, pending = {} },
+}
 --- 消息的编号, 自增. 讲解的 id 用来让后面的操作等它退去.
 local next_id = 0
 ---@type table<integer, boolean> 还在队里或屏幕上的讲解
@@ -162,13 +184,15 @@ local function wrap(lang, text, scale)
   return lines
 end
 
-local function build_definition(title, text)
+local function build_definition(title, text, side)
   local title_lang = pick_lang(title)
   local text_lang = pick_lang(text)
+  -- 内容贴屏幕的一侧: 左侧那条靠右摆, 多出来的宽度留在屏幕外 (见文件头的说明).
+  local inner = side == "left" and "cr" or "cl"
   local rows = {
     {
       n = G.UIT.R,
-      config = { align = "cl", padding = 0.03 },
+      config = { align = inner, padding = 0.03 },
       nodes = {
         { n = G.UIT.T, config = { text = title, scale = TITLE_SCALE, colour = G.C.FILTER, shadow = true, lang = title_lang } },
       },
@@ -177,42 +201,43 @@ local function build_definition(title, text)
   for _, line in ipairs(wrap(text_lang, text, TEXT_SCALE)) do
     rows[#rows + 1] = {
       n = G.UIT.R,
-      config = { align = "cl", padding = 0.02 },
+      config = { align = inner, padding = 0.02 },
       nodes = {
         { n = G.UIT.T, config = { text = line, scale = TEXT_SCALE, colour = G.C.UI.TEXT_LIGHT, shadow = true, lang = text_lang } },
       },
     }
   end
-  -- 结构与 create_UIBox_notify_alert 相同: 内层 minw 很宽, 只露出左侧内容, 右侧留在屏幕外.
+  -- 结构与 create_UIBox_notify_alert 相同: 内层 minw 很宽, 只露出内容那一侧, 其余留在屏幕外.
   return {
     n = G.UIT.ROOT,
-    config = { align = "cl", r = 0.1, padding = 0.06, colour = G.C.UI.TRANSPARENT_DARK },
+    config = { align = inner, r = 0.1, padding = 0.06, colour = G.C.UI.TRANSPARENT_DARK },
     nodes = {
       {
         n = G.UIT.R,
-        config = { align = "cl", padding = 0.2, minw = 20, r = 0.1, colour = G.C.BLACK, outline = 1.5, outline_colour = G.C.GREY },
+        config = { align = inner, padding = 0.2, minw = WIDE, r = 0.1, colour = G.C.BLACK, outline = 1.5, outline_colour = G.C.GREY },
         nodes = {
-          { n = G.UIT.C, config = { align = "cl", padding = 0.02 }, nodes = rows },
+          { n = G.UIT.C, config = { align = inner, padding = 0.02 }, nodes = rows },
         },
       },
     },
   }
 end
 
---- 阅读时长: 中日韩等多字节字符按 READ_WIDE 计, ASCII 按 READ_NARROW 计, 限制在 READ_MIN~READ_MAX.
+--- 阅读时长: 中日韩等多字节字符按 READ_WIDE 计, ASCII 按 READ_NARROW 计, 限制在 READ_MIN~cap.
 --- 显式给出 duration 时以它为准.
 ---@param text string
 ---@param duration number?
+---@param cap number? 上限, 按字数算时默认 READ_MAX, 显式给了 duration 时默认 MAX_WALL
 ---@return number
-function M.duration_for(text, duration)
+function M.duration_for(text, duration, cap)
   if type(duration) == "number" and duration > 0 then
-    return math.min(duration, MAX_WALL)
+    return math.min(duration, cap or MAX_WALL)
   end
   local seconds = READ_BASE
   for _, ch in ipairs(utf8_chars(text)) do
     seconds = seconds + (#ch > 1 and READ_WIDE or READ_NARROW)
   end
-  return math.max(READ_MIN, math.min(READ_MAX, seconds))
+  return math.max(READ_MIN, math.min(cap or READ_MAX, seconds))
 end
 
 ---@param item table
@@ -241,17 +266,19 @@ local function remove_item(item)
   end
 end
 
---- 让一条消息开始显示: 建 UIBox 并放进 items.
+--- 让一条消息开始显示: 建 UIBox 并放进它那条车道.
 ---@param entry table
 local function show(entry)
+  local lane = entry.lane
   local title = M.truncate(entry.title and entry.title ~= "" and entry.title or "Agent", 40)
   local text = M.truncate(entry.text, MAX_CHARS)
 
   local box = UIBox({
-    definition = build_definition(title, text),
+    definition = build_definition(title, text, lane.side),
+    -- 先摆在屏幕外, update 里等尺寸算出来再滑入. 左侧用 "cli": offset.x 就是框的左边缘.
     config = {
-      align = "cr",
-      offset = { x = 20, y = 0 },
+      align = lane.side == "left" and "cli" or "cr",
+      offset = { x = lane.side == "left" and -WIDE or WIDE, y = 0 },
       major = G.ROOM_ATTACH,
       bond = "Weak",
       instance_type = "POPUP",
@@ -263,45 +290,52 @@ local function show(entry)
   entry.box = box
   entry.attach = G.ROOM_ATTACH
   entry.age = 0
-  entry.read = M.duration_for(text, entry.duration)
+  entry.read = M.duration_for(text, entry.duration, entry.max_read)
   entry.life = math.min(entry.read + LINGER, MAX_WALL)
   entry.leave_at = nil
-  table.insert(items, 1, entry)
+  table.insert(lane.items, 1, entry)
 end
 
---- 显示一条消息. 有消息正在显示时排队等着 (前一条开始退场时下一条才滑入), 调用方立刻返回.
+--- 显示一条消息. 同一条车道上已有消息时排队等着 (前一条开始退场时下一条才滑入), 调用方立刻返回.
 --- on_read 在阅读时长过后 (或通知提前被移除时) 调用一次.
---- 没有显示 (消息关闭, 不在游戏界面) 时返回 false, on_read 不会被调用.
+--- 这条车道被关掉 (或不在游戏界面) 时返回 false, on_read 不会被调用.
 ---@param title string?
 ---@param text string
 ---@param duration number?
 ---@param on_read fun()?
----@param opts {gated: boolean?}? gated 为 true 时这条是讲解, 可供 dispatcher 的门槛等待
+---@param opts {gated: boolean?, side: "right"|"left"?}? gated 为 true 时这条是讲解, 可供 dispatcher 的门槛等待
 ---@return boolean shown
 function M.push(title, text, duration, on_read, opts)
-  if not M.enabled or not G.ROOM_ATTACH or type(text) ~= "string" or text == "" then
+  local side = (opts and opts.side) == "left" and "left" or "right"
+  local enabled = side == "left" and M.calls_enabled or (side == "right" and M.enabled)
+  if not enabled or not G.ROOM_ATTACH or type(text) ~= "string" or text == "" then
     return false
   end
   next_id = next_id + 1
+  local lane = lanes[side]
   local entry = {
     id = next_id,
+    lane = lane,
     title = title,
     text = text,
     duration = duration,
     on_read = on_read,
     gated = (opts and opts.gated) == true,
+    -- 左侧那条只有一句参数说明, 阅读时长收到 CALL_READ_MAX
+    max_read = side == "left" and CALL_READ_MAX or READ_MAX,
   }
   if entry.gated then
     gated_inflight[entry.id] = true
   end
-  if #items > 0 or #pending > 0 then
-    pending[#pending + 1] = entry
+  if #lane.items > 0 or #lane.pending > 0 then
+    lane.pending[#lane.pending + 1] = entry
   else
     show(entry)
   end
-  -- 超出数量时最旧的一条立即滑出. 排队之后同时显示的多是退场中的前一条, 一般到不了这里.
-  for i = MAX_ITEMS + 1, #items do
-    local old = items[i]
+  -- 超出数量时这条车道上最旧的一条立即滑出.
+  -- 排队之后同时显示的多是退场中的前一条, 一般到不了这里.
+  for i = MAX_ITEMS + 1, #lane.items do
+    local old = lane.items[i]
     old.leave_at = old.leave_at or old.age
     fire_read(old)
   end
@@ -334,31 +368,53 @@ end
 --- 是否还有通知显示在屏幕上 (含滑出过程), 录制据此判断活动期.
 ---@return boolean
 function M.active()
-  return #items > 0 or #pending > 0
+  for _, lane in pairs(lanes) do
+    if #lane.items > 0 or #lane.pending > 0 then
+      return true
+    end
+  end
+  return false
 end
 
---- 每帧调用, 放在游戏 update 之后. dt 为墙钟间隔.
+--- 一条通知在屏幕上的横坐标: 内容贴着屏幕的一侧, 多出来的宽度留在屏幕外.
+---@param item table
+---@param leaving boolean
+---@return number
+local function offset_x(item, leaving)
+  local lane = item.lane
+  if lane.side == "left" then
+    -- "cli": offset.x 就是框的左边缘; 内容靠右摆, 所以先退到内容宽度那么多
+    if leaving then
+      return -(item.box.T.w + 1)
+    end
+    return G.ROOM.T.x + MARGIN - math.max(0, WIDE - content_width(item))
+  end
+  if leaving then
+    return WIDE
+  end
+  return G.ROOM.T.x - MARGIN - content_width(item)
+end
+
+--- 这条车道上是否有还在显示 (没开始退场) 的消息.
+---@param lane BB.Toast.Lane
+---@return boolean
+local function lane_showing(lane)
+  for _, item in ipairs(lane.items) do
+    if not item.leave_at then
+      return true
+    end
+  end
+  return false
+end
+
+--- 推进这条车道上已显示的消息: 计时, 摆放, 到期移除. 返回留下来的那些.
+---@param lane BB.Toast.Lane
 ---@param dt number
-function M.update(dt)
-  -- 一条一条来: 没有还在显示的消息 (前一条已开始退场) 时, 把队首放出来.
-  if #pending > 0 then
-    local showing = false
-    for _, item in ipairs(items) do
-      if not item.leave_at then
-        showing = true
-        break
-      end
-    end
-    if not showing then
-      show(table.remove(pending, 1))
-    end
-  end
-  if #items == 0 then
-    return
-  end
+---@return table[]
+local function advance_lane(lane, dt)
   local kept = {}
   local y = 0
-  for _, item in ipairs(items) do
+  for _, item in ipairs(lane.items) do
     local box = item.box
     local alive = box and not box.REMOVED and item.attach == G.ROOM_ATTACH
     if alive then
@@ -376,9 +432,9 @@ function M.update(dt)
     if alive then
       local offset = box.alignment.offset
       if item.leave_at then
-        offset.x = 20
+        offset.x = offset_x(item, true)
       elseif item.age >= ENTER_DELAY then
-        offset.x = G.ROOM.T.x - content_width(item) - 0.8
+        offset.x = offset_x(item, false)
       end
       -- 最新的在最上面, 旧的依次往下排. 从屏幕中线往上 2.6 开始, 两三条时也尽量不压到手牌.
       local h = box.T.h
@@ -387,7 +443,7 @@ function M.update(dt)
       if #kept > 0 and not item.leave_at and -2.6 + y + h > bottom then
         item.leave_at = item.age
         fire_read(item)
-        offset.x = 20
+        offset.x = offset_x(item, true)
       end
       offset.y = -2.6 + y + h / 2
       y = y + h + GAP
@@ -396,22 +452,41 @@ function M.update(dt)
       remove_item(item)
     end
   end
-  items = kept
+  return kept
 end
 
---- 立即移除全部通知, 排队里的也一起丢掉 (它们的 on_read 会触发, 等着的调用方不会一直等).
-function M.clear()
-  for _, item in ipairs(pending) do
-    fire_read(item)
-    if item.gated then
-      gated_inflight[item.id] = nil
+--- 每帧调用, 放在游戏 update 之后. dt 为墙钟间隔.
+---@param dt number
+function M.update(dt)
+  for _, lane in pairs(lanes) do
+    -- 一条一条来: 这条车道上没有还在显示的消息 (前一条已开始退场) 时, 把队首放出来.
+    if #lane.pending > 0 and not lane_showing(lane) then
+      show(table.remove(lane.pending, 1))
+    end
+    if #lane.items > 0 then
+      lane.items = advance_lane(lane, dt)
     end
   end
-  pending = {}
-  for _, item in ipairs(items) do
-    remove_item(item)
+end
+
+--- 立即移除通知, 排队里的也一起丢掉 (它们的 on_read 会触发, 等着的调用方不会一直等).
+--- 给 side 时只清那一条车道 (设置页关掉某一个开关时用), 不给则两侧都清.
+---@param side "right"|"left"?
+function M.clear(side)
+  local targets = side and { lanes[side] } or lanes
+  for _, lane in pairs(targets) do
+    for _, item in ipairs(lane.pending) do
+      fire_read(item)
+      if item.gated then
+        gated_inflight[item.id] = nil
+      end
+    end
+    lane.pending = {}
+    for _, item in ipairs(lane.items) do
+      remove_item(item)
+    end
+    lane.items = {}
   end
-  items = {}
 end
 
 return M

@@ -238,8 +238,27 @@ just agent-call dynamics '{"deck":"list","discard":"list","cards":false}' | jq '
 
 ## 决策消息
 
-agent 的决策可以以原版成就通知的样式显示在游戏右侧: 黑底灰边, 从屏幕外滑入, 停留几秒后滑出.
+agent 干的事以原版成就通知的样式显示在屏幕上: 黑底灰边, 从屏幕外滑入, 停留几秒后滑出.
 最多同时显示 3 条, 新的在上面. 中文会自动换用带中文字形的字体. 录制时也会录进视频.
+
+屏幕两侧各一条车道, 各自排队互不影响:
+
+| 位置 | 内容 | 由谁决定 | 开关 |
+| --- | --- | --- | --- |
+| 右侧 | 决策消息: 模型的 `reason` 与 `notify` 的解说 | 模型自己给 (为什么这么做) | Show Agent Messages |
+| 左侧 | 工具调用记录: 工具中文名 + 这次参数的含义 | mod 按方法名写死的模板 | Show Tool Calls |
+
+左侧每条形如 `出牌` / `手牌下标 0, 1`, `购买` / `商店第 2 张`, `查动态值` / `摸牌堆统计`.
+模板在 `mods/bbcore/runtime/call_note.lua` (手册查询那 4 个方法在 `mods/balatrobot/agent/knowledge/notes.lua`).
+没有参数 (或只给了 `reason`) 时, 正文改成该工具功能的一句话, 例如 `刷新商店` / `花钱刷新商店`.
+
+- 每次请求都记一条, 含只读的查询方法与内置 loop 的本地调用; 两种模式 (内置与 `just agent-call`) 都有.
+- 不上左侧的: `notify` (它自己在右侧弹), 只读的 `health` / `gamestate` / `screenshot`, `save` / `load` /
+  `set` / `add`, 以及内置 loop 自己做的自动步骤 (`continue`, `cash_out`, `menu`, `endless`).
+- 左侧只按参数记录, 不拦后面的操作; 停留时长按字数估 (2.5~8 秒), 比右侧的解说短.
+- 游戏内回放时两侧都重现 (讲解与工具调用记录都是回放内容的一部分, 不受设置页开关影响).
+
+右侧的来源:
 
 - 任意方法的 `params` 里加 `reason` 字符串, 标题显示为操作的中文名 (出牌, 购买等), 交给方法前会去掉,
   不影响原有参数.
@@ -264,7 +283,8 @@ just agent-call discard '{"cards":[0,3,5],"reason":"弃 3 张杂牌追同花"}'
 
 解说的内容与节奏见 [agent-commentary.md](agent-commentary.md).
 
-消息最多显示 12 行, 约 180 个汉字或 300 个英文字符, 超出截断. 不想看消息时在 Config 页关掉 Show Agent Messages.
+消息最多显示 12 行, 约 180 个汉字或 300 个英文字符, 超出截断. 不想看消息时在 Config 页关掉
+Show Agent Messages (右侧) 与 Show Tool Calls (左侧), 见 [builtin-agent.md](<builtin-agent.md>) 的设置页一节.
 
 ## 录制
 

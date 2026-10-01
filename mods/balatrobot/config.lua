@@ -7,8 +7,10 @@ return {
   -- agent 模式: "off" 关闭, "external" HTTP 接口 (just agent-call), "builtin" 内置 agent.
   -- 游戏内 模组 -> BalatroBot -> 配置 可切换; BALATROBOT_ENABLE=1 启动时锁定为 external, 不写回.
   mode = "off",
-  -- 是否在游戏内显示 agent 的决策消息.
+  -- 是否在游戏内显示 agent 的决策消息 (右侧: 模型给的 reason 与 notify 的解说).
   show_messages = true,
+  -- 是否显示工具调用记录 (左侧: 工具中文名与本次参数的含义).
+  show_calls = true,
 
   -- 内置 agent: chat completions 的完整地址, 模型名, 鉴权方式 ("bearer" 或 "x-api-key"), key.
   -- key 以明文保存在本机, 不写进日志.

@@ -38,6 +38,8 @@
 `targets` 与 `cards` 传 `false` 可以省掉默认那两项.
 
 动作工具都带 `reason`, 调用时拆出来作为决策消息. 解说仍按 [agent-commentary.md](<agent-commentary.md>) 使用 `notify` 和 `reason`, 和流式条的思考流分开.
+每次调用还会在屏幕左侧记一条工具记录 (标题是工具中文名, 正文是参数含义, `bbcore/runtime/call_note.lua` 里按方法名写死,
+手册查询那几个由 balatrobot 自己登记): 它只反映调用本身, 与 loop 无关, 也不需要模型给内容.
 
 提示与上下文:
 

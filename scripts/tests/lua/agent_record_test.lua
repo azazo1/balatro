@@ -335,6 +335,64 @@ do -- 队列: 一条条显示, 顺序不丢; 讲解的 id 让后面的操作能�
   check("清空后门槛全部打开", Toast.gate_open(gate_e))
 end
 
+do -- 两条车道: 左侧的工具调用记录与右侧的决策消息各自排队, 互不影响
+  G = {
+    ROOM = { T = { x = 1, y = 0, w = 12, h = 12 } },
+    ROOM_ATTACH = {},
+    TILESIZE = 20,
+    UIT = { ROOT = 1, R = 4, C = 3, T = 2 },
+    C = {
+      FILTER = { 1, 1, 1, 1 },
+      BLACK = { 0, 0, 0, 1 },
+      GREY = { 0.5, 0.5, 0.5, 1 },
+      UI = {
+        TEXT_LIGHT = { 1, 1, 1, 1 },
+        TRANSPARENT_DARK = { 0, 0, 0, 0.5 },
+        TEXT_INACTIVE = { 0.5, 0.5, 0.5, 1 },
+        BACKGROUND_INACTIVE = { 0.3, 0.3, 0.3, 1 },
+      },
+    },
+    LANG = { font = { FONT = { getWidth = function(_, text) return #text * 10 end }, squish = 1, FONTSCALE = 0.1 } },
+  }
+  local boxes = {}
+  UIBox = function(args)
+    local box = { REMOVED = false, T = { h = 1, w = 1 }, align = args.config.align }
+    -- 内容宽度 2, 定义表里那行 minw 是 20: 左侧那条框要退到屏幕外, 右侧那条多出来的部分留在屏幕外
+    box.UIRoot = { children = { { children = { { T = { w = 2 } } } } } }
+    box.alignment = { offset = { x = args.config.offset.x, y = 0 } }
+    box.remove = function(self)
+      self.REMOVED = true
+    end
+    boxes[#boxes + 1] = box
+    return box
+  end
+
+  check("右侧消息开始显示", Toast.push("右侧", "决策理由", 2) == true)
+  check("左侧不受右侧排队影响", Toast.push("左侧", "手牌下标 0, 1", 2, nil, { side = "left" }) == true)
+  check("两条车道都建了框", #boxes == 2, tostring(#boxes))
+  check("左侧用 cli 对齐且先藏在屏幕外", boxes[2].align == "cli" and boxes[2].alignment.offset.x == -20, tostring(boxes[2].align))
+
+  -- 滑入后: 左侧贴屏幕左边, 右侧贴屏幕右边.
+  -- 左侧内容靠框的右边摆 (框宽 20, 内容 2), 所以框的左边缘要退到屏幕外, 内容才落在左边 0.8 处.
+  Toast.update(0.2)
+  local left_content = boxes[2].alignment.offset.x + (20 - 2)
+  check("左侧内容贴屏幕左边", math.abs(left_content - (G.ROOM.T.x + 0.8)) < 1e-6, tostring(boxes[2].alignment.offset.x))
+  check("右侧内容贴屏幕右边", boxes[1].alignment.offset.x == G.ROOM.T.x - 2 - 0.8, tostring(boxes[1].alignment.offset.x))
+
+  -- 左侧那条不拦操作, 关掉开关后不再显示, 右侧照常
+  check("左侧不进讲解门槛", Toast.gate_id() == nil)
+  Toast.calls_enabled = false
+  check("关掉后左侧不显示", Toast.push("左侧", "又一条", 2, nil, { side = "left" }) == false)
+  check("右侧照常", Toast.push("右侧", "又一条", 2) == true)
+  Toast.calls_enabled = true
+  Toast.clear()
+  check("清空后两侧都空", not Toast.active())
+
+  -- 左侧那条的阅读时长有单独的上限 (正文只有一句参数说明)
+  check("左侧时长上限 8 秒", Toast.duration_for(string.rep("中", 200), nil, 8) == 8)
+  check("右侧仍按长解说算", Toast.duration_for(string.rep("中", 200)) == 36)
+end
+
 do -- 运行时加载自己的模块必须显式给出 mod id.
   -- SMODS.load_file 只在首次加载 mod 时才可以省 id; 这些文件里的加载可能发生在运行中 (例如设置页打开
   -- 录像开关时装载编码模块, 内置 loop 启动时装载依赖), 省掉 id 会报 "No ID was provided!" 并崩掉游戏.

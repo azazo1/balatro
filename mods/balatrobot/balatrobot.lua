@@ -47,6 +47,8 @@ do
     sendErrorMessage("Knowledge endpoints unavailable: " .. tostring(err), LOGGER)
   end
 end
+-- 这几个方法在左侧工具调用弹窗里的文案 (bbcore 按方法名写死一套, 手册这套由本 mod 补上).
+BB_CALL_NOTE.register_all(assert(SMODS.load_file("agent/knowledge/notes.lua"))())
 
 assert(SMODS.load_file("src/lua/core/server.lua"))() -- define BB_SERVER
 local OPENRPC = assert(SMODS.load_file("agent/openrpc.lua"))()
@@ -55,7 +57,9 @@ BB_TRANSPORT.add_writer(function(response)
   return BB_SERVER.send_response(response)
 end)
 
+-- 右侧: 决策消息与解说; 左侧: 工具调用记录. 两个开关各自控制 (设置页的 "显示 agent 消息" / "显示工具调用").
 BB_TOAST.enabled = MOD.config.show_messages ~= false
+BB_TOAST.calls_enabled = MOD.config.show_calls ~= false
 
 BB_AGENT = {
   address = string.format("http://%s:%d", BB_SERVER.host, BB_SERVER.port),

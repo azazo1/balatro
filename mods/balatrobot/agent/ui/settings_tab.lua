@@ -423,7 +423,13 @@ local function play_column()
   nodes[#nodes + 1] = toggle("显示 agent 消息", "show_messages", function(value)
     deps.toast.enabled = value
     if not value then
-      deps.toast.clear()
+      deps.toast.clear("right")
+    end
+  end)
+  nodes[#nodes + 1] = toggle("显示工具调用", "show_calls", function(value)
+    deps.toast.calls_enabled = value
+    if not value then
+      deps.toast.clear("left")
     end
   end)
   nodes[#nodes + 1] = toggle("演示流式条 (开发用)", "demo_stream")

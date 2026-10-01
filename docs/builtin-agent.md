@@ -76,7 +76,10 @@ loop 留在 Lua 里, 因为动作本来就在游戏的 Lua 里执行, 调用动�
   设置页里只显示开头. 内置 agent 每次从停止状态开始时把它拼在系统提示词末尾单独一节, 运行中改了等下一次开始才生效;
   选牌, 弃牌, 买卖, 经济按策略来, 规则要点和解说要求仍按默认. 只作用于内置 agent, 外部 agent 不受影响.
 - 状态行: 外部模式显示监听地址, 内置模式显示 loop 状态和最近一次错误.
-- 原有的消息显示开关.
+- 消息显示 (右侧): 模型的 `reason` 与 `notify` 的解说, 默认开.
+- 工具调用显示 (左侧): 每次请求记一条, 标题是工具中文名, 正文是这次参数的含义 (工具与方法名对应的模板写死在
+  `bbcore/runtime/call_note.lua`, 手册查询那 4 个方法在 `balatrobot/agent/knowledge/notes.lua`), 默认开.
+  两个开关都在, 关掉时会清掉屏幕上已有的消息. 详见 [agent-api.md](<agent-api.md>) 的 "决策消息".
 
 录像的开关, 保留方式 (skip/keep), 清晰度, 帧率与码率不在这里, 在 bbreplay 自己的设置页 (模组 -> BB Replay -> 配置),
 见 [recording.md](<recording.md>). 桌面端设了 `BALATROBOT_RECORD*` 环境变量时以环境变量为准.

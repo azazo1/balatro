@@ -10,6 +10,7 @@ BB Core 入口: balatrobot 与 bbreplay 共用的运行时, 由本仓库从 Bala
 - BB_GAMESTATE, BB_ERROR_NAMES / BB_ERROR_CODES: 状态序列化与错误码.
 - BB_OVERLAY: 弹窗拦截, kind / win_settled / animating (runtime/overlay.lua).
 - BB_ACTIVITY: 请求与响应事件 (runtime/activity.lua).
+- BB_CALL_NOTE: 工具调用的左侧弹窗文案 (runtime/call_note.lua), 别的 mod 用 register 补自己端点的.
 - BB_SCORING: 一次出牌的计分过程, 写进 gamestate 的 round.last_hand (runtime/scoring.lua).
 - BB_TOAST, BB_STREAM: 决策消息与顶部状态条. BB_WIDGETS: 界面组件.
 - BB_CONTROL: 谁在操作游戏, 回放与 agent 的互斥 (runtime/control.lua).
@@ -78,6 +79,7 @@ assert(BB_SCORING.install(BB_SCORING.game_deps(BB_GAMESTATE)), "scoring record a
 
 BB_OVERLAY = assert(SMODS.load_file("runtime/overlay.lua"))()
 BB_ACTIVITY = assert(SMODS.load_file("runtime/activity.lua"))()
+BB_CALL_NOTE = assert(SMODS.load_file("runtime/call_note.lua"))()
 BB_TOAST = assert(SMODS.load_file("runtime/toast.lua"))()
 BB_STREAM = assert(SMODS.load_file("ui/stream_bar.lua"))()
 BB_STREAM.init({ toast = BB_TOAST })
@@ -95,30 +97,20 @@ end
 BB_OVERLAY.install(BB_DISPATCHER, BB_GAMESTATE)
 BB_ACTIVITY.install(BB_DISPATCHER, BB_TRANSPORT)
 
+-- 每次请求 (含只读查询) 在屏幕左侧记一条: 标题是工具的中文名, 正文是参数含义, 见 runtime/call_note.lua.
+-- 是否显示由 BB_TOAST.calls_enabled 决定: balatrobot 按设置页的开关设置, 回放时 bbreplay 打开.
+BB_ACTIVITY.on("call", function(method, params)
+  local note = BB_CALL_NOTE.note(method, params)
+  if note then
+    BB_TOAST.push(note.title, note.text, nil, nil, { side = "left" })
+  end
+end)
 -- 请求附带 reason 时, 通知标题用操作的中文名, 观众不用看懂方法名.
 -- 是否显示由 BB_TOAST.enabled 决定: balatrobot 按设置页的开关设置, 回放时 bbreplay 打开.
-local ACTION_TITLES = {
-  start = "开局",
-  menu = "回主菜单",
-  select = "选择盲注",
-  skip = "跳过盲注",
-  play = "出牌",
-  discard = "弃牌",
-  cash_out = "结算",
-  next_round = "离开商店",
-  reroll = "刷新商店",
-  buy = "购买",
-  sell = "出售",
-  pack = "补充包",
-  use = "使用",
-  rearrange = "调整顺序",
-  endless = "无尽模式",
-  continue = "继续",
-}
 BB_ACTIVITY.on("message", function(title, text, duration, source)
   -- notify 自己负责显示 (显示后立刻返回, 消息怎么停留由通知自己管); 这里只管操作参数带的 reason.
   if source == "reason" then
-    BB_TOAST.push(ACTION_TITLES[title] or title, text, duration)
+    BB_TOAST.push(BB_CALL_NOTE.title(title), text, duration)
   end
 end)
 

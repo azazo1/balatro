@@ -97,8 +97,9 @@ end
 -- 本 mod 最后加载, 输入锁包在所有 mod 的输入钩子之外.
 BB_REPLAY.init_late()
 if BB_REPLAY.active then
-  -- 讲解是回放的一部分, 不受 balatrobot 设置页 "显示 agent 消息" 的影响 (只改内存, 不写回配置).
+  -- 讲解与工具调用记录都是回放的一部分, 不受 balatrobot 设置页开关的影响 (只改内存, 不写回配置).
   BB_TOAST.enabled = true
+  BB_TOAST.calls_enabled = true
 end
 
 -- 装了 balatrobot 时: agent 停止 (含出错停止) 时立即结束当前录像段; 暂停段在剪辑版里剪掉.
