@@ -113,6 +113,12 @@ function Timeline:flush(now, force)
     os.remove(tmp)
     return false, tostring(rename_err)
   end
+  -- 不走 love.filesystem 的写包装, 每次 rename 都换成一个新的 0600 文件, 要单独通知 Android 修正权限,
+  -- 否则文件管理器与 adb 读不到. 只靠失去焦点时的整树扫描不够: 切出去时录像暂停, 时间线紧接着又重写一次.
+  local storage_ok, storage = pcall(require, "android_storage")
+  if storage_ok and type(storage) == "table" and storage.fix_path then
+    pcall(storage.fix_path, self.path)
+  end
   self.dirty = false
   self.last_flush = now
   return true

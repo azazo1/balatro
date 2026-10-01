@@ -53,6 +53,9 @@ Android 上的存储位置, 存档目录的权限修正, 以及触摸流程. 录
 | 录像, 时间轴, 回放文件, agent 转录 | `recordings/` |
 
 - 新增的写入 (bbnet 的 media 模块, 转录等) 一律用 `love.filesystem.getSaveDirectory()` 下的路径, 不用 Android 的内部目录.
+- 不经过 `love.filesystem` 的写入 (`io.open`, `os.rename`, 编码线程等) 写完要调用 `android_storage.fix_path`,
+  否则新文件是 0600, 外部工具读不到. 录像的时间线, 回放文件, 视频都是这样处理的. 失去焦点时的整树扫描不能兜底
+  这类文件: 切出去时录像暂停, 时间线紧接着又重写一次, 扫描刚改好的权限马上被新文件盖掉.
 - 原生库 `libbbnet.so` 由系统装在应用的 native 库目录, 只读, 不属于数据.
 
 安全: key 以明文存在外部存储.
