@@ -1,5 +1,6 @@
 --[[
-内置 agent 运行时的右上角按钮: 暂停/继续, 以及是否挡住人手动操作.
+内置 agent 运行时的右上角: 最上方是状态图标 (请求中闪蓝, 执行中常绿, 暂停两条杠),
+下面是暂停/继续, 以及是否挡住人手动操作.
 
 - 只在 runner 运行或暂停时显示 (BB_HUD 的 agent 源).
 - 挡住操作时仍能点这两颗按钮, 以及 Esc (开菜单) 和 F9.
@@ -20,6 +21,34 @@ local function overlay_open()
   return G and G.SETTINGS and G.SETTINGS.paused and G.OVERLAY_MENU ~= nil
 end
 
+local STATUS = {
+  running = { kind = "dot", colour = "PALE_GREEN" },
+  requesting = { kind = "dot", colour = "BLUE", pulse = true, pulse_hz = 2.2 },
+  acting = { kind = "dot", colour = "GREEN" },
+  retry_wait = { kind = "dot", colour = "ORANGE", pulse = true, pulse_hz = 1.1 },
+  paused = { kind = "pause", colour = "GOLD" },
+}
+
+local function status_info()
+  return STATUS[deps.runner.state] or STATUS.running
+end
+
+---@return table
+local function status_spec()
+  return {
+    kind = status_info().kind,
+    pulse = function()
+      return status_info().pulse == true
+    end,
+    pulse_hz = function()
+      return status_info().pulse_hz or 6
+    end,
+    colour = function()
+      return G.C[status_info().colour] or G.C.GREEN
+    end,
+  }
+end
+
 ---@return table?
 local function spec()
   local runner = deps.runner
@@ -29,6 +58,7 @@ local function spec()
   return {
     -- 菜单开着时不拦, 否则选项和 Agent 面板也点不了.
     blocking = lock_on and not overlay_open(),
+    status = status_spec(),
     buttons = {
       {
         label = "暂停",
