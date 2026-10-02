@@ -1,6 +1,7 @@
 --[[
 回放期间锁定用户输入: 丢弃鼠标, 键盘, 手柄, 触摸事件, 光标位置固定在屏幕左上角的空白处,
-避免真实光标经过牌时触发悬停效果并录进视频. 点在右上角 HUD 上的鼠标和触摸放行.
+避免真实光标经过牌时触发悬停效果并录进视频. 点在右上角 HUD 上的鼠标和触摸放行,
+并且 getPosition 在 HUD 上回报真实坐标 (HUD 自己点按钮, 不经过停在左上角的假光标).
 
 中止:
 - 桌面: 按住 Esc 1 秒.
@@ -101,17 +102,18 @@ function M.install()
 
   local get_position = love.mouse.getPosition
   love.mouse.getPosition = function()
-    if M.active then
+    local x, y = get_position()
+    -- 停在左上角避开牌的悬停; 光标在 HUD 上时仍回报真实位置, 否则 HUD 自己也拿不到点.
+    if M.active and not hud_hit(x, y) then
       return parked()
     end
-    return get_position()
+    return x, y
   end
-  local get_x, get_y = love.mouse.getX, love.mouse.getY
   love.mouse.getX = function()
-    return M.active and (parked()) or get_x()
+    return (select(1, love.mouse.getPosition()))
   end
   love.mouse.getY = function()
-    return M.active and select(2, parked()) or get_y()
+    return (select(2, love.mouse.getPosition()))
   end
 end
 

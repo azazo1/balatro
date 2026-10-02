@@ -146,6 +146,12 @@ function M.fit_text(text, max_units, scale, measure)
   return table.concat(chars, "", 1, lo) .. ELLIPSIS
 end
 
+---@param dst table
+---@param src table
+local function copy_colour(dst, src)
+  dst[1], dst[2], dst[3], dst[4] = src[1], src[2], src[3], src[4]
+end
+
 ---@class BBButtonArgs
 ---@field label string 初始标签
 ---@field label_fn (fun(): string)? 每帧刷新标签
@@ -176,6 +182,11 @@ function M.button(args)
     text_colour = { G.C.UI.TEXT_LIGHT[1], G.C.UI.TEXT_LIGHT[2], G.C.UI.TEXT_LIGHT[3], G.C.UI.TEXT_LIGHT[4] },
   }
   local initial = type(ref.colour) == "function" and ref.colour() or ref.colour
+  -- 颜色必须是自己的表: 悬停/按下会改 alpha, 不能去改 G.C 里的共享色.
+  local fill = { 1, 1, 1, 1 }
+  if type(initial) == "table" then
+    copy_colour(fill, initial)
+  end
   local scale = args.scale or 0.32
   return {
     n = args.col and G.UIT.C or G.UIT.R,
@@ -189,7 +200,7 @@ function M.button(args)
           r = 0.1,
           hover = true,
           shadow = true,
-          colour = initial,
+          colour = fill,
           minw = args.minw or 1.2,
           minh = args.minh or 0.45,
           button = "bb_button_click",
@@ -207,12 +218,6 @@ function M.button(args)
   }
 end
 
----@param dst table
----@param src table
-local function copy_colour(dst, src)
-  dst[1], dst[2], dst[3], dst[4] = src[1], src[2], src[3], src[4]
-end
-
 G.FUNCS.bb_button_state = function(e)
   local ref = e.config.ref_table
   if not ref then
@@ -220,12 +225,19 @@ G.FUNCS.bb_button_state = function(e)
   end
   local enabled = ref.enabled == nil or ref.enabled()
   local selected = ref.selected ~= nil and ref.selected()
+  local src
   if selected then
-    e.config.colour = ref.selected_colour
+    src = ref.selected_colour
   elseif enabled then
-    e.config.colour = type(ref.colour) == "function" and ref.colour() or ref.colour
+    src = type(ref.colour) == "function" and ref.colour() or ref.colour
   else
-    e.config.colour = G.C.UI.BACKGROUND_INACTIVE
+    src = G.C.UI.BACKGROUND_INACTIVE
+  end
+  if type(src) == "table" then
+    if type(e.config.colour) ~= "table" then
+      e.config.colour = { 1, 1, 1, 1 }
+    end
+    copy_colour(e.config.colour, src)
   end
   e.config.button = (enabled and not selected) and "bb_button_click" or nil
   copy_colour(ref.text_colour, (enabled or selected) and G.C.UI.TEXT_LIGHT or G.C.UI.TEXT_INACTIVE)

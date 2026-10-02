@@ -1,8 +1,8 @@
 --[[
-内置 agent 运行时的右上角: 最上方是状态图标 (请求中闪蓝, 执行中常绿, 暂停两条杠),
+内置 agent 运行时的右上角: 最上方是状态文字 (请求中, 执行中, 暂停),
 下面是暂停/继续, 以及是否挡住人手动操作.
 
-- 只在 runner 运行或暂停时显示 (BB_HUD 的 agent 源).
+- 只在 runner 运行或暂停时显示 (BB_HUD 的 agent 源); 一停就拆掉.
 - 挡住操作时仍能点这两颗按钮, 以及 Esc (开菜单) 和 F9.
 - 开始一轮时默认挡住; 暂停期间可以解开自己操作, 选择会保持到下次开始.
 ]]
@@ -22,11 +22,11 @@ local function overlay_open()
 end
 
 local STATUS = {
-  running = { kind = "dot", colour = "PALE_GREEN" },
-  requesting = { kind = "dot", colour = "BLUE", pulse = true, pulse_hz = 2.2 },
-  acting = { kind = "dot", colour = "GREEN" },
-  retry_wait = { kind = "dot", colour = "ORANGE", pulse = true, pulse_hz = 1.1 },
-  paused = { kind = "pause", colour = "GOLD" },
+  running = { label = "运行中", colour = "PALE_GREEN" },
+  requesting = { label = "请求中", colour = "BLUE", pulse = true, pulse_hz = 2.2 },
+  acting = { label = "执行中", colour = "GREEN" },
+  retry_wait = { label = "重试中", colour = "ORANGE", pulse = true, pulse_hz = 1.1 },
+  paused = { label = "暂停", colour = "GOLD" },
 }
 
 local function status_info()
@@ -36,7 +36,9 @@ end
 ---@return table
 local function status_spec()
   return {
-    kind = status_info().kind,
+    label = function()
+      return status_info().label
+    end,
     pulse = function()
       return status_info().pulse == true
     end,

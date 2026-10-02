@@ -20,6 +20,16 @@ do -- 点在框上
   check("框外不算", not Hud.point_in_rect(9, 20, rect) and not Hud.point_in_rect(10, 61, rect))
 end
 
+do -- 窗口像素要加上 letterbox, 否则点在可见按钮上对不上
+  local t = { x = 10, y = 2, w = 3, h = 4 }
+  local no_pad = Hud.screen_rect(t, { x = 0, y = 0 })
+  check("没有 letterbox 时就是房间坐标", no_pad.x == 10 and no_pad.y == 2 and no_pad.w == 3 and no_pad.h == 4)
+  local pad = Hud.screen_rect(t, { x = 1.5, y = 0.5 })
+  check("letterbox 加到像素上", pad.x == 11.5 and pad.y == 2.5 and pad.w == 3 and pad.h == 4)
+  local offset = Hud.window_offset()
+  check("没有 ROOM 时略缩进", offset.x < 0 and offset.y > 0)
+end
+
 do -- 挡住时只放行 HUD, Esc/F9, 移动光标
   local blocking = false
   Hud.bind("agent", function()
@@ -38,10 +48,22 @@ end
 
 do -- 回放输入锁对 HUD 放行
   local passed = 0
+  local mx, my = 0, 0
   local saved_love, saved_hud = love, BB_HUD
   love = {
     timer = { getTime = function() return 0 end },
-    mouse = { setVisible = function() end },
+    mouse = {
+      setVisible = function() end,
+      getPosition = function()
+        return mx, my
+      end,
+      getX = function()
+        return mx
+      end,
+      getY = function()
+        return my
+      end,
+    },
     mousepressed = function()
       passed = passed + 1
     end,
@@ -57,6 +79,12 @@ do -- 回放输入锁对 HUD 放行
   check("点在 HUD 上放行", passed == 1, tostring(passed))
   love.mousepressed(0, 0, 1)
   check("点在别处仍丢掉", passed == 1, tostring(passed))
+  mx, my = 12, 8
+  local hx, hy = love.mouse.getPosition()
+  check("HUD 上 getPosition 仍是真实坐标", hx == 12 and hy == 8, tostring(hx) .. "," .. tostring(hy))
+  mx, my = 0, 0
+  local px, py = love.mouse.getPosition()
+  check("别处 getPosition 停在左上角", px == 4 and py == 4, tostring(px) .. "," .. tostring(py))
   InputLock.release()
   love, BB_HUD = saved_love, saved_hud
 end
