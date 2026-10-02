@@ -1,10 +1,15 @@
 --[[
 chat completions 协议层的纯逻辑部分, 不依赖游戏, 单测直接加载.
+另外两种协议 (anthropic.lua, responses.lua) 复用这里的编码器, 地址拼接, 鉴权头, usage 与错误分类.
 
 - build_request: 由配置, 历史和工具生成流式请求的 url, 请求头和请求体.
 - Accumulator: 逐个 chunk 累积推理, 正文和 tool_calls, 最后组装成可回填历史的 assistant 消息.
 - normalize_usage: 各家 usage 字段统一成同一组字段.
 - classify / backoff: 错误分类 (重试或放弃) 与退避间隔, 流式条据此显示红字.
+
+历史一律按 chat completions 的格式存放. 另两种协议需要原样回传的内容 (Anthropic 的 thinking 块与签名,
+Responses 的加密推理) 放在 assistant 消息的 native = {format, ...} 里: 同协议的请求优先用它,
+这里发请求前把它剥掉, 中途换协议时退回按 content / tool_calls 重建.
 
 请求体用本模块自带的 JSON 编码器生成, 不用 Steamodded 的 json:
 - 它把 nil 字段直接丢掉, 表达不了 "content": null. 这里用 M.NULL 表示 null.
@@ -34,6 +39,7 @@ M.NULL = setmetatable({}, {
 })
 
 local OBJECT_MT = { __bb_json = "object" }
+local RAW_MT = { __bb_json = "raw" }
 
 --- 把表标记为 JSON 对象, 为空时编码为 {} 而不是 [].
 ---@param t table?
@@ -42,10 +48,20 @@ function M.object(t)
   return setmetatable(t or {}, OBJECT_MT)
 end
 
+--- 一段已经是合法 JSON 的文本, 编码时原样写出. 用于工具参数这类服务端给的 JSON:
+--- 解码再编码会把嵌套的空对象 {} 变成 [], 回传 Anthropic 的 tool_use.input 时就不是原样了.
+--- 调用方要保证文本是合法 JSON.
+---@param text string
+---@return table
+function M.raw(text)
+  return setmetatable({ text = text }, RAW_MT)
+end
+
 -- 这些键下的空表一定是对象 (JSON Schema 与工具定义).
 local OBJECT_KEYS = {
   properties = true,
   parameters = true,
+  input_schema = true,
   patternProperties = true,
   definitions = true,
   ["$defs"] = true,
@@ -123,6 +139,9 @@ function encode_value(v, out, key, depth)
     out[#out + 1] = encode_number(v)
   elseif t == "string" then
     out[#out + 1] = encode_string(v)
+  elseif t == "table" and getmetatable(v) == RAW_MT then
+    -- 原样写出, 只做与字符串相同的 UTF-8 兜底.
+    out[#out + 1] = M.text and M.text.sanitize_utf8(v.text) or v.text
   elseif t == "table" then
     if depth > 64 then
       error("json: 嵌套过深或存在循环引用")
@@ -180,33 +199,139 @@ end
 -------------------------------------------------------------------------------
 
 ---@class BBLlmConfig
----@field endpoint string 完整的 chat completions 地址, 或 API 根地址 (如 https://api.deepseek.com/v1)
+---@field endpoint string 完整的请求地址, 或 API 根地址 (如 https://api.deepseek.com/v1)
 ---@field model string
 ---@field api_key string?
 ---@field auth ("bearer"|"x-api-key")? 默认 bearer
+---@field api_format ("chat"|"responses"|"anthropic")? 默认 chat
+---@field reasoning_effort string? 思考强度, "" 为不指定
+---@field thinking string? 仅 anthropic: "adaptive" (默认) / "budget" / "omit"
 
 local function trim(s)
   return (tostring(s or ""):gsub("^%s+", ""):gsub("%s+$", ""))
 end
+M.trim = trim
 
---- 由配置的 endpoint 得到请求地址.
---- 规则: 去掉首尾空白和末尾的 "/"; 路径已以 /chat/completions 结尾时原样使用,
---- 否则视为 API 根地址并补上 /chat/completions (如 .../v1, .../api/v3, 或不带版本的根地址).
+-- 三种协议的路径后缀. endpoint 以其中任意一个结尾时先去掉, 中途换协议也不用重新粘贴地址.
+local SUFFIXES = { "/chat/completions", "/responses", "/messages" }
+
+--- 由 endpoint 和协议路径得到请求地址.
+--- 规则: 去掉首尾空白和末尾的 "/", 再去掉已有的协议路径 (三种都认), 视为 API 根地址补上 path.
+--- version 非空时, 根地址里没有 /v1 这类版本段才补上它 (Anthropic 的根地址常常不带版本).
 --- 查询串 (如 ?api-version=...) 原样保留在末尾.
 ---@param endpoint string
+---@param path string 如 "/chat/completions"
+---@param version string? 如 "/v1"
 ---@return string? url
 ---@return string? err
-function M.resolve_url(endpoint)
+function M.join_url(endpoint, path, version)
   local url = trim(endpoint)
   if not url:match("^[Hh][Tt][Tt][Pp][Ss]?://[^/]") then
     return nil, "endpoint 必须以 http:// 或 https:// 开头"
   end
   local base, query = url:match("^([^?#]*)(.*)$")
   base = base:gsub("/+$", "")
-  if not base:find("/chat/completions$") then
-    base = base .. "/chat/completions"
+  for _, suffix in ipairs(SUFFIXES) do
+    if base:sub(-#suffix) == suffix then
+      base = base:sub(1, -#suffix - 1)
+      break
+    end
   end
-  return base .. query
+  if version and not base:find("/v%d+[%w]*$") then
+    base = base .. version
+  end
+  return base .. path .. query
+end
+
+--- chat completions 的请求地址, 见 join_url.
+---@param endpoint string
+---@return string? url
+---@return string? err
+function M.resolve_url(endpoint)
+  return M.join_url(endpoint, "/chat/completions")
+end
+
+--- 请求头: Content-Type, Accept 与鉴权. 三种协议共用.
+---@param cfg BBLlmConfig
+---@param stream boolean
+---@return table
+function M.headers(cfg, stream)
+  local headers = {
+    ["Content-Type"] = "application/json",
+    ["Accept"] = stream and "text/event-stream" or "application/json",
+  }
+  local key = trim(cfg.api_key)
+  if key ~= "" then
+    if cfg.auth == "x-api-key" then
+      headers["x-api-key"] = key
+    else
+      headers["Authorization"] = "Bearer " .. key
+    end
+  end
+  return headers
+end
+
+--- 检查三种协议都要的配置: 地址, 模型名, 消息.
+---@return string? model
+---@return string? err
+function M.check_request(cfg, messages)
+  if type(cfg) ~= "table" then
+    return nil, "缺少配置"
+  end
+  local model = trim(cfg.model)
+  if model == "" then
+    return nil, "缺少模型名"
+  end
+  if type(messages) ~= "table" or #messages == 0 then
+    return nil, "消息列表为空"
+  end
+  return model
+end
+
+--- 编码请求体, 失败时返回 nil 与错误描述.
+---@return string? body
+---@return string? err
+function M.encode_body(body)
+  local ok, encoded = pcall(M.encode, body)
+  if not ok then
+    return nil, "请求体编码失败: " .. tostring(encoded)
+  end
+  return encoded
+end
+
+--- 设置的思考强度, 空串或非字符串时为 nil.
+---@param cfg BBLlmConfig
+---@return string?
+function M.effort(cfg)
+  local effort = cfg.reasoning_effort
+  if type(effort) == "string" and effort ~= "" then
+    return effort
+  end
+  return nil
+end
+
+--- 工具参数 (JSON 文本) 规范成 JSON 对象的文本: 不是合法的对象时 (包括空串和数组) 换成 "{}".
+---@param args any
+---@param decode (fun(s: string): any)?
+---@return string
+function M.object_json(args, decode)
+  if type(args) ~= "string" or not args:find("%S") then
+    return "{}"
+  end
+  if decode then
+    local ok, v = pcall(decode, args)
+    if not ok or type(v) ~= "table" then
+      return "{}"
+    end
+    -- 数组 (含 []) 不是对象. 空表分不出 {} 和 [], 按文本判断.
+    if next(v) == nil then
+      return args:match("^%s*{") and args or "{}"
+    end
+    if #v > 0 then
+      return "{}"
+    end
+  end
+  return args
 end
 
 --- 写日志用的地址: 去掉查询串, 部分服务把 key 放在查询串里.
@@ -221,7 +346,7 @@ end
 ---@field tool_choice any? 原样写进请求体
 ---@field max_tokens integer?
 ---@field temperature number?
----@field extra table? 额外合并进请求体的字段, 如 reasoning_effort
+---@field extra table? 额外合并进请求体的字段 (仅 chat completions)
 
 --- 生成一次 chat completions 请求.
 ---@param cfg BBLlmConfig
@@ -233,34 +358,18 @@ end
 ---@return string? body
 function M.build_request(cfg, messages, tools, opts)
   opts = opts or {}
-  if type(cfg) ~= "table" then
-    return nil, "缺少配置"
+  local model, err = M.check_request(cfg, messages)
+  if not model then
+    return nil, err
   end
-  local url, err = M.resolve_url(cfg.endpoint)
+  local url
+  url, err = M.resolve_url(cfg.endpoint)
   if not url then
     return nil, err
   end
-  local model = trim(cfg.model)
-  if model == "" then
-    return nil, "缺少模型名"
-  end
-  if type(messages) ~= "table" or #messages == 0 then
-    return nil, "消息列表为空"
-  end
 
   local stream = opts.stream ~= false
-  local headers = {
-    ["Content-Type"] = "application/json",
-    ["Accept"] = stream and "text/event-stream" or "application/json",
-  }
-  local key = trim(cfg.api_key)
-  if key ~= "" then
-    if cfg.auth == "x-api-key" then
-      headers["x-api-key"] = key
-    else
-      headers["Authorization"] = "Bearer " .. key
-    end
-  end
+  local headers = M.headers(cfg, stream)
 
   local body = {}
   if type(opts.extra) == "table" then
@@ -268,8 +377,13 @@ function M.build_request(cfg, messages, tools, opts)
       body[k] = v
     end
   end
+  -- 设置了思考强度时带上 reasoning_effort, 默认不写, 由服务端决定.
+  local effort = M.effort(cfg)
+  if effort then
+    body.reasoning_effort = effort
+  end
   body.model = model
-  body.messages = messages
+  body.messages = M.strip_native(messages)
   body.stream = stream
   if stream then
     body.stream_options = { include_usage = true }
@@ -287,11 +401,34 @@ function M.build_request(cfg, messages, tools, opts)
     body.temperature = opts.temperature
   end
 
-  local ok, encoded = pcall(M.encode, body)
-  if not ok then
-    return nil, "请求体编码失败: " .. tostring(encoded)
+  local encoded
+  encoded, err = M.encode_body(body)
+  if not encoded then
+    return nil, err
   end
   return url, headers, encoded
+end
+
+--- 去掉 assistant 消息上别的协议的原样回传内容 (native), 只复制带它的消息, 不改历史.
+---@param messages table[]
+---@return table[]
+function M.strip_native(messages)
+  local out, changed = {}, false
+  for i, m in ipairs(messages) do
+    if type(m) == "table" and m.native ~= nil then
+      local copy = {}
+      for k, v in pairs(m) do
+        if k ~= "native" then
+          copy[k] = v
+        end
+      end
+      out[i] = copy
+      changed = true
+    else
+      out[i] = m
+    end
+  end
+  return changed and out or messages
 end
 
 -------------------------------------------------------------------------------
@@ -561,21 +698,33 @@ local function sub(t, key)
 end
 
 --- 规范化 usage. 缓存命中取 prompt_tokens_details.cached_tokens 与 prompt_cache_hit_tokens (DeepSeek)
---- 中较大的一个; 也认 Anthropic 风格的 input_tokens/output_tokens/cache_read_input_tokens.
+--- 中较大的一个; 也认 Responses 的 input_tokens/output_tokens 与 *_details, 以及 Anthropic 的
+--- input_tokens/output_tokens/cache_read_input_tokens.
+--- Anthropic 的 input_tokens 不含缓存读写的部分, 输入总量是三者之和; Responses 的 input_tokens 已含缓存.
 ---@param raw table?
 ---@return BBLlmUsage?
 function M.normalize_usage(raw)
   if type(raw) ~= "table" then
     return nil
   end
-  local prompt = num(raw.prompt_tokens) or num(raw.input_tokens) or 0
+  local prompt = num(raw.prompt_tokens)
+  if not prompt then
+    prompt = num(raw.input_tokens) or 0
+    if raw.cache_read_input_tokens ~= nil or raw.cache_creation_input_tokens ~= nil then
+      prompt = prompt + (num(raw.cache_read_input_tokens) or 0) + (num(raw.cache_creation_input_tokens) or 0)
+    end
+  end
   local completion = num(raw.completion_tokens) or num(raw.output_tokens) or 0
   local cached = math.max(
     num(sub(raw, "prompt_tokens_details").cached_tokens) or 0,
+    num(sub(raw, "input_tokens_details").cached_tokens) or 0,
     num(raw.prompt_cache_hit_tokens) or 0,
     num(raw.cache_read_input_tokens) or 0
   )
-  local reasoning = num(sub(raw, "completion_tokens_details").reasoning_tokens) or num(raw.reasoning_tokens) or 0
+  local reasoning = num(sub(raw, "completion_tokens_details").reasoning_tokens)
+    or num(sub(raw, "output_tokens_details").reasoning_tokens)
+    or num(raw.reasoning_tokens)
+    or 0
   return {
     prompt_tokens = prompt,
     completion_tokens = completion,
@@ -663,6 +812,8 @@ local TEXT_RULES = {
   { "context_length_exceeded", "fatal", "上下文超长" },
   { "context length", "fatal", "上下文超长" },
   { "maximum context", "fatal", "上下文超长" },
+  { "prompt is too long", "fatal", "上下文超长" }, -- Anthropic
+  { "context window", "fatal", "上下文超长" }, -- Responses
   { "insufficient_quota", "fatal", "额度用尽" },
   { "insufficient balance", "fatal", "额度用尽" },
   { "server_is_overloaded", "retry", "服务器过载" },

@@ -117,6 +117,30 @@ chat completions 协议兼容:
 - 回填历史时, 同一条 assistant 消息里同时放 `reasoning_content` 和 `tool_calls`, 只有工具调用时 `content` 为 null. DeepSeek 思考模式下漏回填会返回 400.
 - usage 规范化: 缓存命中同时兼容 `prompt_tokens_details.cached_tokens` 和 `prompt_cache_hit_tokens`.
 
+另外两种接口 (设置页 "接口" 选 Responses 或 Anthropic, 代码在 `agent/llm/responses.lua`, `agent/llm/anthropic.lua`):
+
+- 历史一律按 chat completions 的格式存放, 发请求时转换; 两种累积器都产出同样格式的 assistant 消息,
+  driver, 压缩和转录都不用区分协议. 需要原样回传的内容放在 assistant 消息的 `native` 里, 只在同协议的请求里用,
+  chat 请求发出前剥掉. 中途换接口时按 `content` 与 `tool_calls` 重建, 换过去的第一轮丢掉上一种协议的推理.
+- Anthropic:
+  - system 单独放; tool 结果是 user 消息里的 `tool_result` 块, 和后面的状态并成同一条 user 消息 (结果块在前).
+  - 收到的内容块按顺序存进 `native.blocks`, 包括 thinking 的签名和 `redacted_thinking`. 带工具调用的那一轮
+    必须原样带回 thinking 块, 改动或漏掉都会 400. 没有签名的思考块不留.
+  - 工具参数用原始 JSON 文本回传 (`chat.raw`), 解码再编码会把嵌套的空对象 `{}` 写成 `[]`.
+  - 别的协议生成的调用 id (如 `functions.play:0`) 不符合 `tool_use.id` 的字符限制, 换掉非法字符, 两边一致.
+  - 系统提示与最后一条消息的最后一块打 `cache_control`, 前缀缓存覆盖工具定义, 系统提示和此前的对话.
+  - usage 的 `input_tokens` 不含缓存读写, 输入总量是它加 `cache_read_input_tokens` 与 `cache_creation_input_tokens`.
+  - `max_tokens` 固定 32000 (必填, 思考也算在里面). 不发 `temperature`: 新模型上改它一律 400.
+  - 收到 `message_stop` 就算完成, 不等连接关闭.
+- Responses:
+  - 无状态: `store: false`, 每次带完整历史, 系统提示放 `instructions`.
+  - 工具定义转成扁平格式并设 `strict: false`, 现有 schema 不满足严格模式的要求.
+  - 设了思考强度时才要推理 (`reasoning: {effort, summary: "auto"}`, `include: ["reasoning.encrypted_content"]`),
+    推理摘要显示在流式条上. 不支持推理的模型收到这两项会报错, 所以默认不写.
+  - 输出项按顺序存进 `native.items`: 推理项只留带 `encrypted_content` 的, 消息和调用项去掉 `id` 与 `status`
+    (store 为 false 时服务端查不到这些 id). 推理项后面要紧跟它原来的下一项, 所以不重排.
+  - 收到 `response.completed` 就算完成, 以其中完整的 `output` 为准; `response.failed` 与 `error` 事件按失败处理.
+
 文本截断 (都走 `agent/text.lua`):
 
 - 请求体里的字符串是原样发出去的 (编码器只转义控制字符, 非 ASCII 字节直接写进请求体). 用 `string.sub`

@@ -12,18 +12,23 @@ return {
   -- 是否显示工具调用记录 (左侧: 工具中文名与本次参数的含义).
   show_calls = true,
 
-  -- 内置 agent: chat completions 的完整地址, 模型名, 鉴权方式 ("bearer" 或 "x-api-key"), key.
+  -- 内置 agent: 请求地址 (完整地址或 API 根地址), 模型名, 鉴权方式 ("bearer" 或 "x-api-key"), key.
   -- key 以明文保存在本机, 不写进日志.
   endpoint = "",
   model = "",
   auth = "bearer",
   api_key = "",
+  -- 接口协议: "chat" (chat completions), "responses" (OpenAI Responses), "anthropic" (Anthropic Messages).
+  api_format = "chat",
   -- 单局 token 上限, 0 为不限. 超过时内置 agent 自动暂停.
   token_limit = 0,
   -- 最大上下文 (token): 上一次请求的用量到它的 80% 时, 较早的对话交给模型写摘要, 最近的原文保留.
   context_limit = 256000,
-  -- 思考强度: 写进请求体的 reasoning_effort ("low", "medium", "high"). "" 为默认, 不写这个字段.
+  -- 思考强度 ("low", "medium", "high", "xhigh", "max"). "" 为默认, 不指定.
+  -- chat 写成 reasoning_effort, responses 写成 reasoning.effort, anthropic 写成 output_config.effort (或折算预算).
   reasoning_effort = "",
+  -- Anthropic 的思考方式: "adaptive" 自适应, "budget" 固定预算 (旧模型), "omit" 不写 thinking 由服务端决定.
+  thinking = "adaptive",
   -- 内置 agent 赢下一局后: "menu" 回主菜单, "endless" 进入无尽模式继续打.
   after_win = "menu",
   -- 内置 agent 一局结束回到主菜单后: "stop" 停止 loop, "continue" 保留对话历史, 由模型自己开下一局.

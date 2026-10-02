@@ -1,5 +1,7 @@
 --[[
-一次流式 chat completions 请求的状态机, 在游戏主线程每帧推进.
+一次流式模型请求的状态机, 在游戏主线程每帧推进.
+协议按配置的 api_format 选: chat (chat completions, 默认), responses (OpenAI Responses), anthropic (Messages).
+三种协议的累积器都产出 chat 格式的 assistant 消息, 调用方不用区分.
 
 用法:
   local Client = assert(SMODS.load_file("agent/llm/client.lua"))()
@@ -34,6 +36,16 @@ M.DEFAULT_TIMEOUT_MS = 0
 
 local Bbnet, Chat, Sse, json
 local now
+-- 协议: api_format -> 模块 (build_request, accumulator). chat 就是 chat.lua 本身.
+local PROTOCOLS = {}
+
+--- 配置对应的协议模块, 不认识的 api_format 按 chat.
+---@param cfg table?
+---@return table
+function M.protocol(cfg)
+  local format = type(cfg) == "table" and cfg.api_format or nil
+  return PROTOCOLS[format] or PROTOCOLS.chat
+end
 
 local function default_log(level, msg)
   local f
@@ -52,18 +64,23 @@ end
 local log = default_log
 
 --- 加载依赖与原生库. 返回 bbnet 是否可用 (不可用时请求走 SMODS.https 退路, 不能流式).
----@param options {mod_path: string?, bbnet: table?, chat: table?, sse: table?, text: table?, json: table?, log: fun(level: string, msg: string)?, now: (fun(): number)?}?
+---@param options {mod_path: string?, bbnet: table?, chat: table?, anthropic: table?, responses: table?, sse: table?, text: table?, json: table?, log: fun(level: string, msg: string)?, now: (fun(): number)?}?
 ---@return boolean streaming
 ---@return string? err bbnet 加载失败的原因
 function M.init(options)
   options = options or {}
   Bbnet = options.bbnet or assert(SMODS.load_file("agent/net/bbnet.lua", MOD_ID))()
   Chat = options.chat or assert(SMODS.load_file("agent/llm/chat.lua", MOD_ID))()
+  local Anthropic = options.anthropic or assert(SMODS.load_file("agent/llm/anthropic.lua", MOD_ID))()
+  local Responses = options.responses or assert(SMODS.load_file("agent/llm/responses.lua", MOD_ID))()
   Sse = options.sse or assert(SMODS.load_file("agent/llm/sse.lua", MOD_ID))()
   local text = options.text or assert(SMODS.load_file("agent/text.lua", MOD_ID))()
   -- 请求体拼装时用它把非法 UTF-8 字节修掉 (见 agent/text.lua): 一个坏字节会让服务端拒掉整个请求.
   Chat.text = text
   json = options.json or require("json")
+  Anthropic.Chat, Anthropic.decode = Chat, json.decode
+  Responses.Chat = Chat
+  PROTOCOLS.chat, PROTOCOLS.anthropic, PROTOCOLS.responses = Chat, Anthropic, Responses
   now = options.now or love.timer.getTime
   log = options.log or default_log
   M.Bbnet, M.Chat, M.Sse = Bbnet, Chat, Sse
@@ -156,7 +173,7 @@ function Req:close_handle()
 end
 
 function Req:send()
-  self.acc = Chat.accumulator()
+  self.acc = self.proto.accumulator()
   self.status, self.resp_headers = nil, nil
   self.err_parts, self.body_parts = {}, {}
   self.first_token_at = nil
@@ -176,8 +193,8 @@ function Req:send()
     return
   end
   self.handle = handle
-  log("info", string.format("request start: model=%s url=%s attempt=%d backend=%s bytes=%d",
-    self.model, Chat.log_url(self.url), self.attempt + 1, Bbnet.backend(), #self.body))
+  log("info", string.format("request start: model=%s format=%s url=%s attempt=%d backend=%s bytes=%d",
+    self.model, self.format, Chat.log_url(self.url), self.attempt + 1, Bbnet.backend(), #self.body))
 end
 
 function Req:finish_error(reason, detail)
@@ -269,6 +286,10 @@ function Req:handle_event(raw)
     if TERMINAL[self.state] then
       return -- 回调里取消了请求
     end
+  end
+  -- Anthropic 的 message_stop, Responses 的 response.completed 是最后一个事件, 不必等连接关闭.
+  if self.acc.terminal then
+    self:complete()
   end
 end
 
@@ -421,8 +442,10 @@ function M.start(cfg, messages, tools, callbacks, opts)
     state = "connecting",
     model = tostring(cfg and cfg.model or "?"),
     secret = cfg and type(cfg.api_key) == "string" and cfg.api_key:match("^%s*(.-)%s*$") or nil,
+    proto = M.protocol(cfg),
+    format = PROTOCOLS[cfg and cfg.api_format] and cfg.api_format or "chat",
   }, Req)
-  local url, headers, body = Chat.build_request(cfg, messages, tools, opts)
+  local url, headers, body = self.proto.build_request(cfg, messages, tools, opts)
   if not url then
     self.pending_error = { "配置错误", headers }
     return self

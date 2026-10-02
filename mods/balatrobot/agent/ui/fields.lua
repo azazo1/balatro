@@ -14,20 +14,37 @@ M.TOKEN_LIMIT_LABELS = { "不限", "100K", "500K", "1M", "5M" }
 M.CONTEXT_LIMITS = { 32000, 64000, 128000, 256000, 500000, 1000000 }
 M.CONTEXT_LIMIT_LABELS = { "32K", "64K", "128K", "256K", "500K", "1M" }
 
--- 思考强度: 写进请求体的 reasoning_effort. "" 为默认, 不写这个字段, 由服务端决定.
-M.REASONING_EFFORTS = { "", "low", "medium", "high" }
-M.REASONING_EFFORT_LABELS = { "默认", "低", "中", "高" }
+-- 思考强度. "" 为默认, 不指定, 由服务端决定. xhigh 与 max 只有部分模型认 (OpenAI 没有 max).
+M.REASONING_EFFORTS = { "", "low", "medium", "high", "xhigh", "max" }
+M.REASONING_EFFORT_LABELS = { "默认", "低", "中", "高", "超高", "最高" }
+
+-- 接口协议.
+M.API_FORMATS = { "chat", "responses", "anthropic" }
+M.API_FORMAT_LABELS = { "Chat", "Responses", "Anthropic" }
+
+-- Anthropic 的思考方式.
+M.THINKING_MODES = { "adaptive", "budget", "omit" }
+M.THINKING_MODE_LABELS = { "自适应", "固定预算", "不指定" }
+
+--- value 在 options 里的下标, 不在时返回 fallback (缺省为 1).
+---@param options any[]
+---@param value any
+---@param fallback integer?
+---@return integer
+function M.index_of(options, value, fallback)
+  for i, v in ipairs(options) do
+    if v == value then
+      return i
+    end
+  end
+  return fallback or 1
+end
 
 --- 当前思考强度在选项里的下标, 不在选项里时按 "默认".
 ---@param effort any
 ---@return integer
 function M.reasoning_effort_index(effort)
-  for i, v in ipairs(M.REASONING_EFFORTS) do
-    if v == effort then
-      return i
-    end
-  end
-  return 1
+  return M.index_of(M.REASONING_EFFORTS, effort)
 end
 
 --- 掩码显示 key, 例如 "sk-...ab12".

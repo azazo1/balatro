@@ -1,8 +1,8 @@
 --[[
 mod 设置页 (模组 -> BalatroBot -> 配置), 即 MOD.config_tab.
 
-左列: agent 模式, 内置 agent 的连接 (endpoint, 模型名, key, 鉴权方式) 与状态行.
-右列: 内置 agent 的对局设置 (单局 token 上限, 最大上下文, 思考强度, 赢后处理, 打完一局之后, 种子, 策略).
+左列: agent 模式, 内置 agent 的连接 (endpoint, 模型名, key, 鉴权方式, 接口协议) 与状态行.
+右列: 内置 agent 的对局设置 (单局 token 上限, 最大上下文, 思考强度, Claude 思考方式, 赢后处理, 打完一局之后, 种子, 策略).
 底部整行: 显示开关 (横排), 对局相关说明, 以及粘贴, 清除等操作的结果. 录像与回放的设置在 bbreplay 自己的设置页.
 
 - 原版文本框的字符表没有 '/', 还会把 '0' 改成 'o', 所以 endpoint, 模型名, key, 策略都用 "从剪贴板粘贴" 输入.
@@ -295,6 +295,10 @@ local function connection_column()
     mode_options[i] = { key, deps.modes.LABELS[key] }
   end
   local auth_options = { { "bearer", "Bearer" }, { "x-api-key", "x-api-key" } }
+  local format_options = {}
+  for i, v in ipairs(Fields.API_FORMATS) do
+    format_options[i] = { v, Fields.API_FORMAT_LABELS[i] }
+  end
 
   local nodes = {
     W.title("agent 模式"),
@@ -342,7 +346,17 @@ local function connection_column()
         save()
       end, { minw = 1.3, scale = SCALE }),
     }),
-    W.row({ W.text("endpoint 填 chat completions 的完整地址, 从剪贴板粘贴.", 0.26, G.C.UI.TEXT_INACTIVE) }),
+    W.row({
+      W.col({ W.text("接口", SCALE) }, { minw = LABEL_W }),
+      W.radio(format_options, function()
+        return Fields.API_FORMATS[Fields.index_of(Fields.API_FORMATS, config().api_format)]
+      end, function(value)
+        config().api_format = value
+        save()
+        view.action_note = "已切换接口, 下一次请求生效"
+      end, { minw = 1.3, scale = SCALE }),
+    }),
+    W.row({ W.text("endpoint 填完整地址或 API 根地址 (如 .../v1), 按接口补路径, 从剪贴板粘贴.", 0.26, G.C.UI.TEXT_INACTIVE) }),
     W.row({ W.text("key 以明文保存在本机存档目录 (config/balatrobot.jkr).", 0.26, G.C.UI.TEXT_INACTIVE) }),
     W.row({
       W.text(
@@ -376,6 +390,10 @@ local function play_column()
   for i, v in ipairs(Fields.REASONING_EFFORTS) do
     effort_options[i] = { v, Fields.REASONING_EFFORT_LABELS[i] }
   end
+  local thinking_options = {}
+  for i, v in ipairs(Fields.THINKING_MODES) do
+    thinking_options[i] = { v, Fields.THINKING_MODE_LABELS[i] }
+  end
 
   local nodes = {
     W.title("内置 agent 对局"),
@@ -397,12 +415,21 @@ local function play_column()
         save()
       end, { minw = 0.85, scale = 0.28 }),
     }),
-    W.row({ W.text("思考强度 (reasoning_effort, 默认不发)", SCALE) }, { padding = 0.04 }),
+    W.row({ W.text("思考强度 (默认不指定)", SCALE) }, { padding = 0.04 }),
     W.row({
       W.radio(effort_options, function()
         return Fields.REASONING_EFFORTS[Fields.reasoning_effort_index(config().reasoning_effort)]
       end, function(value)
         config().reasoning_effort = value
+        save()
+      end, { minw = 0.85, scale = 0.28 }),
+    }),
+    W.row({ W.text("Claude 思考方式 (仅 Anthropic 接口)", SCALE) }, { padding = 0.04 }),
+    W.row({
+      W.radio(thinking_options, function()
+        return Fields.THINKING_MODES[Fields.index_of(Fields.THINKING_MODES, config().thinking)]
+      end, function(value)
+        config().thinking = value
         save()
       end, { minw = 1.3, scale = 0.28 }),
     }),

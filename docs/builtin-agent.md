@@ -1,6 +1,6 @@
 # 内置 agent
 
-游戏内自带 agent loop: 在设置页填好 chat completions 的 endpoint, key 和模型名, agent 就在游戏里自动玩. 模型的思考过程以一行流式文字显示在画面顶部, 观众能看出模型正在思考, 不会把长时间静止误认为游戏卡死. 本文是需求与实现方案的总览, 已实现的接口说明见 [agent-api.md](<agent-api.md>).
+游戏内自带 agent loop: 在设置页填好 endpoint, key 和模型名 (接口可选 chat completions, OpenAI Responses 或 Anthropic Messages), agent 就在游戏里自动玩. 模型的思考过程以一行流式文字显示在画面顶部, 观众能看出模型正在思考, 不会把长时间静止误认为游戏卡死. 本文是需求与实现方案的总览, 已实现的接口说明见 [agent-api.md](<agent-api.md>).
 
 分文档:
 
@@ -60,7 +60,11 @@ loop 留在 Lua 里, 因为动作本来就在游戏的 Lua 里执行, 调用动�
 内容:
 
 - agent 模式.
-- 内置模式的配置: endpoint, 模型名, 鉴权方式 (Bearer 或 `x-api-key`, 默认 Bearer), key.
+- 内置模式的配置: endpoint, 模型名, 鉴权方式 (Bearer 或 `x-api-key`, 默认 Bearer), key, 接口协议.
+  - 接口: Chat (chat completions, 默认), Responses (OpenAI Responses), Anthropic (Messages). 切换下一次请求生效.
+    endpoint 填完整地址或 API 根地址都行: 末尾已有 `/chat/completions`, `/responses`, `/messages` 时先去掉,
+    再按当前接口补上; Anthropic 的根地址里没有 `/v1` 这类版本段时补 `/v1`. 换接口不用重新粘贴地址.
+  - 官方 Anthropic 要选 `x-api-key` 鉴权; 网关多半认 Bearer.
 - 防失控: 单局 token 上限, 默认不限; 赢下一局之后回主菜单, 还是继续无尽模式. 这个取值在每次从停止状态
   开始时拼进系统提示末尾的 "本局设置" 一节, 模型在胜利之前就知道本局要不要打无尽, 运行中改设置等下一次开始才生效.
 - 打完一局之后: 停止 (默认, 回主菜单后关掉 loop), 或继续 (保留对话历史, 由模型自己开下一局, 方便跨局学习).
@@ -68,9 +72,19 @@ loop 留在 Lua 里, 因为动作本来就在游戏的 Lua 里执行, 调用动�
 - 种子: 内置 agent 开局用的固定种子, 粘贴输入, 有清除按钮, 空为随机. 和原版种子输入框一样最多 8 位, 自动转大写,
   只收字母和数字. 设了以后每次 `start` 都用它开局, 覆盖模型自己给的种子, 并在结果里告诉模型; 牌组和赌注仍由模型选.
   按原版规则, 固定种子的局不计解锁, 成就和统计. 只作用于内置 agent, 外部 agent 照常用 `start` 的 `seed` 参数.
-- 思考强度: 默认, 低, 中, 高. 选了低/中/高时每次请求 (含压缩时写摘要) 在请求体里带上
-  `reasoning_effort` (`low` / `medium` / `high`); 默认不带这个字段, 由服务端决定. 有的服务端或模型不认这个字段,
-  可能忽略或报错, 这时改回默认.
+- 思考强度: 默认, 低, 中, 高, 超高, 最高 (`low` / `medium` / `high` / `xhigh` / `max`). 选了以后每次请求
+  (含压缩时写摘要) 都带上, 写在哪里看接口: Chat 是 `reasoning_effort`, Responses 是 `reasoning.effort`,
+  Anthropic 是 `output_config.effort` (固定预算时改为折算预算). 默认不带, 由服务端决定.
+  超高与最高只有部分模型认 (OpenAI 没有 `max`); 服务端或模型不认时可能忽略或报错, 这时改回默认.
+- Claude 思考方式 (只对 Anthropic 接口生效):
+  - 自适应 (默认): `thinking: {type: "adaptive", display: "summarized"}`, 模型自己决定想不想, 想多深.
+    Opus/Sonnet 4.6 及以后的模型都支持; 写明 `display` 是因为 Opus 4.7 以后默认不返回思考文本, 流式条会是空的.
+  - 固定预算: `thinking: {type: "enabled", budget_tokens}`, 预算按思考强度折算 (低 4K, 中 10K, 高 16K, 超高与最高 24K,
+    默认 10K). 给只支持这种写法的 Opus 4.5, Sonnet 4.5, Haiku 4.5 用, Opus 4.7 以后的模型会 400.
+  - 不指定: 不写 `thinking`, 由服务端决定 (Opus 5 以后默认自适应但不返回思考文本, 更早的模型默认不思考).
+  - 走 Chat 接口接 Claude 时由网关决定怎么翻译思考参数: 有的网关把 `reasoning_effort` 换成旧的
+    `type: "enabled"` 加预算, Opus 5.5 会以 400 拒绝 (`requires adaptive thinking`). 这时改用 Anthropic 接口,
+    或把思考强度改回默认.
 - 最大上下文: 32K, 64K, 128K, 256K, 500K, 1M, 默认 256K. 上一次请求的用量到它的 80% 时, 较早的对话交给模型
   写摘要, 最近的原文保留, 详见 [agent-loop.md](<agent-loop.md>). 和单局 token 上限不同: 那个管一局总共花多少,
   这个管一次请求带多少历史.
@@ -215,7 +229,7 @@ Agent 面板:
 
 ## 待定与待核实
 
-- 是否适配 Responses API. OpenAI 的 reasoning summary 只在 Responses API 里返回, 走 chat completions 拿不到.
+- Responses 与 Anthropic 两种接口只有单测 (按官方文档的事件格式构造), 还没对真实服务跑过一局.
 - 顶部居中的流式条在商店和补充包界面是否被原版 UI 占用, 实现后截图确认.
 - Android 上 `ffi.load` 能否只用库名找到 `libbbnet.so` (找不到时从 `/proc/self/maps` 拼路径), 需要真机确认.
 - 手机上逐帧读回画面的性能能否撑住 540p 24fps, 需要真机测试.

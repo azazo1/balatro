@@ -103,8 +103,9 @@ local function harness()
       show_status = function() end,
     },
     client = {
-      start = function(_, messages, tools, callbacks, opts)
-        local snapshot = { tools = tools, label = env.label, opts = opts }
+      start = function(cfg, messages, tools, callbacks, opts)
+        -- 协议层按配置自己读思考强度, 这里记下发请求那一刻的值.
+        local snapshot = { tools = tools, label = env.label, opts = opts, effort = cfg and cfg.reasoning_effort }
         for i, m in ipairs(messages) do
           snapshot[i] = m
         end
@@ -493,17 +494,17 @@ do -- 固定种子: 设置了就覆盖模型给的种子 (没给也补上), 结�
   check("没设种子时按模型给的参数开局", plain.calls[1] and plain.calls[1].params.seed == nil)
 end
 
-do -- 思考强度: 设置了就写进请求的 extra, 默认不写 (由服务端决定)
+do -- 思考强度: 运行中改了, 下一次请求按新值 (配置整个交给协议层)
   local env = harness()
   env.driver.start()
   env.tick()
   local first = env.requests[1]
-  check("默认不带思考强度", first and (first.opts == nil or first.opts.extra == nil or first.opts.extra.reasoning_effort == nil))
+  check("默认不带思考强度", first and (first.effort == nil or first.effort == ""))
   env.cfg.reasoning_effort = "high"
   env.reply({ { "notify", { message = "先看看" } } })
   env.settle()
   local second = env.requests[2]
-  check("设置后请求带上 reasoning_effort", second and second.opts and second.opts.extra and second.opts.extra.reasoning_effort == "high")
+  check("改了之后下一次请求按新值", second and second.effort == "high")
 end
 
 do -- 只有解说没有动作时, 下一轮不重复附状态

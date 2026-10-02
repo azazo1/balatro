@@ -29,11 +29,12 @@ deps:
 - abandon(): 放弃等待中的调用
 - text: agent/text.lua (UTF-8 安全的截断), 查询结果超长时用它切.
 - gamestate() -> table; overlay() -> "unlock"|"win"|"other"|nil; busy() -> boolean (动画或游戏暂停)
-- config() -> {endpoint, model, api_key, auth, after_win, after_run, strategy, context_limit, seed, reasoning_effort}
+- config() -> {endpoint, model, api_key, auth, api_format, reasoning_effort, thinking, after_win, after_run,
+  strategy, context_limit, seed}
   seed 非空时 start 一律用它开局, 覆盖模型给的种子.
   after_win / after_run / strategy 只在从停止状态开始时拼进系统提示, 运行中改动不影响提示词.
   after_win 与 after_run 的实际分支在一局结束时读当前配置.
-  reasoning_effort 非空时每次请求 (含写摘要) 都带上, 经 client.start 的 opts.extra 写进请求体.
+  配置整个交给 client.start, 协议 (api_format) 与思考相关的字段由协议层自己读, 每次请求 (含写摘要) 都按当前值.
 - json {encode, decode}; now() -> 秒
 - bar: begin_request(label?), push(kind, text), reset(), finish(), show_error(text 或 fun(): string, hold), show_status(text, hold)
   label 是固定显示在行首的前缀 (压缩时为 "压缩中: ").
@@ -211,17 +212,6 @@ function M.new(deps)
 
   local callbacks = {}
 
-  --- 请求的额外参数: 设置了思考强度时写进请求体的 reasoning_effort, 默认 ("") 不写, 由服务端决定.
-  ---@param cfg table
-  ---@return table? opts 给 client.start
-  local function request_opts(cfg)
-    local effort = cfg and cfg.reasoning_effort
-    if type(effort) == "string" and effort ~= "" then
-      return { extra = { reasoning_effort = effort } }
-    end
-    return nil
-  end
-
   local function send_request()
     local cfg = deps.config()
     self.stats.requests = self.stats.requests + 1
@@ -235,8 +225,7 @@ function M.new(deps)
       cfg,
       history.messages,
       tools.definitions({ knowledge = deps.knowledge ~= false }),
-      callbacks,
-      request_opts(cfg)
+      callbacks
     )
   end
 
@@ -406,7 +395,7 @@ function M.new(deps)
     compact_callbacks.started = deps.now()
     -- 不带工具: 模型只写摘要, 不会在这次请求里操作游戏.
     local cfg = deps.config()
-    req = deps.client.start(cfg, messages, nil, compact_callbacks, request_opts(cfg))
+    req = deps.client.start(cfg, messages, nil, compact_callbacks)
     return true
   end
 
