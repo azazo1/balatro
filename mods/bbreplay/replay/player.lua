@@ -9,7 +9,8 @@
 
 节奏 (BALATROBOT_REPLAY_PACING, 游戏内由确认页选):
 - tight: 上一步完成且动画停下后, 稍等 TIGHT_GAP 秒就做下一步, 去掉原局里 agent 思考的时间.
-  讲解 (notify) 仍按阅读时长等 (传 wait: true); 回放期间关掉讲解门槛, 原局里操作是怎么排的就怎么排.
+  讲解 (notify) 仍等阅读时长 (传 wait: true), 但 toast 改用紧凑时长, 退去更快.
+  回放期间关掉讲解门槛, 原局里操作是怎么排的就怎么排. 工具调用那条左侧始终用短时长.
 - original: 按原局里两步之间的实际间隔回放, 包括思考的时间; 动画没停时也会等它停下.
 
 弹窗不会一出现就关:
@@ -84,9 +85,11 @@ local function toast(title, text, duration)
 end
 
 --- 回放期间关掉 "等讲解退去" 的门槛: 原局里操作是在讲解停留期间执行的, 回放照原样重做.
---- 结束或开始失败时都要恢复.
-local function set_gate(enabled)
-  deps.toast.gate_enabled = enabled
+--- 紧凑节奏同时打开 toast.compact, 右侧消息更快退去. 结束或开始失败时都要恢复.
+---@param active boolean
+local function set_replay_toast(active)
+  deps.toast.gate_enabled = not active
+  deps.toast.compact = active and cfg.pacing == "tight"
 end
 
 local REPLAY_SUFFIX = ".replay.json"
@@ -160,7 +163,7 @@ end
 local function finish_ingame()
   deps.recorder.end_segment("replay")
   deps.tutorial.restore()
-  set_gate(true)
+  set_replay_toast(false)
   local warnings = deps.session.finish()
   M.active = false
   M.status = "off"
@@ -511,7 +514,6 @@ function M.init_early(options)
   -- 启动时没有别的东西在操作游戏, 这里只是登记, 让 balatrobot 不开端口.
   deps.control.claim(OWNER)
   M.active = true
-  set_gate(false)
   st = { phase = "boot", phase_at = now(), index = 1, prev_done = now(), last_busy = now(), reference = 0 }
 
   local pacing = os.getenv("BALATROBOT_REPLAY_PACING")
@@ -522,6 +524,7 @@ function M.init_early(options)
   cfg.win_hold = env_number("BALATROBOT_REPLAY_WIN_HOLD", cfg.win_hold)
   cfg.end_hold = env_number("BALATROBOT_REPLAY_END_HOLD", cfg.end_hold)
   cfg.tight_gap = env_number("BALATROBOT_REPLAY_GAP", cfg.tight_gap)
+  set_replay_toast(true)
 
   local decoded, problem = read_data(path)
   if problem then
@@ -637,9 +640,9 @@ function M.start(options)
     ingame = true,
     on_finish = options.on_finish,
   }
-  st.warn_until = now() + show_warnings(result, 4)
   M.active = true
-  set_gate(false)
+  set_replay_toast(true)
+  st.warn_until = now() + show_warnings(result, 4)
   deps.input_lock.install()
   deps.recorder.annotate("replay", { source = data.source, file = options.path, pacing = cfg.pacing, entry = "ingame" })
   sendInfoMessage(string.format("游戏内回放开始: %s, %d 步, 节奏 %s", options.path, #data.actions, cfg.pacing), LOGGER)

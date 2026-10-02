@@ -249,6 +249,18 @@ do -- 消息截断按 UTF-8 字符, 不切断多字节字符
   check("显式时长", Toast.duration_for("hi", 12) == 12)
   -- 同样字数的中文要比英文读得久, 否则连续消息会在观众读完前被顶掉.
   check("中文按字计时", Toast.duration_for(string.rep("中", 20)) > Toast.duration_for(string.rep("a", 20)) + 2)
+  local left_opts = { side = "left" }
+  check("左侧短消息比右侧短", Toast.duration_for("hi", nil, nil, left_opts) < Toast.duration_for("hi"))
+  check("左侧长消息上限更短", Toast.duration_for(string.rep("中", 200), nil, nil, left_opts) == 2.2)
+  check("显式 cap 仍生效", Toast.duration_for(string.rep("中", 200), nil, 8) == 8)
+  local normal_right = Toast.duration_for(string.rep("中", 20))
+  local left_before = Toast.duration_for(string.rep("中", 20), nil, nil, left_opts)
+  Toast.compact = true
+  local compact_right = Toast.duration_for(string.rep("中", 20))
+  local left_compact = Toast.duration_for(string.rep("中", 20), nil, nil, left_opts)
+  Toast.compact = false
+  check("紧凑模式右侧更快", compact_right < normal_right, tostring(compact_right) .. " vs " .. tostring(normal_right))
+  check("左侧不跟紧凑开关走", left_compact == left_before, tostring(left_compact))
 end
 
 do -- 队列: 一条条显示, 顺序不丢; 讲解的 id 让后面的操作能等它退去
@@ -397,8 +409,29 @@ do -- 两条车道: 左侧的工具调用记录与右侧的决策消息各自排
   check("清空后两侧都空", not Toast.active())
 
   -- 左侧那条的阅读时长有单独的上限 (正文只有一句参数说明)
-  check("左侧时长上限 8 秒", Toast.duration_for(string.rep("中", 200), nil, 8) == 8)
   check("右侧仍按长解说算", Toast.duration_for(string.rep("中", 200)) == 36)
+
+  -- 显式 duration=1 时: 左侧 linger 0.4, 右侧 2. 左侧应先退去.
+  Toast.clear()
+  Toast.compact = false
+  local right_i = #boxes + 1
+  Toast.push("右侧", "决策", 1)
+  local left_i = #boxes + 1
+  Toast.push("左侧", "调用", 1, nil, { side = "left" })
+  for _ = 1, 23 do
+    Toast.update(0.1)
+  end
+  check("2.3 秒后左侧已退去, 右侧还在", boxes[left_i].REMOVED and not boxes[right_i].REMOVED)
+  Toast.clear()
+  Toast.compact = true
+  local compact_i = #boxes + 1
+  Toast.push("右侧", "决策", 1)
+  for _ = 1, 23 do
+    Toast.update(0.1)
+  end
+  check("紧凑右侧 2.3 秒已退去", boxes[compact_i].REMOVED)
+  Toast.compact = false
+  Toast.clear()
 
   -- 左侧的换行宽度比右侧窄: 同样一段文字, 左侧折出的行更短 (弹窗水平方向不会拉长)
   local function longest_line(definition)

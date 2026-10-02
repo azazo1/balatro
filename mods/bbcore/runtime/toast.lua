@@ -15,8 +15,9 @@ agent 提示消息, 仿原版成就解锁通知 (functions/common_events.lua 的
 - 停留时长按墙钟计; 通知仍在屏幕上或还排在队里时, 录制把这段视为活动期, 不会被剪掉.
 - 一条一条显示: 同一条车道上已有消息正在显示时新来的排队等着, 前一条开始退场时下一条才滑入, 顺序不丢.
   排队不设上限, 一句解说都不丢 (agent 打得太快时文字会落后于画面, 这是取舍).
-- 每条通知有阅读时长 (按字数估算) 和额外停留 (LINGER): 阅读时长过后 on_read 回调触发.
-  左侧那条的正文短, 阅读时长另有一个更小的上限 (CALL_READ_MAX).
+- 每条通知有阅读时长 (按字数估算) 和额外停留: 阅读时长过后 on_read 回调触发.
+  左侧那条的正文短, 始终用更短的阅读上限和停留, 不跟右侧走.
+  右侧在 M.compact (回放紧凑节奏) 时同样改用更短的阅读与停留.
 - 讲解 (gate 为 true 的那些, 目前是 notify) 还能被后面的操作等: 见 M.gate_id / M.gate_open,
   改状态的操作要等自己那条讲解退去才执行 (dispatcher 的门槛), 观众先看到文字再看到动作.
   左侧那条不拦操作.
@@ -31,6 +32,8 @@ local M = {
   -- 讲解是否拦后面的操作 (dispatcher 的门槛). 回放时关掉: 原局里操作是在讲解停留期间就执行的,
   -- 回放照原样重做, 不该再被拦一次 (回放自身用 notify 的 wait 复现原来的节奏).
   gate_enabled = true,
+  -- 右侧用更短的阅读与停留 (回放紧凑节奏打开). 左侧工具调用始终用短时长, 不看这个开关.
+  compact = false,
 }
 
 local MAX_ITEMS = 3
@@ -51,16 +54,34 @@ local GAP = 0.12
 local ENTER_DELAY = 0.1 -- 等 UIBox 算出尺寸再滑入, 与原版一致
 local LEAVE_TIME = 0.6 -- 滑出后再移除
 local MAX_WALL = 40
-local LINGER = 2 -- 读完后再停留的秒数
--- 阅读速度: 中文约每秒 5~6 字, 英文与数字按每秒约 15 字符.
-local READ_BASE = 1.2
-local READ_WIDE = 0.18
-local READ_NARROW = 0.06
-local READ_MIN = 2.5
--- 180 字的中文约 34 秒读完; 加上 LINGER 不超过 MAX_WALL.
-local READ_MAX = 36
--- 左侧那条的阅读时长上限: 正文只有一句参数说明.
-local CALL_READ_MAX = 8
+-- 右侧默认: 中文约每秒 5~6 字, 英文与数字按每秒约 15 字符.
+-- 180 字的中文约 34 秒读完; 加上 linger 不超过 MAX_WALL.
+local NORMAL_TIMING = {
+  linger = 2,
+  read_min = 2.5,
+  read_max = 36,
+  read_base = 1.2,
+  read_wide = 0.18,
+  read_narrow = 0.06,
+}
+-- 右侧紧凑节奏: 仍按字数估, 但下限, 上限和读完后再停都更短.
+local COMPACT_TIMING = {
+  linger = 0.5,
+  read_min = 1.0,
+  read_max = 5,
+  read_base = 0.7,
+  read_wide = 0.10,
+  read_narrow = 0.04,
+}
+-- 左侧工具调用: 正文只有一句参数说明, 始终比右侧短, 不跟紧凑开关走.
+local CALL_TIMING = {
+  linger = 0.4,
+  read_min = 0.7,
+  read_max = 2.2,
+  read_base = 0.5,
+  read_wide = 0.08,
+  read_narrow = 0.03,
+}
 -- 叠起来的通知底边离屏幕下沿至少留这么多, 再往下的旧通知提前滑出.
 local BOTTOM_MARGIN = 0.3
 
@@ -266,21 +287,35 @@ local function build_definition(title, text, side)
   }
 end
 
---- 阅读时长: 中日韩等多字节字符按 READ_WIDE 计, ASCII 按 READ_NARROW 计, 限制在 READ_MIN~cap.
---- 显式给出 duration 时以它为准.
+---@param side "left"|"right"?
+---@return table
+local function timing_for(side)
+  if side == "left" then
+    return CALL_TIMING
+  end
+  if M.compact then
+    return COMPACT_TIMING
+  end
+  return NORMAL_TIMING
+end
+
+--- 阅读时长: 中日韩等多字节字符按 wide 计, ASCII 按 narrow 计, 限制在 min~cap.
+--- 显式给出 duration 时以它为准. 左侧与紧凑节奏用各自更短的一套数.
 ---@param text string
 ---@param duration number?
----@param cap number? 上限, 按字数算时默认 READ_MAX, 显式给了 duration 时默认 MAX_WALL
+---@param cap number? 上限, 按字数算时默认该侧 read_max, 显式给了 duration 时默认 MAX_WALL
+---@param opts {side: "left"|"right"?}?
 ---@return number
-function M.duration_for(text, duration, cap)
+function M.duration_for(text, duration, cap, opts)
+  local timing = timing_for(opts and opts.side)
   if type(duration) == "number" and duration > 0 then
     return math.min(duration, cap or MAX_WALL)
   end
-  local seconds = READ_BASE
+  local seconds = timing.read_base
   for _, ch in ipairs(utf8_chars(text)) do
-    seconds = seconds + (#ch > 1 and READ_WIDE or READ_NARROW)
+    seconds = seconds + (#ch > 1 and timing.read_wide or timing.read_narrow)
   end
-  return math.max(READ_MIN, math.min(cap or READ_MAX, seconds))
+  return math.max(timing.read_min, math.min(cap or timing.read_max, seconds))
 end
 
 ---@param item table
@@ -334,8 +369,9 @@ local function show(entry)
   entry.box = box
   entry.attach = G.ROOM_ATTACH
   entry.age = 0
-  entry.read = M.duration_for(text, entry.duration, entry.max_read)
-  entry.life = math.min(entry.read + LINGER, MAX_WALL)
+  local timing = timing_for(lane.side)
+  entry.read = M.duration_for(text, entry.duration, nil, { side = lane.side })
+  entry.life = math.min(entry.read + timing.linger, MAX_WALL)
   entry.leave_at = nil
   table.insert(lane.items, 1, entry)
 end
@@ -365,8 +401,6 @@ function M.push(title, text, duration, on_read, opts)
     duration = duration,
     on_read = on_read,
     gated = (opts and opts.gated) == true,
-    -- 左侧那条只有一句参数说明, 阅读时长收到 CALL_READ_MAX
-    max_read = side == "left" and CALL_READ_MAX or READ_MAX,
   }
   if entry.gated then
     gated_inflight[entry.id] = true
