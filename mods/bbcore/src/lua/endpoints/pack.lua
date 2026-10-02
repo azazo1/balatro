@@ -2,6 +2,7 @@
 
 ---@type BB_LOGGER
 local BB_LOGGER = assert(SMODS.load_file("src/lua/utils/logger.lua"))()
+local pack_wait = assert(SMODS.load_file("src/lua/utils/pack_wait.lua"))()
 
 -- ==========================================================================
 -- Pack Select Endpoint Params
@@ -46,6 +47,37 @@ local function get_consumable_target_requirements(card_key)
   end
 
   return nil
+end
+
+--- 选完或跳过后等包稳定: 还能再选就留在包里, 否则等回到打开前的界面
+--- (商店买的包回 SHOP, 跳过标签开的包回 BLIND_SELECT).
+---@param send_response fun(response: Response.Endpoint)
+---@param choices_before integer
+---@param return_to any
+---@param skipped boolean?
+local function wait_pack_done(send_response, choices_before, return_to, skipped)
+  G.E_MANAGER:add_event(Event({
+    trigger = "condition",
+    blocking = false,
+    func = function()
+      local result = pack_wait.after_pick({
+        skip = skipped,
+        choices_before = choices_before,
+        choices_now = G.GAME.pack_choices or 0,
+        pack_open = pack_wait.pack_open(G.pack_cards),
+        state = G.STATE,
+        return_to = return_to,
+        state_complete = G.STATE_COMPLETE,
+        states = G.STATES,
+      })
+      if result then
+        sendDebugMessage("Return pack() after " .. result, "BB.ENDPOINTS")
+        send_response(BB_GAMESTATE.get_gamestate())
+        return true
+      end
+      return false
+    end,
+  }))
 end
 
 -- ==========================================================================
@@ -255,41 +287,10 @@ return {
       }
 
       local pack_choices_before = G.GAME.pack_choices or 0
+      local return_to = G.GAME.PACK_INTERRUPT
 
       G.FUNCS.use_card(btn)
-
-      -- Wait for action to complete - check pack_choices to determine expected state
-      G.E_MANAGER:add_event(Event({
-        trigger = "condition",
-        blocking = false,
-        func = function()
-          -- Check if more selections remain (mega packs decrement pack_choices)
-          if pack_choices_before == 2 and G.GAME.pack_choices and G.GAME.pack_choices == 1 then
-            -- Pack stays open - wait for stabilization
-            local pack_stable = G.pack_cards
-              and not G.pack_cards.REMOVED
-              and G.STATE_COMPLETE
-              and G.STATE == G.STATES.SMODS_BOOSTER_OPENED
-
-            if pack_stable then
-              sendDebugMessage("Return pack() after selection (more choices remain)", "BB.ENDPOINTS")
-              send_response(BB_GAMESTATE.get_gamestate())
-              return true
-            end
-          else
-            -- Pack closes - wait for return to shop
-            local pack_closed = not G.pack_cards or G.pack_cards.REMOVED
-            local back_to_shop = G.STATE == G.STATES.SHOP
-
-            if pack_closed and back_to_shop then
-              sendDebugMessage("Return pack() after selection", "BB.ENDPOINTS")
-              send_response(BB_GAMESTATE.get_gamestate())
-              return true
-            end
-          end
-          return false
-        end,
-      }))
+      wait_pack_done(send_response, pack_choices_before, return_to)
 
       return true
     end
@@ -298,25 +299,9 @@ return {
     if args.skip then
       local pack_count = G.pack_cards.config and G.pack_cards.config.card_count or 0
       sendDebugMessage(string.format("Pack: skipping (%d cards remaining)", pack_count), "BB.ENDPOINTS")
+      local return_to = G.GAME.PACK_INTERRUPT
       G.FUNCS.skip_booster({})
-
-      -- Wait for pack to close and return to shop
-      G.E_MANAGER:add_event(Event({
-        trigger = "condition",
-        blocking = false,
-        func = function()
-          local pack_closed = not G.pack_cards or G.pack_cards.REMOVED
-          local back_to_shop = G.STATE == G.STATES.SHOP
-
-          if pack_closed and back_to_shop then
-            sendDebugMessage("Return pack() after skip", "BB.ENDPOINTS")
-            send_response(BB_GAMESTATE.get_gamestate())
-            return true
-          end
-
-          return false
-        end,
-      }))
+      wait_pack_done(send_response, 1, return_to, true)
       return
     end
 

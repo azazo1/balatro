@@ -84,6 +84,8 @@ MENU -> BLIND_SELECT -> SELECTING_HAND -> ROUND_EVAL -> SHOP -+
 ```
 
 商店里打开卡包后进入 `SMODS_BOOSTER_OPENED`, 选完或跳过后回到 `SHOP`.
+跳过盲注的标签 (魅力, 空灵, 流星, 标准, 丑角) 也会打开补充包, 选完后回到 `BLIND_SELECT`.
+`skip` 会等包打开再返回 (返回里 `state` 已是 `SMODS_BOOSTER_OPENED`); `pack` 等包关掉后回到打开前的界面, 不是死等商店.
 
 | 状态 | 常用方法 |
 | --- | --- |

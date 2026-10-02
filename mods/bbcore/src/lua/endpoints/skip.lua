@@ -1,5 +1,7 @@
 -- src/lua/endpoints/skip.lua
 
+local pack_wait = assert(SMODS.load_file("src/lua/utils/pack_wait.lua"))()
+
 -- ==========================================================================
 -- Skip Endpoint Params
 -- ==========================================================================
@@ -53,26 +55,31 @@ return {
     -- Execute blind skip
     G.FUNCS.skip_blind(skip_button)
 
-    -- Wait for the skip to complete
-    -- Completion is indicated by the blind state changing to "Skipped"
+    -- 跳过标签可能立刻打开补充包 (魅力 5 选 2, 空灵幻灵包等). 等包打开再返回,
+    -- 否则会带着选盲注状态往下跑, 和正在打开的包抢事件.
+    -- 不能 blocking: 真挡住的话标签开包的事件过不来, 会和标签锁互相等死.
     G.E_MANAGER:add_event(Event({
       trigger = "condition",
-      blocking = true,
+      blocking = false,
       func = function()
         local blinds = BB_GAMESTATE.get_blinds_info()
-        local done = (
-          G.STATE == G.STATES.BLIND_SELECT
-          and G.GAME.blind_on_deck ~= nil
-          and G.blind_select_opts ~= nil
-          and blinds[current_blind_key].status == "SKIPPED"
-        )
-        if done then
-          sendDebugMessage("Return skip()", "BB.ENDPOINTS")
-          local state_data = BB_GAMESTATE.get_gamestate()
-          send_response(state_data)
+        local info = blinds and blinds[current_blind_key]
+        local result = pack_wait.skip_done({
+          state = G.STATE,
+          states = G.STATES,
+          skipped = info and info.status == "SKIPPED",
+          pack_open = pack_wait.pack_open(G.pack_cards),
+          state_complete = G.STATE_COMPLETE,
+          booster_pack = G.booster_pack and not G.booster_pack.REMOVED,
+          pack_interrupt = G.GAME.PACK_INTERRUPT,
+          locks = G.CONTROLLER and G.CONTROLLER.locks,
+        })
+        if result then
+          sendDebugMessage("Return skip() after " .. result, "BB.ENDPOINTS")
+          send_response(BB_GAMESTATE.get_gamestate())
+          return true
         end
-
-        return done
+        return false
       end,
     }))
   end,

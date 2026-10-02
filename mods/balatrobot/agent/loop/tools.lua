@@ -49,7 +49,7 @@ local DEFS = {
   },
   {
     name = "skip",
-    description = "跳过当前盲注 (只能跳过小盲注和大盲注), 拿到跳过奖励标签.",
+    description = "跳过当前盲注 (只能跳过小盲注和大盲注), 拿到跳过奖励标签. 魅力 / 空灵这类标签会打开补充包, 返回时可能已经在卡包里, 接着用 pack 选.",
     parameters = object({ reason = REASON }, { "reason" }),
   },
   {
@@ -84,7 +84,7 @@ local DEFS = {
   },
   {
     name = "pack",
-    description = "在打开的补充包里选一张 (card 为下标, 需要目标的塔罗等用 targets 给手牌下标), 或 skip=true 跳过.",
+    description = "在打开的补充包里选一张 (card 为下标, 需要目标的塔罗等用 targets 给手牌下标), 或 skip=true 跳过. 5 选 2 要调用两次; 跳过标签开的包选完后回到选盲注, 不是商店.",
     parameters = object({
       card = INDEX,
       targets = { type = "array", items = { type = "integer", minimum = 0 } },
