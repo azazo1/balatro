@@ -97,7 +97,7 @@ end
 BB_OVERLAY.install(BB_DISPATCHER, BB_GAMESTATE)
 BB_ACTIVITY.install(BB_DISPATCHER, BB_TRANSPORT)
 
--- 每次请求 (含只读查询) 在屏幕左侧记一条: 标题是工具的中文名, 正文是参数含义, 见 runtime/call_note.lua.
+-- 工具真正执行时在屏幕左侧记一条 (等讲解退去之后, 与动作同时出现): 标题是工具的中文名, 正文是参数含义, 见 runtime/call_note.lua.
 -- 是否显示由 BB_TOAST.calls_enabled 决定: balatrobot 按设置页的开关设置, 回放时 bbreplay 打开.
 BB_ACTIVITY.on("call", function(method, params)
   local note = BB_CALL_NOTE.note(method, params)

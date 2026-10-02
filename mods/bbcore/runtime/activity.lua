@@ -6,7 +6,8 @@ agent 请求的活动追踪 (BB_ACTIVITY). 包装 upstream 的 dispatch 与 BB_T
 - 被动方法 (查询状态, 截图) 不算 agent 活动, 录制不会因它们而保留等待时间.
 
 事件 (M.on 订阅):
-- call(method, params, reason): 每一次请求, 含被动方法 (只读查询). 左侧的工具调用弹窗用它.
+- call(method, params, reason): 端点真正开始执行时发, 含被动方法 (只读查询). 左侧的工具调用弹窗用它.
+  请求到达时可能还在等讲解退去, 所以由 dispatcher 在 execute 里发, 不要在到达时发.
   改动 request 的发出位置会把只读查询也写进录像时间线, 所以单开一个事件.
 - request(method, params, reason): 会改状态或消耗资源的请求 (被动方法不发).
 - response(method, ok, error_message, response): response 为端点返回的原表
@@ -80,8 +81,7 @@ function M.install(dispatcher, server)
       reason = nil
     end
 
-    -- 每一次请求都发一次: 左侧的工具调用记录要覆盖只读查询 (它们不走下面的 request).
-    M.emit("call", method, params, reason)
+    -- 左侧工具调用弹窗不在这里发: 请求可能还要等讲解退去, 由 dispatcher 在真正 execute 时发 call.
 
     if M.PASSIVE[method] then
       return dispatch(request)

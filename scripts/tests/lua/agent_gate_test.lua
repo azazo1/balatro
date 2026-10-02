@@ -25,7 +25,15 @@ BB_ERROR_NAMES = {
   INTERNAL_ERROR = "INTERNAL_ERROR",
 }
 -- 只读方法: 手册查询与状态查询由别的 mod 登记进 PASSIVE, 这里只放一个代表.
-BB_ACTIVITY = { PASSIVE = { gamestate = true } }
+local calls = {}
+BB_ACTIVITY = {
+  PASSIVE = { gamestate = true },
+  emit = function(event, method)
+    if event == "call" then
+      calls[#calls + 1] = method
+    end
+  end,
+}
 sendDebugMessage = function() end
 sendWarnMessage = function() end
 sendErrorMessage = function() end
@@ -81,11 +89,11 @@ local function dispatch(method)
 end
 
 local function reset()
-  executed, responses = {}, {}
+  executed, responses, calls = {}, {}, {}
   toast.id = nil
   clock = 0
   BB_DISPATCHER.update() -- 清掉上一次留下的挂起请求
-  executed, responses = {}, {}
+  executed, responses, calls = {}, {}, {}
 end
 
 do -- 没有讲解时直接执行, 有讲解时挂起
@@ -93,16 +101,19 @@ do -- 没有讲解时直接执行, 有讲解时挂起
   dispatch("play")
   check("没有讲解时立刻执行", #executed == 1 and executed[1] == "play", table.concat(executed, ","))
   check("立刻执行时有响应", #responses == 1)
+  check("立刻执行时才记工具调用", table.concat(calls, ",") == "play", table.concat(calls, ","))
 
   reset()
   toast.id = 7
   dispatch("play")
   check("讲解还在时先不执行", #executed == 0, table.concat(executed, ","))
   check("挂起时还没有响应", #responses == 0)
+  check("挂起时不记工具调用", #calls == 0, table.concat(calls, ","))
   toast.id = nil
   BB_DISPATCHER.update()
   check("讲解退去后执行", #executed == 1 and executed[1] == "play", table.concat(executed, ","))
   check("执行后有响应", #responses == 1)
+  check("退去后才记工具调用", table.concat(calls, ",") == "play", table.concat(calls, ","))
 end
 
 do -- 只读方法与 start/menu 不等讲解
@@ -151,6 +162,7 @@ do -- 挂起期间阶段变了: 执行前再查一次, 不执行而是返回阶�
   G.STATE = G.STATES.SHOP
   check("阶段变了就不执行", #executed == 0, table.concat(executed, ","))
   check("返回阶段错误", #responses == 1 and responses[1].name == "INVALID_STATE", tostring(#responses))
+  check("没执行就不记工具调用", #calls == 0, table.concat(calls, ","))
 end
 
 do -- 讲解显示异常时不能卡住请求: 超过上限直接执行

@@ -18,6 +18,7 @@ local STATE_NAME_CACHE = nil
 -- 以及 start 与 menu (它们会把画面整个换掉, 与当前讲解无关).
 -- notify 不是只读 (它要往屏幕上放东西), 所以它也要等前一条讲解退去, 消息一条条来.
 -- 排队与退去的判断在 runtime/toast.lua (gate_id / gate_open).
+-- 左侧工具调用弹窗 (BB_ACTIVITY 的 call) 也在真正 execute 时才发, 与动作同时出现.
 local GATE_EXEMPT = { ["start"] = true, ["menu"] = true }
 -- 等讲解退去的上限. 正常的等待是一两条讲解 (每条读完加停留约 10~40 秒), 这里给足余量;
 -- 它只是显示异常时的兜底 (例如通知被别的东西弄没了), 到点就执行, 免得请求一直挂着.
@@ -257,6 +258,10 @@ function BB_DISPATCHER.dispatch(request)
     if not still_ok then
       BB_DISPATCHER.send_error(still_message, BB_ERROR_NAMES.INVALID_STATE)
       return
+    end
+    -- 左侧工具调用弹窗跟动作同时出现: 等讲解退去、阶段仍合法之后才记, 不要在请求刚到时就弹.
+    if BB_ACTIVITY and BB_ACTIVITY.emit then
+      BB_ACTIVITY.emit("call", request.method, params)
     end
     local exec_success, exec_error = pcall(function()
       endpoint.execute(params, send_response)
