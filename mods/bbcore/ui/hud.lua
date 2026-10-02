@@ -434,7 +434,9 @@ local function meter_node(meter)
       {
         n = G.UIT.C,
         config = {
-          align = "cl",
+          -- 不能带 "c" (垂直居中): 布局时填充块高度为 0, 居中会把它的上沿放到轨道中线附近,
+          -- 之后 hud_meter 再把高度设满, 填充块就整体往下错出轨道. 靠左上, 上沿留 padding.
+          align = "tl",
           padding = 0.05,
           r = 0.1,
           colour = track,
