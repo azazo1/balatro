@@ -6,6 +6,7 @@ agent 停止时结束录像段, 暂停段在剪辑版里剪掉. 加载顺序在 
   同时写回放文件 <stem>.replay.json (replay/log.lua), 人手动的操作也换算成回放步骤 (replay/manual.lua).
 - 回放: 主菜单 选项 -> 回放 (ui/replay_menu.lua), 或启动时设 BALATROBOT_REPLAY=<回放文件> (命令行, 按退出码结束).
   回放进行时在 bbcore 的 BB_CONTROL 上独占游戏, balatrobot 据此不开端口, 内置 loop 不能开始.
+  右上角有暂停/继续和中止, 输入锁仍丢掉其它操作.
 
 提供的全局: BB_RECORDER, BB_REPLAY, BB_REPLAY_LOG (命令行回放时没有).
 ]]

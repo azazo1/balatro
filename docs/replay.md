@@ -96,13 +96,19 @@
   balatrobot 把内置 loop 登记为忙 (`add_busy`), 并在独占变化时重新按模式启停监听 (`on_change`).
   命令行回放在 bbreplay 加载时就登记独占, balatrobot 的首次启停推迟到所有 mod 加载完, 所以端口不会先开再关.
 
-中止:
+画面右上角 (与内置 agent 同一套 HUD):
+
+- 暂停/继续: 不再做下一步, 已经发出去的请求仍等结果. 暂停期间原局间隔与超时一起往后挪, 不会被暂停吃掉.
+- 中止: 立刻停, 与按住 Esc 到头相同.
+
+中止的其它办法:
 
 - 桌面: 按住 Esc 1 秒. 这是现有做法.
 - 触摸: 长按屏幕 1.5 秒. 输入锁仍然丢弃触摸事件, 按住时长每帧按 `love.touch.getTouches()` 判断.
   不能靠 `love.touchpressed`: 游戏的主循环 (`game/main.lua` 的 `love.run`) 收到 `touchpressed` 只记一个标记,
   改由 `mousepressed` 带上 "是触摸" 传下去, 从不调用 `love.touchpressed`. 早先按事件判断, 真机上长按没有反应.
 - 按住期间显示进度, 松手就消失. 回放开始时用一条消息说明中止方法.
+- 输入锁丢掉其它操作, 但点在右上角 HUD 上的鼠标和触摸放行. 光标停在左上角, 避开这两颗按钮.
 
 录像: 和命令行回放一样, 输出 `replay-*` 的完整版和剪辑版 (同样是一个文件夹), 按确认页的选择决定是否录制.
 
@@ -126,7 +132,7 @@
 | `replay/session.lua` | 等存档线程写完, 装上写入拦截, 结束后读回进度与设置 |
 | `replay/tutorial.lua` | 教程局: 放回教程状态, 引导不显示浮层, 收尾恢复 |
 | `replay/player.lua` | 两种入口共用的回放驱动, 游戏内以回调结束而不是退出进程 |
-| `replay/input_lock.lua` | 输入锁, 中止的按住时长与进度 |
+| `replay/input_lock.lua` | 输入锁, 中止的按住时长与进度; 点在 HUD 上放行 |
 | `ui/replay_menu.lua` | 选项菜单里的回放入口, 列表页与确认页 |
 | `ui/settings_tab.lua` | 本 mod 的设置页: 录像开关, 保留方式, 状态 |
 

@@ -74,7 +74,7 @@ bbcore, balatrobot, bbreplay 的关系:
 - 加载顺序按 priority: bbcore (-50) -> balatrobot (0) -> bbreplay (1). 后两个都只依赖 bbcore, 可以单独装.
 - bbcore 提供全局 `BB_DISPATCHER` (执行端点), `BB_TRANSPORT` (端点结果的出口, HTTP 服务与内置 loop
   从这里取结果), `BB_CONTROL` (谁在操作游戏: 回放进行时登记独占, 内置 agent 运行时登记为忙,
-  两者互斥), `BB_MENU` (选项菜单里的按钮入口), 以及弹窗拦截, 决策消息, 流式条与界面组件.
+  两者互斥), `BB_MENU` (选项菜单里的按钮入口), `BB_HUD` (右上角竖排控制按钮), 以及弹窗拦截, 决策消息, 流式条与界面组件.
 - balatrobot 在 bbcore 上加 HTTP 服务, 手册查询端点与内置 agent; bbreplay 加录像, 回放文件与回放.
   装了 balatrobot 时 bbreplay 会跟随 agent 的暂停与停止切分录像段.
 - 各自的配置分开存: `config/balatrobot.jkr` (agent 模式与内置 agent), `config/bbreplay.jkr` (录像).

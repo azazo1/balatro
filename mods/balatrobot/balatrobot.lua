@@ -8,7 +8,7 @@ BalatroBot 入口, 由本仓库在 upstream v1.5.2 的基础上改写. 本仓库
 - 切换模式只启停 HTTP 服务, 不改游戏设置. BALATROBOT_ENABLE=1 时由 agent/settings.lua
   处理 BALATROBOT_* 环境变量: 画面, 开场动画, 声音默认沿用存档, 显式要求的改动不写回存档.
 - 模式可在运行中切换, 保存在存档目录的 config/balatrobot.jkr. 设置页见 agent/ui/settings_tab.lua.
-- 内置模式: 选项菜单的 Agent 按钮与面板, F9 暂停/继续 (agent/ui/agent_menu.lua), 顶部流式条.
+- 内置模式: 选项菜单的 Agent 按钮与面板, F9 暂停/继续 (agent/ui/agent_menu.lua), 运行时右上角暂停与锁操作按钮, 顶部流式条.
 - 请求可带 reason, 另有 notify 方法, 在游戏内以原版通知的样式显示 agent 的决策消息.
 - 弹窗 (解锁通知, 胜利界面等) 打开时拦截操作, 等待中的请求先返回 (bbcore 的 runtime/overlay.lua).
   解锁通知用 continue 关掉, 胜利后用 endless 进入无尽模式.
@@ -210,6 +210,10 @@ BB_AGENT_MENU.init({
   toast = BB_TOAST,
   widgets = BB_WIDGETS,
   menu = BB_MENU,
+})
+assert(SMODS.load_file("agent/ui/hud.lua"))().init({
+  runner = BB_RUNNER,
+  hud = BB_HUD,
 })
 
 -- 按模式启停 HTTP 服务. 推迟到所有 mod 加载完: 命令行回放由 bbreplay 判断 (它加载得更晚),

@@ -1,6 +1,6 @@
 --[[
-回放期间锁定用户输入: 丢弃鼠标, 键盘, 手柄, 触摸事件, 光标位置固定在屏幕右上角的空白处,
-避免真实光标经过牌时触发悬停效果并录进视频.
+回放期间锁定用户输入: 丢弃鼠标, 键盘, 手柄, 触摸事件, 光标位置固定在屏幕左上角的空白处,
+避免真实光标经过牌时触发悬停效果并录进视频. 点在右上角 HUD 上的鼠标和触摸放行.
 
 中止:
 - 桌面: 按住 Esc 1 秒.
@@ -42,10 +42,31 @@ local DROPPED = {
   "touchmoved",
 }
 
---- 固定的光标位置 (像素): 右上角, 小丑和消耗牌槽的上方.
+--- 固定的光标位置 (像素): 左上角空白处. 右上角是 HUD 按钮, 停在那里会一直悬停在按钮上.
 local function parked()
-  local w = love.graphics.getWidth()
-  return w - 4, 4
+  return 4, 4
+end
+
+---@param x any
+---@param y any
+---@return boolean
+local function hud_hit(x, y)
+  return BB_HUD and BB_HUD.hit and BB_HUD.hit(x, y) == true
+end
+
+---@param name string
+---@param a any
+---@param b any
+---@param c any
+---@return boolean
+local function pass_hud(name, a, b, c)
+  if name == "touchpressed" or name == "touchreleased" or name == "touchmoved" then
+    return hud_hit(b, c)
+  end
+  if name == "mousepressed" or name == "mousereleased" or name == "mousemoved" then
+    return hud_hit(a, b)
+  end
+  return false
 end
 
 --- 装在所有其它输入钩子之外, 被丢弃的事件不会被录制算作手动操作. 钩子只装一次, 之后的调用只重新上锁.
@@ -59,10 +80,15 @@ function M.install()
   installed = true
   for _, name in ipairs(DROPPED) do
     originals[name] = love[name]
-    love[name] = function(a, ...)
+    love[name] = function(a, b, c, ...)
       if not M.active then
         local original = originals[name]
-        return original and original(a, ...)
+        return original and original(a, b, c, ...)
+      end
+      -- 右上角 HUD 的暂停/中止要能点到, 点在框上的鼠标和触摸放行.
+      if pass_hud(name, a, b, c) then
+        local original = originals[name]
+        return original and original(a, b, c, ...)
       end
       -- 触摸的按住时长由 abort_progress 每帧查 love.touch 得出, 这里不处理.
       if name == "keypressed" and a == "escape" then

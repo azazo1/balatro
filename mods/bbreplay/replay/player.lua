@@ -19,8 +19,8 @@
 - 胜利界面: Jimbo 出现后再停 WIN_HOLD 秒, 然后按原局的选择 (endless 或 menu) 继续.
 
 每步完成后比对状态摘要, 不一致时在 VERIFY_WINDOW 秒内反复确认, 仍不一致就停止回放, 录像保留到这里.
-回放期间锁定输入, 按住 Esc 1 秒中止 (触摸是长按 1.5 秒). 命令行回放完成退出码为 0, 跑偏为 1,
-中止为 2, 文件无法回放为 3; 游戏内以同样的数字回调给界面, 用来显示结果.
+回放期间锁定输入, 右上角有暂停/继续和中止; 按住 Esc 1 秒也能中止 (触摸是长按 1.5 秒).
+命令行回放完成退出码为 0, 跑偏为 1, 中止为 2, 文件无法回放为 3; 游戏内以同样的数字回调给界面, 用来显示结果.
 ]]
 
 local json = require("json")
@@ -29,10 +29,11 @@ local LOGGER = "BB.AGENT.REPLAY"
 
 local M = {
   active = false,
+  paused = false,
   status = "off",
 }
 
-local ABORT_HINT = "要中止回放: 按住 Esc 1 秒; 触摸时长按屏幕 1.5 秒"
+local ABORT_HINT = "右上角可暂停或中止; 按住 Esc 1 秒也能中止, 触摸时长按 1.5 秒"
 
 local function env_number(name, default)
   local value = tonumber(os.getenv(name) or "")
@@ -154,9 +155,134 @@ end
 
 --- 停留 hold 秒后结束回放: 命令行按退出码结束进程, 游戏内把结果交回界面, 由它收尾.
 local function finish_later(code, hold)
+  M.paused = false
+  st.freeze_at = nil
   st.exit_code = code
   st.quit_at = now() + hold
   set_phase("ending")
+end
+
+--- 暂停期间墙钟还在走, 把回放自己的时刻一起往后挪, 间隔和超时才不会被暂停吃掉.
+---@param dt number
+local function bump_times(dt)
+  if dt <= 0 then
+    return
+  end
+  for _, key in ipairs({ "phase_at", "prev_done", "last_busy", "warn_until", "quit_at", "overlay_since" }) do
+    if st[key] then
+      st[key] = st[key] + dt
+    end
+  end
+  if st.waiting then
+    if st.waiting.sent then
+      st.waiting.sent = st.waiting.sent + dt
+    end
+    if st.waiting.applied_at then
+      st.waiting.applied_at = st.waiting.applied_at + dt
+    end
+  end
+  if st.verify then
+    if st.verify.since then
+      st.verify.since = st.verify.since + dt
+    end
+    if st.verify.started then
+      st.verify.started = st.verify.started + dt
+    end
+  end
+end
+
+local function controlling()
+  return M.active and st.phase ~= "ending" and st.phase ~= "quit" and st.phase ~= "off"
+end
+
+--- 暂停回放: 不再做下一步, 已经发出去的请求仍等结果. 收尾阶段不能暂停.
+---@return boolean
+function M.pause()
+  if not controlling() or M.paused then
+    return false
+  end
+  M.paused = true
+  st.freeze_at = now()
+  if deps.stream then
+    deps.stream.show_status("回放已暂停", 2)
+  end
+  sendInfoMessage("Replay paused", LOGGER)
+  return true
+end
+
+--- 继续回放.
+---@return boolean
+function M.resume()
+  if not M.active or not M.paused then
+    return false
+  end
+  if st.freeze_at then
+    bump_times(now() - st.freeze_at)
+  end
+  M.paused = false
+  st.freeze_at = nil
+  if deps.stream then
+    deps.stream.show_status("回放已继续", 1.2)
+  end
+  sendInfoMessage("Replay resumed", LOGGER)
+  return true
+end
+
+---@return boolean
+function M.toggle_pause()
+  if M.paused then
+    return M.resume()
+  end
+  return M.pause()
+end
+
+--- 中止回放, 与按住 Esc 到头相同.
+---@return boolean
+function M.abort()
+  if not controlling() then
+    return false
+  end
+  sendWarnMessage("Replay aborted by user", LOGGER)
+  toast("回放中止", "用户中止了回放", 3)
+  deps.recorder.annotate("replay", {
+    source = data and data.source,
+    pacing = cfg.pacing,
+    ok = false,
+    aborted = true,
+    step = st.index,
+  })
+  finish_later(2, 1)
+  return true
+end
+
+local function replay_hud_spec()
+  if not controlling() then
+    return nil
+  end
+  return {
+    blocking = false,
+    buttons = {
+      {
+        label = "暂停",
+        label_fn = function()
+          return M.paused and "继续" or "暂停"
+        end,
+        colour = function()
+          return M.paused and G.C.GOLD or G.C.GREEN
+        end,
+        on_click = function()
+          M.toggle_pause()
+        end,
+      },
+      {
+        label = "中止",
+        colour = G.C.RED,
+        on_click = function()
+          M.abort()
+        end,
+      },
+    },
+  }
 end
 
 --- 游戏内回放的收尾: 结束录像段, 恢复存档进度与设置, 把结果交给界面.
@@ -166,6 +292,7 @@ local function finish_ingame()
   set_replay_toast(false)
   local warnings = deps.session.finish()
   M.active = false
+  M.paused = false
   M.status = "off"
   st.phase = "off"
   -- 先释放再回调: 界面收尾时 agent 已经按当前模式恢复.
@@ -184,6 +311,9 @@ local function update_status()
     M.status = string.format("replaying %d/%d (%s)", math.min(st.index, total), total, cfg.pacing)
   else
     M.status = "replay " .. tostring(st.phase)
+  end
+  if M.paused then
+    M.status = M.status .. " paused"
   end
 end
 
@@ -507,6 +637,9 @@ end
 function M.init_early(options)
   deps = options
   install_hooks()
+  if BB_HUD then
+    BB_HUD.bind("replay", replay_hud_spec)
+  end
   local path = os.getenv("BALATROBOT_REPLAY")
   if not path or path == "" then
     return
@@ -641,6 +774,7 @@ function M.start(options)
     on_finish = options.on_finish,
   }
   M.active = true
+  M.paused = false
   set_replay_toast(true)
   st.warn_until = now() + show_warnings(result, 4)
   deps.input_lock.install()
@@ -661,11 +795,14 @@ function M.update()
     -- 按住期间显示进度, 松手后按下一次刷新 (0.3 秒) 收起.
     deps.stream.show_status(string.format("松开: 中止回放 (%d%%)", math.floor(progress * 100 + 0.5)), 0.3)
   end
-  if progress >= 1 and st.phase ~= "ending" and st.phase ~= "quit" then
-    sendWarnMessage("Replay aborted by user", LOGGER)
-    toast("回放中止", "用户中止了回放", 3)
-    deps.recorder.annotate("replay", { source = data and data.source, pacing = cfg.pacing, ok = false, aborted = true, step = st.index })
-    finish_later(2, 1)
+  if progress >= 1 and M.abort() then
+    return
+  end
+  if M.paused then
+    bump_times(t - (st.freeze_at or t))
+    st.freeze_at = t
+    update_status()
+    return
   end
   if deps.animating() then
     st.last_busy = t
