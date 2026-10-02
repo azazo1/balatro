@@ -58,6 +58,11 @@ local DEFS = {
     parameters = object({ reason = REASON }, { "reason" }),
   },
   {
+    name = "reroll_boss",
+    description = "花 $10 重掷即将面对的 Boss 盲注. 需要已兑换导演剪辑版 (每个底注限 1 次) 或重构 (不限次数). 只在选择盲注时可用, 与商店的 reroll 不是同一件事. 待处理的开包标签会打开补充包, 返回时可能已经在卡包里.",
+    parameters = object({ reason = REASON }, { "reason" }),
+  },
+  {
     name = "play",
     description = "打出手牌. cards 是手牌下标 (从 0 开始), 1~5 张.",
     parameters = object({ cards = INDICES, reason = REASON }, { "cards", "reason" }),
@@ -192,6 +197,7 @@ M.ACTIONS = {
   start = true,
   select = true,
   skip = true,
+  reroll_boss = true,
   play = true,
   discard = true,
   buy = true,

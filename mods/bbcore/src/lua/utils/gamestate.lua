@@ -9,6 +9,7 @@
 ---@field get_gamestate fun(opts: {raw: boolean?}?): GameState
 ---@field redact_hidden fun(state: table): table
 local gamestate = {}
+local boss_reroll = assert(SMODS.load_file("src/lua/utils/boss_reroll.lua"))()
 
 -- ==========================================================================
 -- State Name Mapping
@@ -463,6 +464,18 @@ local function extract_round_info()
 
   if G.GAME.current_round.reroll_cost then
     round.reroll_cost = G.GAME.current_round.reroll_cost
+  end
+
+  -- 选盲注时, 有导演剪辑版 / 重构且本底注还能掷才写出价格, 模型据此决定要不要 reroll_boss.
+  if
+    G.STATES
+    and G.STATE == G.STATES.BLIND_SELECT
+    and boss_reroll.available({
+      used_vouchers = G.GAME.used_vouchers,
+      boss_rerolled = G.GAME.round_resets and G.GAME.round_resets.boss_rerolled,
+    })
+  then
+    round.boss_reroll_cost = boss_reroll.COST
   end
 
   -- Chips is stored in G.GAME not G.GAME.current_round

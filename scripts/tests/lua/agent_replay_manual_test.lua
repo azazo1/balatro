@@ -150,7 +150,7 @@ do -- 按钮函数的钩子: 用桩代替游戏, 装上钩子后模拟人点按�
   click("sort_hand_value")
   check("钩子: 排序按钮", last().method == "press" and last().params.fn == "sort_hand_value")
   click("reroll_boss")
-  check("钩子: 重掷 Boss", last().params.fn == "reroll_boss")
+  check("钩子: 重掷 Boss 照接口回放", last().method == "reroll_boss")
 
   -- 回放: 按记下的步骤调用同一个按钮函数, 目标牌先选好
   local unhighlighted = 0

@@ -45,6 +45,7 @@
 ---@field discards_left integer? Number of discards remaining in this round
 ---@field discards_used integer? Number of discards used in this round
 ---@field reroll_cost integer? Current cost to reroll the shop
+---@field boss_reroll_cost integer? Cost to reroll the upcoming Boss (only during BLIND_SELECT when Director's Cut / Retcon allows it)
 ---@field chips integer? Current chips scored in this round
 ---@field last_hand LastHand? 本局最近一次出牌的计分过程, 下一次出牌时被覆盖, 还没出过牌时没有
 
@@ -176,7 +177,7 @@
 
 ---@alias Request.Endpoint.Method
 ---| "add" | "buy" | "cash_out" | "discard" | "gamestate" | "health" | "load"
----| "menu" | "next_round" | "play" | "rearrange" | "reroll" | "save"
+---| "menu" | "next_round" | "play" | "rearrange" | "reroll" | "reroll_boss" | "save"
 ---| "screenshot" | "select" | "sell" | "set" | "skip" | "start" | "use"
 
 ---@alias Request.Endpoint.Test.Method
@@ -196,6 +197,7 @@
 ---| Request.Endpoint.Play.Params
 ---| Request.Endpoint.Rearrange.Params
 ---| Request.Endpoint.Reroll.Params
+---| Request.Endpoint.RerollBoss.Params
 ---| Request.Endpoint.Save.Params
 ---| Request.Endpoint.Screenshot.Params
 ---| Request.Endpoint.Select.Params

@@ -102,6 +102,10 @@ local NOTES = {
     title = "跳过盲注",
     hint = "跳过当前盲注, 拿跳过奖励标签",
   },
+  reroll_boss = {
+    title = "重掷 Boss",
+    hint = "花 $10 换一个新的 Boss 盲注",
+  },
   play = {
     title = "出牌",
     hint = "打出手牌",

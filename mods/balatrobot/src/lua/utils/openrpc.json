@@ -493,6 +493,32 @@
       ]
     },
     {
+      "name": "reroll_boss",
+      "summary": "Reroll the upcoming Boss blind",
+      "description": "Reroll the upcoming Boss blind for $10. Requires Director's Cut (once per ante) or Retcon (unlimited). Only available during BLIND_SELECT.",
+      "tags": [
+        {
+          "$ref": "#/components/tags/blind"
+        }
+      ],
+      "params": [],
+      "result": {
+        "name": "gamestate",
+        "description": "Complete game state after rerolling the Boss",
+        "schema": {
+          "$ref": "#/components/schemas/GameState"
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/InvalidState"
+        },
+        {
+          "$ref": "#/components/errors/NotAllowed"
+        }
+      ]
+    },
+    {
       "name": "save",
       "summary": "Save the current run state to a file",
       "description": "Save the current run state to a file. Only works during an active run.",
@@ -863,7 +889,7 @@
       },
       "blind": {
         "name": "blind",
-        "description": "Blind selection and skipping"
+        "description": "Blind selection, skipping, and Boss reroll"
       },
       "shop": {
         "name": "shop",
@@ -1054,6 +1080,10 @@
           "reroll_cost": {
             "type": "integer",
             "description": "Current cost to reroll the shop"
+          },
+          "boss_reroll_cost": {
+            "type": "integer",
+            "description": "Cost to reroll the upcoming Boss blind. Present only during BLIND_SELECT when Director's Cut or Retcon allows it"
           },
           "chips": {
             "type": "integer",

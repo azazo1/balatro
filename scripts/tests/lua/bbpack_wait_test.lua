@@ -160,6 +160,45 @@ check(
   }) == "select"
 )
 
+local function reroll_boss(opts)
+  opts.states = STATES
+  return Wait.reroll_boss_done(opts)
+end
+
+check(
+  "reroll_boss: 还锁着",
+  reroll_boss({
+    state = STATES.BLIND_SELECT,
+    locked = true,
+    pane = true,
+  }) == nil
+)
+check(
+  "reroll_boss: Boss 栏换完",
+  reroll_boss({
+    state = STATES.BLIND_SELECT,
+    pane = true,
+    locks = { skip_blind = true },
+  }) == "select"
+)
+check(
+  "reroll_boss: 标签开包",
+  reroll_boss({
+    state = STATES.SMODS_BOOSTER_OPENED,
+    pack_open = true,
+    state_complete = true,
+    pane = true,
+  }) == "pack"
+)
+check(
+  "reroll_boss: 标签锁还在",
+  reroll_boss({
+    state = STATES.BLIND_SELECT,
+    pane = true,
+    locks = { [3] = true },
+  }) == nil
+)
+
 if failures > 0 then
   print(failures .. " failed")
   os.exit(1)

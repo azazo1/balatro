@@ -47,6 +47,7 @@ BB_ENDPOINTS = {
   "src/lua/endpoints/start.lua",
   "src/lua/endpoints/skip.lua",
   "src/lua/endpoints/select.lua",
+  "src/lua/endpoints/reroll_boss.lua",
   "src/lua/endpoints/play.lua",
   "src/lua/endpoints/discard.lua",
   "src/lua/endpoints/cash_out.lua",

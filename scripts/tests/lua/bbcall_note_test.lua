@@ -33,6 +33,7 @@ end
 do -- 没有参数时给工具功能的一句话
   check("选择盲注", text("select", {}) == "进入当前盲注, 开始这一回合")
   check("刷新商店", text("reroll") == "花钱刷新商店")
+  check("重掷 Boss", text("reroll_boss") == "花 $10 换一个新的 Boss 盲注")
   check("离开商店", text("next_round") == "离开商店, 回到选择盲注")
   check("手册目录", text("docs_index", {}) == "看手册目录与按决策查阅表")
   check("查动态值", text("dynamics", {}) == "查当前局会变的值: 认牌目标与成长值")

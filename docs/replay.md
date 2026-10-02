@@ -56,12 +56,12 @@
   | 游戏函数 | 回放步骤 |
   |---|---|
   | `play_cards_from_highlighted`, `discard_cards_from_highlighted` | `play`, `discard` (选中的牌) |
-  | `select_blind`, `skip_blind` | `select`, `skip` |
+  | `select_blind`, `skip_blind`, `reroll_boss` | `select`, `skip`, `reroll_boss` |
   | `reroll_shop`, `cash_out`, `toggle_shop` | `reroll`, `cash_out`, `next_round` |
   | `use_card` 用在商店的优惠券, 卡包上 | `buy {voucher}`, `buy {pack}` |
   | `use_card` 用在卡包里的牌, 消耗牌上 | `press`, 带手里选中的牌 |
   | `buy_from_shop` (含 "买了直接用"), `sell_card`, `skip_booster` | `press` |
-  | `reroll_boss`, `sort_hand_suit`, `sort_hand_value` | `press` (没有接口) |
+  | `sort_hand_suit`, `sort_hand_value` | `press` (没有接口) |
   | 拖动排序 (手牌, 小丑, 消耗牌) | 本地步骤 `reorder` |
 
   接口的限制: `use`, `sell` 只允许在出牌, 商店和开卡包时用, 人在选盲注, 结算时也能用和卖;

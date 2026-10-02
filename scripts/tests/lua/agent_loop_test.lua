@@ -228,6 +228,20 @@ do -- 摘要: 下标从 0 开始, 效果只在第一次出现时附上
   check("forget 后重新介绍", s:render(hand_state()):find("+4 倍率", 1, true))
 end
 
+do -- 摘要: 选盲注时写出重掷 Boss 价格, 与商店刷新分开
+  local s = Summary.new()
+  local text = s:render(hand_state({
+    state = "BLIND_SELECT",
+    money = 20,
+    round = { boss_reroll_cost = 10 },
+    blinds = {
+      boss = { type = "BOSS", status = "UPCOMING", name = "钩子", score = 300, effect = "弃掉每回合打出的第一张牌" },
+    },
+  }))
+  check("选盲注写出重掷 Boss 价格", text:find("重掷 Boss: $10", 1, true) ~= nil, text)
+  check("选盲注不写商店刷新价格", not text:find("刷新价格", 1, true), text)
+end
+
 do -- 摘要: 背面牌不露身份 (标记/房屋/琥珀之实), 只写背面朝上
   local s = Summary.new(function(key)
     if key == "j_joker" then

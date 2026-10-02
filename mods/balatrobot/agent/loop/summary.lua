@@ -253,6 +253,8 @@ function M.new(describe)
       )
     elseif state == "SHOP" and round.reroll_cost then
       out[#out + 1] = "刷新价格: $" .. tostring(round.reroll_cost)
+    elseif state == "BLIND_SELECT" and round.boss_reroll_cost then
+      out[#out + 1] = "重掷 Boss: $" .. tostring(round.boss_reroll_cost)
     end
 
     -- 上一手的计分结果 (bbcore 的 runtime/scoring.lua 记好的一行). 明细太长, 只在出牌那一步的结果里给一次.

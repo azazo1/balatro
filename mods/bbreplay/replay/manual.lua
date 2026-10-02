@@ -23,6 +23,7 @@ local PRESS_FUNCS = {
   use_card = true,
   sell_card = true,
   skip_booster = true,
+  -- 旧回放把重掷 Boss 记成 press; 新录的走 reroll_boss 接口.
   reroll_boss = true,
   sort_hand_suit = true,
   sort_hand_value = true,
@@ -318,8 +319,7 @@ function M.install(options)
   hook("use_card", translate_use)
   hook("sell_card", translate_sell)
   hook("skip_booster", plain_press("skip_booster"))
-  -- 花 $10 换 Boss, 没有接口.
-  hook("reroll_boss", plain_press("reroll_boss"))
+  hook("reroll_boss", plain("reroll_boss"))
   -- 排序按钮改的是 G.hand.config.sort, 之后发的牌也按它排, 只记一次重排的结果不够.
   hook("sort_hand_suit", plain_press("sort_hand_suit"))
   hook("sort_hand_value", plain_press("sort_hand_value"))

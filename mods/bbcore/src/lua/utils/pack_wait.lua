@@ -118,4 +118,33 @@ function M.skip_done(opts)
   return nil
 end
 
+--- reroll_boss() 等到 Boss 栏换完, 或者某个待处理标签把包打开.
+---@param opts table
+---@return string|nil "pack" 包已打开, "select" 仍在选盲注, nil 继续等
+function M.reroll_boss_done(opts)
+  local states = opts.states
+  if not states then
+    return nil
+  end
+  if opts.locked then
+    return nil
+  end
+  if opts.state == states.SMODS_BOOSTER_OPENED then
+    if opts.pack_open and opts.state_complete then
+      return "pack"
+    end
+    return nil
+  end
+  if M.in_pack(opts.state, states) then
+    return nil
+  end
+  if opts.state == states.BLIND_SELECT and opts.pane then
+    if opts.pack_open or opts.booster_pack or opts.pack_interrupt or M.extra_lock(opts.locks) then
+      return nil
+    end
+    return "select"
+  end
+  return nil
+end
+
 return M
