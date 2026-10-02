@@ -292,7 +292,7 @@ function M.install_lifecycle(runner, stream)
     return
   end
   -- 触摸平台没有 F9. 锁操作开着时屏幕上的 "选项" 按钮点不到, 所以指向右上角 HUD 的按钮.
-  runner.pause_hint = "已暂停, 点右上角的 继续"
+  runner.pause_hint = "已暂停, 点右上角的 已暂停 继续"
   local function background()
     if runner.is_active() then
       runner.pause()

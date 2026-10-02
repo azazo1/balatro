@@ -1,6 +1,7 @@
 --[[
 内置 agent 运行时的右上角: 最上方是状态文字 (请求中, 执行中, 暂停),
-下面一条上下文占用条 (不可点), 再下面是暂停/继续, 以及锁操作开关.
+下面一条上下文占用条 (不可点), 再下面是暂停与锁操作两个开关.
+按钮文字显示当前状态 (运行中/已暂停, 已锁定/可操作), 点一下切换到另一种.
 
 - 只在 runner 运行或暂停时显示 (BB_HUD 的 agent 源); 一停就拆掉.
 - 锁操作的状态与挡哪些输入在 agent/input.lua. 锁着时仍能点这两颗按钮 (HUD 不受锁影响).
@@ -92,10 +93,11 @@ local function spec()
     status = status_spec(),
     meter = meter_spec(),
     buttons = {
+      -- 按钮文字是当前状态, 不是点下去要做的事; 点一下切换.
       {
-        label = "暂停",
+        label = "运行中",
         label_fn = function()
-          return runner.state == "paused" and "继续" or "暂停"
+          return runner.state == "paused" and "已暂停" or "运行中"
         end,
         colour = function()
           return runner.state == "paused" and G.C.GOLD or G.C.GREEN
@@ -105,9 +107,9 @@ local function spec()
         end,
       },
       {
-        label = "锁操作",
+        label = "已锁定",
         label_fn = function()
-          return lock.locked() and "可操作" or "锁操作"
+          return lock.locked() and "已锁定" or "可操作"
         end,
         colour = function()
           return lock.locked() and G.C.ORANGE or G.C.L_BLACK

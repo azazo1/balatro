@@ -318,10 +318,11 @@ local function replay_hud_spec()
   -- 只管按钮. 挡输入是 input_lock 在输入门上的策略, 收尾停留期间也挡着, 那时这里已经没有按钮了.
   return {
     buttons = {
+      -- 按钮文字是当前状态, 不是点下去要做的事, 与节奏按钮一致; 点一下切换.
       {
-        label = "暂停",
+        label = "播放中",
         label_fn = function()
-          return M.paused and "继续" or "暂停"
+          return M.paused and "已暂停" or "播放中"
         end,
         colour = function()
           return M.paused and G.C.GOLD or G.C.GREEN

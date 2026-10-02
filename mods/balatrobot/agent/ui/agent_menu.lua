@@ -103,11 +103,11 @@ local function panel_definition()
         runner.toggle_pause()
       end,
     }),
-    -- 与右上角 HUD 的锁操作是同一个开关. 手柄点不到 HUD, 从这里解锁.
+    -- 与右上角 HUD 的锁操作是同一个开关, 文字同样显示当前状态. 手柄点不到 HUD, 从这里解锁.
     W.button({
-      label = "锁操作",
+      label = "已锁定",
       label_fn = function()
-        return deps.lock.locked() and "可操作" or "锁操作"
+        return deps.lock.locked() and "已锁定" or "可操作"
       end,
       col = true,
       minw = 2,
