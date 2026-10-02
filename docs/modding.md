@@ -152,5 +152,8 @@ lovely 的补丁目标是代码块名. 打包时没有加载钩子, 按来源分
 - 运行时动态生成, 打包时无法枚举的内容不会经过补丁, 例如 mod 用 Lua 字符串拼出的着色器.
 - LÖVE 启动时生成的默认着色器早于替身接管, 不受 `wrap_GraphicsShader.lua` 补丁影响.
 - 不支持 `before = "conf.lua"` 的 `load_now` 模块, 因为此时存档目录尚未确定.
+- 打补丁前会把 `.lua` 的 CRLF 规范成 LF. Steamodded 的正则补丁里写了 `\n`, Windows 上 git
+  checkout 默认把 lua 变成 CRLF, 这些补丁会未命中; 半打的补丁留下以 `(` 开头的残句,
+  Lua 报 `ambiguous syntax (function call x new statement)`. 着色器 (`.fs`) 保持原换行.
 - 正则补丁遇到 Python 无法等价表达的写法 (unicode 属性类, 字符类集合运算等) 时构建报错,
   不会生成行为不同的正则.

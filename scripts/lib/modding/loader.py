@@ -16,7 +16,7 @@ import zipfile
 from dataclasses import dataclass
 
 from .. import log
-from .patches import LoadedPatch, Origin, PatchError, parse_patch
+from .patches import LoadedPatch, Origin, PatchError, lua_path, normalize_lua_newlines, parse_patch
 
 # lovely 自己的工作目录, 放日志, dump 与 blacklist, 不是 mod.
 LOVELY_DIR = "lovely"
@@ -153,14 +153,18 @@ _MANIFEST_KEYS = {"version", "dump_lua", "priority"}
 
 
 def _read_source(mod, rel, where):
-    full = os.path.normpath(os.path.join(mod.path, rel))
-    if os.path.commonpath([full, mod.path]) != os.path.normpath(mod.path):
+    root = os.path.normpath(mod.path)
+    full = os.path.normpath(os.path.join(root, rel))
+    if os.path.commonpath([full, root]) != root:
         raise PatchError("%s: 源文件路径越出 mod 目录: %s" % (where, rel))
     try:
         with open(full, encoding="utf-8", newline="") as fh:
-            return fh.read()
+            text = fh.read()
     except OSError as exc:
         raise PatchError("%s: 读取源文件 %s 失败: %s" % (where, rel, exc)) from exc
+    if lua_path(full):
+        text = normalize_lua_newlines(text)
+    return text
 
 
 def load_patches(sources):

@@ -3,14 +3,14 @@
 只覆盖与 lovely 行为容易出现偏差的地方: 这些偏差不会报错, 只会让补丁悄悄打错位置.
 """
 import os
-import tempfile
+import shutil
 import textwrap
 import unittest
 
 from lib import log
 from lib.modding import build, rust_regex
 from lib.modding.patches import (LoadedPatch, Origin, PatchError, apply_all, apply_pattern,
-                                 apply_regex, parse_patch)
+                                 apply_regex, lua_path, normalize_lua_newlines, parse_patch)
 
 
 def pattern(**kw):
@@ -89,6 +89,62 @@ class RegexTest(unittest.TestCase):
                 rust_regex.translate(source)
 
 
+class NewlineTest(unittest.TestCase):
+    def test_normalize_lua_newlines(self):
+        self.assertEqual(normalize_lua_newlines("a\r\nb\rc\n"), "a\nb\nc\n")
+        self.assertIs(normalize_lua_newlines("a\nb\n"), "a\nb\n")
+        self.assertTrue(lua_path("functions/UI_definitions.lua"))
+        self.assertFalse(lua_path("CRT.fs"))
+
+    def test_blind_collection_regex_needs_lf(self):
+        # Steamodded/lovely/blind.toml: pattern 先换成 table.insert 整块, regex 再用 \n
+        # 删掉原来的内层节点. CRLF 下正则未命中, 留下 `(k==6` 独立成句, 即 Windows 启动崩溃.
+        original = (
+            'blind_matrix[math.ceil((k-1)/5+0.001)][1+((k-1)%5)] = '
+            '{n=G.UIT.C, config={align = "cm", padding = 0.1}, nodes={\n'
+            '  (k==6 or k ==16 or k == 26) and {n=G.UIT.B, config={h=0.2,w=0.5}} or nil,\n'
+            '  {n=G.UIT.O, config={object = temp_blind, focus_with_object = true}},\n'
+            '  (k==5 or k ==15 or k == 25) and {n=G.UIT.B, config={h=0.2,w=0.5}} or nil,\n'
+            '}}\n'
+        )
+        replacement = (
+            "table.insert(blind_matrix[row], {\n"
+            "    n = G.UIT.C,\n"
+            "    nodes = { { n = G.UIT.O } }\n"
+            "})"
+        )
+        replace = pattern(
+            pattern=('blind_matrix[math.ceil((k-1)/5+0.001)][1+((k-1)%5)] = '
+                     '{n=G.UIT.C, config={align = "cm", padding = 0.1}, nodes={'),
+            position="at",
+            payload=replacement,
+            match_indent=False,
+        )
+        delete = regex(
+            pattern=(r"[\t ]*\(k==6 or k ==16 or k == 26\) and \{n=G.UIT.B, "
+                     r"config=\{h=0.2,w=0.5\}\} or nil,\n"
+                     r"[\t ]*\{n=G.UIT.O, config=\{object = temp_blind, "
+                     r"focus_with_object = true\}\},\n"
+                     r"[\t ]*\(k==5 or k ==15 or k == 25\) and \{n=G.UIT.B, "
+                     r"config=\{h=0.2,w=0.5\}\} or nil,\n"
+                     r"[\t ]*\}\}"),
+            position="at",
+            payload="",
+        )
+
+        broken, _ = apply_pattern(replace, original.replace("\n", "\r\n"))
+        broken, outcome = apply_regex(delete, broken)
+        self.assertEqual(outcome.status, "miss")
+        self.assertIn("(k==6 or k ==16", broken)
+
+        text = normalize_lua_newlines(original.replace("\n", "\r\n"))
+        text, _ = apply_pattern(replace, text)
+        text, outcome = apply_regex(delete, text)
+        self.assertEqual(outcome.status, "ok")
+        self.assertNotIn("(k==6 or k ==16", text)
+        self.assertIn("table.insert", text)
+
+
 class OrderTest(unittest.TestCase):
     def test_pattern_before_regex_then_priority(self):
         def loaded(kind, body, priority):
@@ -112,10 +168,13 @@ class OrderTest(unittest.TestCase):
 class BuildTreeTest(unittest.TestCase):
     def setUp(self):
         log.set_verbose(False)
-        self.tmp = tempfile.TemporaryDirectory()
-        root = self.tmp.name
-        self.game = os.path.join(root, "game")
-        self.mods = os.path.join(root, "mods")
+        # 放在仓库 .tmp 下, 不用系统临时目录, 也不用 TemporaryDirectory (它会改 ACL).
+        workspace_tmp = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".tmp"))
+        os.makedirs(workspace_tmp, exist_ok=True)
+        self.tmp_root = os.path.join(workspace_tmp, "test-modding-%s" % os.urandom(4).hex())
+        os.makedirs(self.tmp_root)
+        self.game = os.path.join(self.tmp_root, "game")
+        self.mods = os.path.join(self.tmp_root, "mods")
         os.makedirs(self.game)
         os.makedirs(os.path.join(self.mods, "Demo"))
         self.write(self.game, "main.lua", "print('main')\n")
@@ -123,7 +182,7 @@ class BuildTreeTest(unittest.TestCase):
         self.write(self.game, "game.lua", "local speed = 1\n")
 
     def tearDown(self):
-        self.tmp.cleanup()
+        shutil.rmtree(self.tmp_root, ignore_errors=True)
 
     @staticmethod
     def write(root, rel, text):
@@ -165,7 +224,7 @@ class BuildTreeTest(unittest.TestCase):
             payload = "speed = 2"
             match_indent = true
             """)
-        out = os.path.join(self.tmp.name, "out")
+        out = os.path.join(self.tmp_root, "out")
         report = build.build_tree(self.game, self.mods, out, "Demo-Modded", "test")
         self.assertEqual(report.failures(), [])
         self.assertEqual(self.read(out, "game.lua"), "local speed = 1\nspeed = 2\n")
@@ -192,15 +251,15 @@ class BuildTreeTest(unittest.TestCase):
             match_indent = true
             """)
         with self.assertRaises(PatchError):
-            build.build_tree(self.game, self.mods, os.path.join(self.tmp.name, "out"), None, "t")
+            build.build_tree(self.game, self.mods, os.path.join(self.tmp_root, "out"), None, "t")
 
     def build_with_knowledge(self, name, knowledge):
-        out = os.path.join(self.tmp.name, name)
+        out = os.path.join(self.tmp_root, name)
         build.build_tree(self.game, self.mods, out, None, "t", knowledge_dir=knowledge)
         return out
 
     def test_knowledge_copied_into_balatrobot_and_hashed(self):
-        knowledge = os.path.join(self.tmp.name, "docs-game")
+        knowledge = os.path.join(self.tmp_root, "docs-game")
         for rel in ("README.md", "rules/a.md", "mechanics/b.md", "cards/c.md",
                     "data/README.md", "data/catalog.json"):
             self.write(knowledge, rel, "x\n")
@@ -227,13 +286,33 @@ class BuildTreeTest(unittest.TestCase):
         out2 = self.build_with_knowledge("out2", knowledge)
         self.assertNotEqual(hash_of(out), hash_of(out2))
 
+    def test_lua_crlf_is_normalized_for_regex(self):
+        path = os.path.join(self.game, "game.lua")
+        with open(path, "w", encoding="utf-8", newline="") as fh:
+            fh.write("foo,\r\nbar\r\n")
+        self.write(self.mods, "Demo/lovely.toml", """
+            [manifest]
+            version = "1.0.0"
+
+            [[patches]]
+            [patches.regex]
+            target = "game.lua"
+            pattern = "foo,\\nbar"
+            position = "at"
+            payload = "ok"
+            """)
+        out = os.path.join(self.tmp_root, "out-crlf")
+        report = build.build_tree(self.game, self.mods, out, None, "t", knowledge_dir=None)
+        self.assertEqual(report.failures(), [])
+        self.assertEqual(self.read(out, "game.lua"), "ok\n")
+
     def test_native_only_current_platform_and_listed(self):
         """mod 源码目录里残留的别的平台的库不能进包, 只放调用方给的本平台的库, 并进清单随 mod 释放."""
         self.write(self.mods, "balatrobot/balatrobot.lua", "\n")
         self.write(self.mods, "balatrobot/native/macos/libbbnet.dylib", "stale\n")
-        dll = os.path.join(self.tmp.name, "bbnet.dll")
-        self.write(self.tmp.name, "bbnet.dll", "dll\n")
-        out = os.path.join(self.tmp.name, "out")
+        dll = os.path.join(self.tmp_root, "bbnet.dll")
+        self.write(self.tmp_root, "bbnet.dll", "dll\n")
+        out = os.path.join(self.tmp_root, "out")
         build.build_tree(self.game, self.mods, out, None, "t", knowledge_dir=None,
                          native_files={"windows/bbnet.dll": dll})
         native = os.path.join(out, "lovely_shim/mods/balatrobot/native")

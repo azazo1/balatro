@@ -205,6 +205,21 @@ def rust_trim(text):
     return text.strip(rust_regex.WHITESPACE)
 
 
+def normalize_lua_newlines(text):
+    """把 CRLF / CR 统一成 LF.
+
+    Steamodded 的正则补丁里经常写 \\n. Windows 上 git checkout 会把 lua 变成 CRLF,
+    这类补丁因此未命中; 半打的补丁会留下以 '(' 开头的残句, Lua 报 ambiguous syntax.
+    """
+    if "\r" not in text:
+        return text
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def lua_path(path):
+    return path.replace("\\", "/").lower().endswith(".lua")
+
+
 def rust_lines(text):
     """Rust str::lines: 只按 \\n 切分, 去掉行尾 \\r, 末尾换行不产生空行."""
     if not text:

@@ -19,8 +19,8 @@ from dataclasses import dataclass, field
 
 from .. import layout, log
 from . import loader, metadata, targets
-from .patches import (Outcome, PatchError, apply_all, ordered_for_target, rust_lines,
-                      rust_trim)
+from .patches import (Outcome, PatchError, apply_all, lua_path, normalize_lua_newlines,
+                      ordered_for_target, rust_lines, rust_trim)
 from .targets import module_chunk_name
 
 # 与 lua/runtime.lua 中的 SHIM_DIR 一致.
@@ -114,7 +114,11 @@ def wildcard_to_lua(line):
 
 def _read(path):
     with open(path, encoding="utf-8", newline="") as fh:
-        return fh.read()
+        text = fh.read()
+    # 着色器必须保持原换行 (见 .gitattributes 的 *.fs); lua 统一成 LF, 见 normalize_lua_newlines.
+    if lua_path(path):
+        text = normalize_lua_newlines(text)
+    return text
 
 
 def _write(path, text):

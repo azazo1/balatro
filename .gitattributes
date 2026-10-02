@@ -1,2 +1,5 @@
+# 文本统一 LF. Windows 默认 autocrlf=true, 否则 lua 会变成 CRLF,
+# Steamodded 正则补丁里的 \n 未命中, 游戏启动时报 ambiguous syntax.
+* text=auto eol=lf
 # 着色器原本是 CRLF 行尾, 禁止 git 规范化, 保证重打包字节与原始一致
 *.fs -text

@@ -39,6 +39,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: 打包脚本测试
+        run: python3 -m unittest discover -s scripts/tests -t scripts
+
       - name: 解析版本与目标 ref
         id: parse
         shell: bash
