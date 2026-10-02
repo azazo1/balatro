@@ -6,10 +6,10 @@ agent 提示消息, 仿原版成就解锁通知 (functions/common_events.lua 的
 - 右侧: 决策消息 (模型给的 reason) 与 notify 的解说, 由 M.enabled 控制.
 - 左侧: 每次工具调用的记录 (标题是工具中文名, 正文是参数含义, 见 runtime/call_note.lua), 由 M.calls_enabled 控制.
 
-车道用同一套定义表, 但宽度与贴边方式不同:
+车道用同一套定义表, 只是内容贴着屏幕的一侧摆, 多出来的宽度留在屏幕外:
 - 右侧 align "cr" 且内容靠左: 内层 minw 很宽, 多出来的宽度留在屏幕右边外, 只露出内容 (原版做法).
-- 左侧 align "cli" 且内容靠左: 不设 minw, 框宽跟着内容走, 直接贴屏幕左边.
-  左侧的换行宽度 (CALL_LINE_WIDTH) 也比右侧窄, 弹窗在水平方向就不会拉长.
+- 左侧 align "cli" 且内容靠右: 同样用很宽的 minw, 多出来的宽度留在屏幕左边外.
+  左侧的换行宽度 (CALL_LINE_WIDTH) 比右侧窄, 露出来的那截就不会拉得太长.
 
 - 消息画在游戏自己的 UI 层 (G.I.POPUP, 在覆盖菜单之上), 经过 CRT 等屏幕效果, 录像里也一样.
 - 停留时长按墙钟计; 通知仍在屏幕上或还排在队里时, 录制把这段视为活动期, 不会被剪掉.
@@ -44,7 +44,7 @@ local MAX_LINES = 12
 local LINE_WIDTH = 5.2 -- 右侧的换行宽度 (游戏单位)
 -- 左侧那条只有一句参数说明, 用更窄的换行宽度, 弹窗在水平方向就不会拉长.
 local CALL_LINE_WIDTH = 4.4
-local WIDE = 20 -- 右侧那行的最小宽度: 内容贴屏幕左边, 多出来的部分留在屏幕右边外
+local WIDE = 20 -- 内层那行的最小宽度: 内容贴屏幕一侧, 多出来的部分留在屏幕外
 local MARGIN = 0.8 -- 内容离屏幕边缘的留白
 local TITLE_SCALE = 0.32
 local TEXT_SCALE = 0.36
@@ -226,9 +226,8 @@ local function build_definition(title, text, side)
   local title_lang = pick_lang(title)
   local text_lang = pick_lang(text)
   local width = left and CALL_LINE_WIDTH or LINE_WIDTH
-  -- 左侧宽度就由内容决定 (不设 minw), 直接贴屏幕左边; 右侧沿用原版做法: 内层 minw 很宽,
-  -- 内容靠左, 多出来的宽度留在屏幕外.
-  local inner = "cl"
+  -- 内容贴屏幕的一侧: 左侧靠右摆, 右侧靠左摆, 多出来的宽度留在屏幕外 (见文件头的说明).
+  local inner = left and "cr" or "cl"
   local rows = {
     {
       n = G.UIT.R,
@@ -256,12 +255,6 @@ local function build_definition(title, text, side)
       },
     }
   end
-  -- 左侧不设 minw (框宽跟着内容走, 水平方向不会拉长); 右侧保留原版那个很宽的 minw.
-  -- 注意别写成 `left and nil or WIDE`: left 为真时也会得到 WIDE.
-  local inner_minw = nil
-  if not left then
-    inner_minw = WIDE
-  end
   return {
     n = G.UIT.ROOT,
     config = { align = inner, r = 0.1, padding = 0.06, colour = G.C.UI.TRANSPARENT_DARK },
@@ -271,7 +264,7 @@ local function build_definition(title, text, side)
         config = {
           align = inner,
           padding = 0.2,
-          minw = inner_minw,
+          minw = WIDE,
           r = 0.1,
           colour = G.C.BLACK,
           outline = 1.5,
@@ -352,10 +345,10 @@ local function show(entry)
   local box = UIBox({
     definition = build_definition(title, text, lane.side),
     -- 先摆在屏幕外, update 里等尺寸算出来再滑入.
-    -- 左侧用 "cli": offset.x 相对 ROOM_ATTACH 左边缘; 右侧用 "cr": offset.x 相对其右边缘.
+    -- 左侧用 "cli": offset.x 是框的左边缘; 右侧用 "cr": offset.x 相对 ROOM_ATTACH 右边缘.
     config = {
       align = lane.side == "left" and "cli" or "cr",
-      offset = { x = lane.side == "left" and -(CALL_LINE_WIDTH + 8) or WIDE, y = 0 },
+      offset = { x = lane.side == "left" and -WIDE or WIDE, y = 0 },
       major = G.ROOM_ATTACH,
       bond = "Weak",
       instance_type = "POPUP",
@@ -453,9 +446,9 @@ function M.active()
 end
 
 --- 一条通知在屏幕上的横坐标.
---- 左侧: "cli" 下 offset.x 相对 ROOM_ATTACH 左边缘 (本地 0, 世界坐标已经是 G.ROOM.T.x).
----   再加 G.ROOM.T.x 会把框推进游戏区里浮着; 减去它才和右侧一样贴窗口边.
---- 右侧: "cr" 下 offset.x 是相对 ROOM_ATTACH 右边的偏移, 靠内容宽度把框推到只露出内容 (原版做法).
+--- 左侧: "cli" 下 offset.x 是框的左边缘; 内容靠右摆, 先退 (WIDE - 内容宽) 让多出来的部分留在屏幕左边外.
+---   offset 再减去 G.ROOM.T.x: 绘制时 container 还会加一次 letterbox, 加两次会把框推进游戏区.
+--- 右侧: "cr" 下 offset.x 相对 ROOM_ATTACH 右边, 靠内容宽度把框推到只露出内容 (原版做法).
 ---@param item table
 ---@param leaving boolean
 ---@return number
@@ -463,9 +456,9 @@ local function offset_x(item, leaving)
   local lane = item.lane
   if lane.side == "left" then
     if leaving then
-      return -G.ROOM.T.x - (CALL_LINE_WIDTH + 8)
+      return -WIDE
     end
-    return MARGIN - G.ROOM.T.x
+    return MARGIN - G.ROOM.T.x - math.max(0, WIDE - content_width(item))
   end
   if leaving then
     return WIDE

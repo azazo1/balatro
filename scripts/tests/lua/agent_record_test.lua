@@ -370,7 +370,7 @@ do -- 两条车道: 左侧的工具调用记录与右侧的决策消息各自排
   local defs = {}
   UIBox = function(args)
     local box = { REMOVED = false, T = { h = 1, w = 1 }, align = args.config.align }
-    -- 内容宽度 2 (左侧框宽跟着内容走, 不再有 20 单位的最小宽度)
+    -- 内容宽度 2 (两侧都用 20 的最小宽度, 多出来的部分留在屏幕外)
     box.UIRoot = { children = { { children = { { T = { w = 2 } } } } } }
     box.alignment = { offset = { x = args.config.offset.x, y = 0 } }
     box.remove = function(self)
@@ -386,17 +386,22 @@ do -- 两条车道: 左侧的工具调用记录与右侧的决策消息各自排
   check("两条车道都建了框", #boxes == 2, tostring(#boxes))
   check("左侧用 cli 对齐且先藏在屏幕外", boxes[2].align == "cli" and boxes[2].alignment.offset.x < 0, tostring(boxes[2].align))
 
-  -- 左侧不设 minw (框宽由内容决定), 右侧保留那个很宽的 minw
+  -- 两侧都用很宽的 minw: 左侧内容靠右, 右侧内容靠左, 多出来的宽度留在屏幕外
   local function inner_minw(definition)
     local row = definition.nodes[1]
     return row.config.minw
   end
-  check("左侧框不设最小宽度", inner_minw(defs[2]) == nil, tostring(inner_minw(defs[2])))
+  local function inner_align(definition)
+    return definition.config.align
+  end
+  check("左侧内容靠右", inner_align(defs[2]) == "cr", tostring(inner_align(defs[2])))
+  check("右侧内容靠左", inner_align(defs[1]) == "cl", tostring(inner_align(defs[1])))
+  check("左侧框同样用宽 minw", inner_minw(defs[2]) == 20, tostring(inner_minw(defs[2])))
   check("右侧框保留宽 minw", inner_minw(defs[1]) == 20, tostring(inner_minw(defs[1])))
 
-  -- 滑入后: 左侧框贴窗口左边 (offset 要扣掉 ROOM 的 letterbox, 不能再加一次 G.ROOM.T.x), 右侧内容贴窗口右边
+  -- 滑入后: 左侧把 (WIDE - 内容宽) 退到屏幕左边外, 并扣掉 ROOM 的 letterbox; 右侧内容贴窗口右边
   Toast.update(0.2)
-  check("左侧框贴屏幕左边", boxes[2].alignment.offset.x == 0.8 - G.ROOM.T.x, tostring(boxes[2].alignment.offset.x))
+  check("左侧框贴屏幕左边", boxes[2].alignment.offset.x == 0.8 - G.ROOM.T.x - (20 - 2), tostring(boxes[2].alignment.offset.x))
   check("右侧内容贴屏幕右边", boxes[1].alignment.offset.x == G.ROOM.T.x - 2 - 0.8, tostring(boxes[1].alignment.offset.x))
 
   -- 左侧那条不拦操作, 关掉开关后不再显示, 右侧照常
