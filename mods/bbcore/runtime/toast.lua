@@ -324,6 +324,25 @@ local function content_width(item)
   return column and column.T.w or LINE_WIDTH
 end
 
+--- 完全藏到屏幕外的横坐标.
+--- 右侧 "cr": offset 相对 ROOM 右边, +WIDE 整框在屏幕右边外 (内容靠左, 跟着出屏).
+--- 左侧 "cli": offset 是框的左边缘. 内容靠右, 只推 -WIDE 时文字还贴在窗口左边;
+---   要再减去 letterbox 和留白, 必要时按框实际宽度, 把右缘也推出屏幕.
+---@param side "left"|"right"
+---@param box table?
+---@return number
+local function hide_x(side, box)
+  if side == "left" then
+    local room_x = G.ROOM and G.ROOM.T and G.ROOM.T.x or 0
+    local w = WIDE
+    if box and box.T and type(box.T.w) == "number" and box.T.w > w then
+      w = box.T.w
+    end
+    return -MARGIN - room_x - w
+  end
+  return WIDE
+end
+
 local function remove_item(item)
   fire_read(item)
   if item.box and not item.box.REMOVED then
@@ -348,7 +367,7 @@ local function show(entry)
     -- 左侧用 "cli": offset.x 是框的左边缘; 右侧用 "cr": offset.x 相对 ROOM_ATTACH 右边缘.
     config = {
       align = lane.side == "left" and "cli" or "cr",
-      offset = { x = lane.side == "left" and -WIDE or WIDE, y = 0 },
+      offset = { x = hide_x(lane.side), y = 0 },
       major = G.ROOM_ATTACH,
       bond = "Weak",
       instance_type = "POPUP",
@@ -454,14 +473,11 @@ end
 ---@return number
 local function offset_x(item, leaving)
   local lane = item.lane
-  if lane.side == "left" then
-    if leaving then
-      return -WIDE
-    end
-    return MARGIN - G.ROOM.T.x - math.max(0, WIDE - content_width(item))
-  end
   if leaving then
-    return WIDE
+    return hide_x(lane.side, item.box)
+  end
+  if lane.side == "left" then
+    return MARGIN - G.ROOM.T.x - math.max(0, WIDE - content_width(item))
   end
   return G.ROOM.T.x - MARGIN - content_width(item)
 end
@@ -502,9 +518,9 @@ local function advance_lane(lane, dt)
     end
     if alive then
       local offset = box.alignment.offset
-      if item.leave_at then
+      if item.leave_at or item.age < ENTER_DELAY then
         offset.x = offset_x(item, true)
-      elseif item.age >= ENTER_DELAY then
+      else
         offset.x = offset_x(item, false)
       end
       -- 最新的在最上面, 旧的依次往下排. 从屏幕中线往上 2.6 开始, 两三条时也尽量不压到手牌.

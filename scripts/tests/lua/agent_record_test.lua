@@ -384,7 +384,7 @@ do -- 两条车道: 左侧的工具调用记录与右侧的决策消息各自排
   check("右侧消息开始显示", Toast.push("右侧", "决策理由", 2) == true)
   check("左侧不受右侧排队影响", Toast.push("左侧", "手牌下标 0, 1", 2, nil, { side = "left" }) == true)
   check("两条车道都建了框", #boxes == 2, tostring(#boxes))
-  check("左侧用 cli 对齐且先藏在屏幕外", boxes[2].align == "cli" and boxes[2].alignment.offset.x < 0, tostring(boxes[2].align))
+  check("左侧用 cli 对齐且先藏在屏幕外", boxes[2].align == "cli" and boxes[2].alignment.offset.x == -0.8 - G.ROOM.T.x - 20, tostring(boxes[2].alignment.offset.x))
 
   -- 两侧都用很宽的 minw: 左侧内容靠右, 右侧内容靠左, 多出来的宽度留在屏幕外
   local function inner_minw(definition)
