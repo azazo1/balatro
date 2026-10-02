@@ -21,7 +21,8 @@
 - 胜利界面: Jimbo 出现后再停 WIN_HOLD 秒, 然后按原局的选择 (endless 或 menu) 继续.
 
 每步完成后比对状态摘要, 不一致时在 VERIFY_WINDOW 秒内反复确认, 仍不一致就停止回放, 录像保留到这里.
-回放期间锁定输入, 右上角有暂停/继续和中止; 按住 Esc 1 秒也能中止 (触摸是长按 1.5 秒).
+回放期间锁定输入, 右上角有暂停/继续, 快进和中止; 按住 Esc 1 秒也能中止 (触摸是长按 1.5 秒).
+快进只取消讲解的阅读等待: 文字照常弹出, 不等读完就做下一步.
 命令行回放完成退出码为 0, 跑偏为 1, 中止为 2, 文件无法回放为 3; 游戏内以同样的数字回调给界面, 用来显示结果.
 ]]
 
@@ -34,10 +35,11 @@ local LOGGER = "BB.AGENT.REPLAY"
 local M = {
   active = false,
   paused = false,
+  fast = false,
   status = "off",
 }
 
-local ABORT_HINT = "右上角可暂停或中止; 按住 Esc 1 秒也能中止, 触摸时长按 1.5 秒"
+local ABORT_HINT = "右上角可暂停, 快进或中止; 按住 Esc 1 秒也能中止, 触摸时长按 1.5 秒"
 
 local function env_number(name, default)
   local value = tonumber(os.getenv(name) or "")
@@ -161,6 +163,7 @@ end
 --- 停留 hold 秒后结束回放: 命令行按退出码结束进程, 游戏内把结果交回界面, 由它收尾.
 local function finish_later(code, hold)
   M.paused = false
+  M.fast = false
   st.freeze_at = nil
   st.exit_code = code
   st.quit_at = now() + hold
@@ -242,6 +245,21 @@ function M.toggle_pause()
   return M.pause()
 end
 
+--- 快进: 讲解照常弹出, 只是不等阅读时长. 再点一次恢复.
+---@return boolean
+function M.toggle_fast()
+  if not controlling() then
+    return false
+  end
+  M.fast = not M.fast
+  if M.fast and deps.toast and deps.toast.skip_reads then
+    -- 正在等读完的那条立刻放行, 通知本身继续显示.
+    deps.toast.skip_reads()
+  end
+  sendInfoMessage(M.fast and "Replay fast-forward on" or "Replay fast-forward off", LOGGER)
+  return true
+end
+
 --- 中止回放, 与按住 Esc 到头相同.
 ---@return boolean
 function M.abort()
@@ -281,6 +299,18 @@ local function replay_hud_spec()
         end,
       },
       {
+        label = "快进",
+        label_fn = function()
+          return M.fast and "原速" or "快进"
+        end,
+        colour = function()
+          return M.fast and G.C.BLUE or G.C.L_BLACK
+        end,
+        on_click = function()
+          M.toggle_fast()
+        end,
+      },
+      {
         label = "中止",
         colour = G.C.RED,
         on_click = function()
@@ -299,6 +329,7 @@ local function finish_ingame()
   local warnings = deps.session.finish()
   M.active = false
   M.paused = false
+  M.fast = false
   M.status = "off"
   st.phase = "off"
   -- 先释放再回调: 界面收尾时 agent 已经按当前模式恢复.
@@ -320,6 +351,9 @@ local function update_status()
   end
   if M.paused then
     M.status = M.status .. " paused"
+  end
+  if M.fast then
+    M.status = M.status .. " fast"
   end
 end
 
@@ -464,9 +498,10 @@ local function run_action(action)
     return
   end
   -- 讲解照原局那样按阅读时长等: 端点默认改成不等了, 回放要的仍是原来的节奏.
+  -- 快进时文字照常弹出, 只是不等读完.
   if action.method == "notify" then
     local params = copy(action.params or {})
-    params.wait = true
+    params.wait = not M.fast
     dispatch(action.method, params, action.reason, false)
     return
   end
@@ -718,6 +753,7 @@ function M.init_early(options)
   -- 启动时没有别的东西在操作游戏, 这里只是登记, 让 balatrobot 不开端口.
   deps.control.claim(OWNER)
   M.active = true
+  M.fast = false
   st = { phase = "boot", phase_at = now(), index = 1, prev_done = now(), last_busy = now(), reference = 0 }
 
   local pacing = os.getenv("BALATROBOT_REPLAY_PACING")
@@ -846,6 +882,7 @@ function M.start(options)
   }
   M.active = true
   M.paused = false
+  M.fast = false
   set_replay_toast(true)
   st.warn_until = now() + show_warnings(result, 4)
   deps.input_lock.install()

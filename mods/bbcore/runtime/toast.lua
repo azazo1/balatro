@@ -540,6 +540,18 @@ function M.update(dt)
   end
 end
 
+--- 立刻触发还没读完的 on_read, 通知本身继续显示. 回放快进时用: 不等讲解读完, 下一步照做.
+function M.skip_reads()
+  for _, lane in pairs(lanes) do
+    for _, item in ipairs(lane.items) do
+      fire_read(item)
+    end
+    for _, item in ipairs(lane.pending) do
+      fire_read(item)
+    end
+  end
+end
+
 --- 立即移除通知, 排队里的也一起丢掉 (它们的 on_read 会触发, 等着的调用方不会一直等).
 --- 给 side 时只清那一条车道 (设置页关掉某一个开关时用), 不给则两侧都清.
 ---@param side "right"|"left"?
