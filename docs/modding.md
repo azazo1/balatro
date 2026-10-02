@@ -45,9 +45,13 @@ just windows dist-modded     # 打包 dist/windows/Balatro-Modded-<版本>-win64
 含内置 agent 密钥的 `config/balatrobot.jkr` 始终 0600. 细节与真机核实过的现象见
 [android.md](<android.md>).
 
-首次启动时, 包内的 mod 会释放到存档目录的 `Mods/` 下, Steamodded 从这里读取它们, mod 的配置
-也写在这里. 之后只在包内 mod 变化时重新释放. 与包内 mod 同名的文件夹会被覆盖, 其余文件夹不动,
-因此也可以手动往 `Mods/` 里放不含 lovely 补丁的纯 Steamodded mod.
+首次启动时, 包内的 mod 会释放到存档目录的 `Mods/` 下, Steamodded 从这里读取它们. 之后只在包内
+mod 变化时重新释放. 与包内 mod 同名的文件夹会被覆盖, 其余文件夹不动, 因此也可以手动往 `Mods/`
+里放不含 lovely 补丁的纯 Steamodded mod.
+
+模组设置写在存档目录的 `config/<mod id>.jkr`, 例如 `config/bbreplay.jkr`.
+Steamodded 默认用 nativefs 相对路径写这个文件, 打包后会跟进程 cwd 走偏. `smods-fixes` 改为走
+`love.filesystem`, 保证仍落在存档目录.
 
 运行时替身的日志写在 `Mods/lovely/log/lovely-shim.log`.
 

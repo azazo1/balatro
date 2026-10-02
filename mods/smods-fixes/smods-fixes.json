@@ -3,7 +3,7 @@
   "name": "Smods Fixes",
   "display_name": "Smods Fixes",
   "author": ["azazo1"],
-  "description": "Fixes for Steamodded bugs: deterministic boss pool order, and string info in option widgets. Patches only, no gameplay changes.",
+  "description": "Fixes for Steamodded bugs: deterministic boss pool order, string info in option widgets, and mod config written to the save directory instead of the process cwd. Patches only, no gameplay changes.",
   "prefix": "smfix",
   "main_file": "main.lua",
   "priority": -100,

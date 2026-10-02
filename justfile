@@ -65,6 +65,7 @@ test-agent:
     luajit scripts/tests/lua/agent_knowledge_test.lua
     luajit scripts/tests/lua/agent_ui_test.lua
     luajit scripts/tests/lua/android_storage_test.lua
+    luajit scripts/tests/lua/smods_config_path_test.lua
 
 # just mods-check [mod 目录]
 # 检查 mod 补丁在当前游戏版本上的命中情况, 不产出文件.

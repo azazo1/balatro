@@ -137,6 +137,7 @@ Android 的存档通过 `t.externalstorage` 写入外置存储, 而不是应用�
 | 路径 | 内容 |
 | --- | --- |
 | `settings.jkr` | 全局设置, 如音量, 语言, 显示选项 |
+| `config/<mod id>.jkr` | 带 mod 版的模组设置, 明文 Lua (不是压缩过的 `.jkr`) |
 | `metrics.jkr` | 统计指标, 运行后生成 |
 | `<槽位>/profile.jkr` | 进度, 如解锁项, 最高分, 成就 |
 | `<槽位>/meta.jkr` | 已解锁, 已发现, 已提示的条目 |
