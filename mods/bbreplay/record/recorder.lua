@@ -2,24 +2,20 @@
 整局录制. 由 BALATROBOT_RECORD=on 或设置页的录像开关开启, 每局 (start_run 到回主菜单/下一局/退出) 输出.
 一局的产物放在录像目录下以局名命名的文件夹里 (<stem>/), 文件名仍带局名前缀:
 - <stem>/<stem>-full.mp4: 按墙钟原样录制, 带声音.
-- <stem>/<stem>-cut.mp4: 同一份素材剪掉 agent 思考时的无意义等待, 见 record/cuts.lua.
-- <stem>/<stem>.json: 关键时间点, 同时给出两份视频里的时间.
-两份视频在局末由后台脚本生成 (record/post.lua), 录制中只写中间文件 <stem>.video.mp4 与 <stem>.pcm.
+- <stem>/<stem>.json: 关键时间点 (视频里的时间).
+视频在局末由后台脚本合成 (record/post.lua), 录制中只写中间文件 <stem>.video.mp4 与 <stem>.pcm.
 
 崩溃时尽量少丢: 画面约 2 秒一个关键帧 (即一个分片) 并逐个落盘, 声音每秒 flush, 时间线每 2 秒写一次;
-开局时就写出草稿合成脚本 <stem>.post.sh (Windows 上是 <stem>.post.cmd), 剪辑区间变多时覆盖, 局末用最终版覆盖并运行.
+开局时就写出草稿合成脚本 <stem>.post.sh (Windows 上是 <stem>.post.cmd), 局末用最终版覆盖并运行.
 崩溃后进这个文件夹用 sh <stem>.post.sh (Windows 上直接运行 .post.cmd) 或 scripts/recordings_recover.py 补做合成.
 Windows 上 ffmpeg 与合成脚本都由 record/win_proc.lua 直接启动, 不弹控制台窗口.
 
-给 agent 控制的接口: M.end_segment / M.start_segment (停止时立即结束一段), M.set_paused (暂停段在剪辑版里剪掉),
-M.add_activity_source (额外的活动来源, 例如流式条).
+给 agent 控制的接口: M.end_segment / M.start_segment (停止时立即结束一段), M.set_paused (时间线记暂停与恢复).
 
 画面: 录制期间把 "画到屏幕" 的 setCanvas 调用改到一张全分辨率的 frame canvas, love.draw 结束后
 画回屏幕, 再缩放到录制尺寸读出像素, 交给编码线程写进 ffmpeg. CRT, smods 屏幕着色器, 通知都在里面.
 帧数按墙钟计算 (第 n 帧对应开局后 n/fps 秒), 卡顿时重复上一帧, 与录音保持同步.
 声音: 见 record/audio.lua.
-剪辑: 活动 = agent 请求处理中, 通知在屏幕上, 额外活动来源, 或者动画还没停下; 前后各留 pre/post 秒.
-agent 暂停期间一律不算活动.
 
 环境变量:
 - BALATROBOT_RECORD_DIR     输出目录, 默认 <存档目录>/recordings
@@ -27,8 +23,6 @@ agent 暂停期间一律不算活动.
 - BALATROBOT_RECORD_HEIGHT  画面高度, 宽度按窗口比例, 取偶数. 未设置时用设置页的值, 默认 720 (Android 540)
 - BALATROBOT_RECORD_BITRATE 视频码率 (Mbps), 0 为自动. 未设置时用设置页的值, 默认自动
   三者的可选值与取舍见 record/quality.lua. 设置页改了之后从下一个录像段起生效, 正在录的一段不变.
-- BALATROBOT_RECORD_PRE     剪辑版在每次活动前保留的秒数, 默认 0.6
-- BALATROBOT_RECORD_POST    剪辑版在动画停下后保留的秒数, 默认 0.8
 - BALATROBOT_RECORD_PREFIX  输出文件名前缀, 默认为空, 回放时为 replay-
 - BALATROBOT_RECORD_KEEP    设为 keep 时合成成功后保留中间文件, 未设置时用设置页的保留方式
 - BALATROBOT_FFMPEG         ffmpeg 路径, 默认在 PATH, /opt/homebrew/bin, /usr/local/bin 中查找
@@ -41,14 +35,9 @@ local LOGGER = "BB.AGENT.RECORD"
 -- 少了它会报 "No ID was provided!". 录像可能在运行中才装载 (设置页打开开关, 游戏内回放).
 local MOD_ID = "bbreplay"
 local MAX_QUEUE = 8
-local START_GRACE = 1.5 -- 开局后固定算作活动的秒数, 覆盖开局动画
 local QUIT_WAIT = 5
-local MIN_GAP = 1.5 -- 剪掉的部分短于它时不剪
--- 动画判定的上限: 距上次请求, 通知, 状态变化或手动输入超过这么久, 即使还有未完成的阻塞事件
--- 也视为停下, 防止某个一直挂着的事件让剪辑版一刀都剪不掉.
-local SETTLE_MAX = 10
 
-local Cuts, Timeline, Audio, Post, Quality -- 在 setup 中加载
+local Timeline, Audio, Post, Quality -- 在 setup 中加载
 
 local M = {
   enabled = false,
@@ -59,16 +48,14 @@ local setup_done = false
 local ready = false -- setup 成功, 可以录制
 
 local cfg = {}
-local deps = {} -- activity, input, toast, mod_path
+local deps = {} -- activity, mod_path
 local session = nil
 local finishing = {} -- 已结束但编码线程还在收尾的录制
 local redirect = false -- 本局是否录视频
 local drawing = false -- 正在执行被包装的 love.draw
 local frame_canvas = nil
 local set_canvas = love.graphics.setCanvas
-local last_input = -math.huge -- 最近一次手动输入 (鼠标, 键盘, 手柄)
-local paused = false -- agent 暂停中: 剪辑版剪掉这一段, 跨局保持, 见 M.set_paused
-local activity_sources = {} -- 额外的活动来源, 见 M.add_activity_source
+local paused = false -- agent 暂停中, 跨局保持, 见 M.set_paused
 
 local function now()
   return love.timer.getTime()
@@ -83,14 +70,6 @@ local function fix_permissions(path)
   if ok and type(storage) == "table" and storage.fix_path then
     pcall(storage.fix_path, path)
   end
-end
-
-local function env_number(name, default)
-  local value = tonumber(os.getenv(name) or "")
-  if value and value > 0 then
-    return value
-  end
-  return default
 end
 
 local function shell_quote(s)
@@ -164,19 +143,14 @@ local function rate_args(codec, mbps)
   return string.format("-b:v %dk", kbps)
 end
 
---- 编码参数. live 为 true 时是录制中的实时编码: 约 2 秒一个关键帧, fragmented mp4 按关键帧分片,
---- 崩溃时最多丢约 2 秒画面. x264 默认 250 帧一个关键帧, 30fps 下超过 8 秒;
---- videotoolbox 默认约 0.4 秒一个, 分片过碎. 局末重新编码剪辑版时不需要这些.
+--- 录制中实时编码的参数: 约 2 秒一个关键帧, fragmented mp4 按关键帧分片, 崩溃时最多丢约 2 秒画面.
+--- x264 默认 250 帧一个关键帧, 30fps 下超过 8 秒; videotoolbox 默认约 0.4 秒一个, 分片过碎.
 ---@param codec string
 ---@param fps integer
 ---@param mbps number 码率, 0 为自动
----@param live boolean
 ---@return string
-local function codec_args(codec, fps, mbps, live)
+local function codec_args(codec, fps, mbps)
   local args = CODECS[codec].encoder .. " " .. rate_args(codec, mbps)
-  if not live then
-    return args
-  end
   if codec == "videotoolbox" then
     return args .. " -realtime 1 -g " .. fps * 2
   end
@@ -354,7 +328,7 @@ local function start_encoder(video_path, log_path, w, h)
     "-s " .. w .. "x" .. h,
     "-r " .. cfg.fps,
     "-i -",
-    codec_args(cfg.codec, cfg.fps, cfg.bitrate, true),
+    codec_args(cfg.codec, cfg.fps, cfg.bitrate),
     "-pix_fmt yuv420p",
     -- fragmented mp4: 游戏中途崩溃时已写入的分片仍可播放. flush_packets 让每个分片写完就落盘,
     -- 否则画面简单时整个分片都停在 ffmpeg 的 32 KB 写缓冲里, 被 kill 时一帧都读不出.
@@ -484,26 +458,10 @@ local function try_post(item, force)
     audio_ok = (file_size(item.post.base .. ".pcm") or 0) > 0
   end
   item.post.audio = audio_ok
-  -- 自动码率档: 按完整版的实测码率给剪辑版一个目标码率, 否则离线重编码出来的剪辑版比完整版还大
-  -- (原因见 post.lua 的 cut_mbps). 量不到时保持原样, 手动选了码率的也不用管.
-  -- 崩溃后用的草稿脚本仍用画质档: 那一刻视频还没写完, 量不出码率.
-  if cfg.bitrate <= 0 and #(item.post.cuts or {}) > 0 then
-    local mbps = Post.cut_mbps(
-      file_size(item.post.base .. ".video.mp4"),
-      video_done.frames,
-      cfg.fps
-    )
-    if mbps then
-      item.post.codec_args = codec_args(cfg.codec, cfg.fps, mbps, false)
-      sendDebugMessage(string.format("Cut video target bitrate: %.2f Mbps", mbps), LOGGER)
-    else
-      sendWarnMessage("量不到完整版的码率, 剪辑版用默认画质档", LOGGER)
-    end
-  end
   local ok, err = Post.spawn(item.post, WINDOWS and launch_cmd or nil)
   sendInfoMessage(
     string.format(
-      "Recording %s: %d frames, audio %s, building -full.mp4 and -cut.mp4 in background%s",
+      "Recording %s: %d frames, audio %s, building -full.mp4 in background%s",
       item.stem,
       video_done.frames or 0,
       audio_ok and "ok" or "missing",
@@ -536,24 +494,16 @@ end
 -- 会话
 -- ==========================================================================
 
---- 当前时刻算作活动, 返回它在完整版与剪辑版里的时间.
+--- 当前时刻在视频里的时间 (开局起的墙钟秒数).
 ---@return number wall
----@return number cut
-local function mark_now(s)
-  local wall = now() - s.started
-  -- 暂停中 cuts 忽略 mark; 也不刷新 last_busy, 恢复后不会因为暂停期间的事件多留动画
-  if not s.cuts.paused then
-    s.cuts:mark(wall)
-    s.last_busy = now()
-  end
-  return wall, s.cuts:cut_time(wall)
+local function wall_now(s)
+  return now() - s.started
 end
 
---- 记一个事件, 同时算作活动, 保证事件所在的时刻留在剪辑版里.
+--- 在当前时刻记一个事件.
 ---@return table event
 local function log_event(s, kind, fields)
-  local wall, cut = mark_now(s)
-  return s.timeline:event(wall, cut, kind, fields)
+  return s.timeline:event(wall_now(s), kind, fields)
 end
 
 local function file_exists(path)
@@ -567,7 +517,6 @@ end
 
 --- 写出或覆盖草稿合成脚本, 崩溃后用它补做合成. 局末由 Post.spawn 用最终版覆盖.
 local function write_draft(s)
-  s.draft_cuts = #s.cuts.list
   -- 只有 ffmpeg 后端有 post (合成参数); Android 后端自己写 mp4, 没有这一步.
   if not s.post then
     return
@@ -578,7 +527,6 @@ local function write_draft(s)
   end
   opts.draft = true
   opts.audio = s.audio and "auto" or false
-  opts.cuts = s.cuts.list
   local path, err = Post.write(opts)
   if not path and not s.draft_warned then
     s.draft_warned = true
@@ -586,17 +534,11 @@ local function write_draft(s)
   end
 end
 
---- 暂停: 这一刻算作活动, 之后到恢复为止剪辑版剪掉. 事件的剪辑版时间在恢复或结束时改正.
 local function pause_session(s, reason)
-  local event = log_event(s, "pause", { reason = reason })
-  s.cuts:pause(event.wall)
-  s.pause_from = event.wall
+  log_event(s, "pause", { reason = reason })
 end
 
 local function resume_session(s, reason)
-  s.cuts:resume(now() - s.started)
-  s.timeline:refresh_cut(s.cuts, s.pause_from)
-  s.pause_from = nil
   log_event(s, "resume", { reason = reason })
 end
 
@@ -615,7 +557,7 @@ local function start_session(resumed, reason)
   if suffix > 1 then
     stem = stem .. "-" .. suffix
   end
-  -- 一局的产物 (时间轴, 回放文件, 两份视频, agent 转录, 中间文件) 都放在这个文件夹里.
+  -- 一局的产物 (时间轴, 回放文件, 视频, agent 转录, 中间文件) 都放在这个文件夹里.
   local folder = cfg.dir .. "/" .. stem
   local made, folder_err = SMODS.NFS.createDirectory(folder)
   if made then
@@ -638,24 +580,20 @@ local function start_session(resumed, reason)
   local meta = {
     fps = cfg.fps,
     size = { w, h },
-    -- Android 没有剪辑版, 编码完成后 .video.mp4 改名成 -full.mp4 (见 try_post).
-    videos = cfg.backend == "android" and { full = stem .. "-full.mp4" }
-      or (cfg.backend and { full = stem .. "-full.mp4", cut = stem .. "-cut.mp4" } or nil),
+    -- 桌面局末合成出 -full.mp4; Android 编码完成后 .video.mp4 改名成 -full.mp4 (见 try_post).
+    videos = cfg.backend and { full = stem .. "-full.mp4" } or nil,
     started_at = os.date("!%Y-%m-%dT%H:%M:%SZ"),
     deck = game.selected_back and game.selected_back.name or nil,
     stake = game.stake,
     seed = seed,
     seeded = game.seeded or false,
     resumed = resumed,
-    padding = { pre = cfg.pre, post = cfg.post, min_gap = MIN_GAP },
   }
 
   session = {
     stem = stem,
     base = base,
     started = now(),
-    last_busy = now(),
-    cuts = Cuts.new({ pre = cfg.pre, post = cfg.post, min_gap = MIN_GAP }),
     timeline = Timeline.new(base .. ".json", meta),
     size = { w, h },
     -- 本段的帧率. 设置页可以在录制中改 cfg.fps, 只影响下一段, 这一段的帧数一直按开始时的帧率算.
@@ -666,7 +604,6 @@ local function start_session(resumed, reason)
     last_state = G.STATE,
     last_blind = nil,
     won = game.won or false,
-    draft_cuts = 0, -- 上次写草稿脚本时的剪辑区间数
   }
   log_event(session, "run_start", { resumed = resumed, reason = reason })
   if paused then
@@ -711,9 +648,7 @@ local function start_session(resumed, reason)
         session.post = {
           dialect = WINDOWS and "cmd" or "sh",
           ffmpeg = cfg.ffmpeg,
-          codec_args = codec_args(cfg.codec, cfg.fps, cfg.bitrate, false),
           base = base,
-          fps = cfg.fps,
           keep = cfg.keep,
         }
       end
@@ -773,20 +708,13 @@ local function end_session(reason)
   end
   staged = {}
   local length = s.frames_out / s.fps -- 视频的实际长度
-  local was_paused = s.cuts.paused
-  s.cuts.paused = false -- 暂停中结束: 暂停的部分由 finish 当作结尾的等待剪掉
-  s.cuts:finish(length)
-  if s.pause_from then
-    s.timeline:refresh_cut(s.cuts, s.pause_from)
-    s.pause_from = nil
-  end
   local info = run_info()
   -- 回主菜单时 G.GAME 可能已重置, 以本局记录到的 won 事件为准.
   local won = s.won or (G.GAME and G.GAME.won) or false
-  local result = { reason = reason, won = won, ante = info.ante, round = info.round, paused = was_paused or nil }
-  s.timeline:event(length, s.cuts:cut_time(length), "run_end", result)
+  local result = { reason = reason, won = won, ante = info.ante, round = info.round, paused = paused or nil }
+  s.timeline:event(length, "run_end", result)
   s.timeline:set("result", result)
-  s.timeline:sync_cuts(s.cuts, length)
+  s.timeline:set_duration(length)
   local ok, err = s.timeline:flush(now(), true)
   if not ok then
     sendErrorMessage("Failed to write timeline: " .. tostring(err), LOGGER)
@@ -808,28 +736,15 @@ local function end_session(reason)
       for k, v in pairs(s.post) do
         item.post[k] = v
       end
-      item.post.cuts = s.cuts.list
     else
       -- Android: 编码线程自己收尾写 mp4, 主线程只等它结束 (没有 ffmpeg 可调).
       item.android = true
     end
     finishing[#finishing + 1] = item
-  elseif s.post then
-    -- 编码线程中途退出: 不在局末合成, 用最终的剪辑区间更新草稿, 之后可以用它或 recordings_recover 补做
-    write_draft(s)
   end
+  -- 编码线程中途退出时不在局末合成, 开局写出的草稿脚本仍在, 之后可以用它或 recordings_recover 补做.
   M.status = "on"
-  sendInfoMessage(
-    string.format(
-      "Recording ended (%s): full %.1fs, cut %.1fs, %d cuts removing %.1fs",
-      reason,
-      length,
-      length - s.cuts.removed,
-      #s.cuts.list,
-      s.cuts.removed
-    ),
-    LOGGER
-  )
+  sendInfoMessage(string.format("Recording ended (%s): %.1fs", reason, length), LOGGER)
 end
 
 local function track_state(s)
@@ -837,8 +752,6 @@ local function track_state(s)
   if state ~= s.last_state then
     s.last_state = state
     local name = state_name(state)
-    -- 状态变化本身算作活动: 它会带出动画, 不记事件的过渡状态也一样.
-    mark_now(s)
     if name:match("^%-?%d+$") then
       -- 不在 G.STATES 里的过渡值, 例如 delete_run 设置的 -1
     elseif state == G.STATES.GAME_OVER then
@@ -862,11 +775,6 @@ local function track_state(s)
     local info = run_info()
     log_event(s, "won", { ante = info.ante, round = info.round })
   end
-end
-
---- 画面还在动 (动画未停或控制器被锁住), 由 init 注入 bbcore 的 BB_OVERLAY.animating.
-local function animating()
-  return deps.animating() == true
 end
 
 -- ==========================================================================
@@ -908,8 +816,8 @@ function M.start_segment(reason)
   return true
 end
 
---- agent 暂停/恢复. 暂停期间完整版照录, 剪辑版剪掉 (手动输入, 动画, 通知和额外活动来源都不算活动),
---- 时间线记 pause/resume 事件. 状态跨局保持: 暂停中开的新局从暂停开始. 重复设置同一状态不做任何事.
+--- agent 暂停/恢复. 视频照录, 时间线记 pause/resume 事件.
+--- 状态跨局保持: 暂停中开的新局从暂停开始. 重复设置同一状态不做任何事.
 ---@param value boolean
 ---@param reason string? 写进 pause/resume 事件
 function M.set_paused(value, reason)
@@ -932,37 +840,6 @@ end
 ---@return boolean
 function M.is_paused()
   return paused
-end
-
---- 注册额外的活动来源 (例如流式条在屏幕上时). fn 每帧调用一次, 返回 true 时本帧算作活动
---- (与决策消息在屏幕上同等对待, 暂停期间不调用). fn 出错时移除并警告. 可以在 init 之前调用.
----@param fn fun(t: number): boolean? t 为 love.timer 时间
----@return fun() remove 注销函数
-function M.add_activity_source(fn)
-  activity_sources[#activity_sources + 1] = fn
-  return function()
-    for i, f in ipairs(activity_sources) do
-      if f == fn then
-        table.remove(activity_sources, i)
-        return
-      end
-    end
-  end
-end
-
---- 额外活动来源里是否有一个认为此刻在活动.
-local function extra_active(t)
-  for i = #activity_sources, 1, -1 do
-    local fn = activity_sources[i]
-    local ok, result = pcall(fn, t)
-    if not ok then
-      table.remove(activity_sources, i)
-      sendWarnMessage("Activity source removed after error: " .. tostring(result), LOGGER)
-    elseif result then
-      return true
-    end
-  end
-  return false
 end
 
 --- 给正在录制的一局的时间线加一个顶层字段.
@@ -993,7 +870,6 @@ local function setup()
     return false
   end
 
-  Cuts = assert(SMODS.load_file("record/cuts.lua", MOD_ID))()
   Timeline = assert(SMODS.load_file("record/timeline.lua", MOD_ID))()
   Audio = assert(SMODS.load_file("record/audio.lua", MOD_ID))()
   Post = assert(SMODS.load_file("record/post.lua", MOD_ID))()
@@ -1005,8 +881,6 @@ local function setup()
     WinProc = assert(SMODS.load_file("record/win_proc.lua", MOD_ID))()
   end
   apply_quality()
-  cfg.pre = env_number("BALATROBOT_RECORD_PRE", 0.6)
-  cfg.post = env_number("BALATROBOT_RECORD_POST", 0.8)
   -- 文件名前缀, 回放时为 "replay-", 与原局的录像区分. 游戏内回放在录像还没初始化时就先 M.set_prefix,
   -- 这里不能覆盖它, 只在没设过时取环境变量.
   if cfg.prefix == nil then
@@ -1066,11 +940,9 @@ local function setup()
     end
     local event = session.open_action
     session.open_action = nil
-    local wall, cut = mark_now(session)
     event.ok = ok
     event.error = message
-    event.wall_end = math.floor(wall * 1000 + 0.5) / 1000
-    event.cut_end = math.floor(cut * 1000 + 0.5) / 1000
+    event.wall_end = math.floor(wall_now(session) * 1000 + 0.5) / 1000
     session.timeline.dirty = true
   end)
   activity.on("message", function(title, text, _, source)
@@ -1079,16 +951,6 @@ local function setup()
     end
     log_event(session, "message", { title = title, text = text })
   end)
-
-  -- 手动操作也算活动, 人玩的部分不会被剪掉. 经 bbcore 的输入门观察, 被锁操作或回放锁丢掉的不算;
-  -- 点 HUD (暂停, 中止) 算. 触摸以 press (istouch) 进来.
-  if deps.input then
-    deps.input.observe("recorder", function(ev, outcome)
-      if outcome ~= "drop" and (ev.kind == "press" or ev.kind == "key_press" or ev.kind == "pad_press") then
-        last_input = now()
-      end
-    end)
-  end
 
   local start_run = Game.start_run
   function Game:start_run(args) ---@diagnostic disable-line: duplicate-set-field
@@ -1114,12 +976,10 @@ local function setup()
 
   sendInfoMessage(
     string.format(
-      "Recording ready: %d fps, height %d, bitrate %s, padding %.1f/%.1fs, dir %s, backend %s%s",
+      "Recording ready: %d fps, height %d, bitrate %s, dir %s, backend %s%s",
       cfg.fps,
       cfg.height,
       cfg.bitrate > 0 and (cfg.bitrate .. " Mbps") or "auto",
-      cfg.pre,
-      cfg.post,
       cfg.dir,
       tostring(cfg.backend or "none"),
       cfg.backend == "ffmpeg" and (" (" .. tostring(cfg.ffmpeg) .. ", codec " .. tostring(cfg.codec) .. ")") or ""
@@ -1132,8 +992,8 @@ local function setup()
   return true
 end
 
----@param options {activity: table, input: table?, toast: table, animating: fun(): boolean, mod_path: string, config_enabled: boolean?, config_keep: string?, config_quality: table?}
---- activity / input / toast / animating: bbcore 的 BB_ACTIVITY, BB_INPUT, BB_TOAST, BB_OVERLAY.animating.
+---@param options {activity: table, mod_path: string, config_enabled: boolean?, config_keep: string?, config_quality: table?}
+--- activity: bbcore 的 BB_ACTIVITY, 用来在时间线上记 agent 的操作与消息.
 --- config_enabled: 设置页的录像开关. 设了 BALATROBOT_RECORD 环境变量时以环境变量为准 (Android 没有环境变量).
 --- config_keep: 设置页的保留方式, "keep" 时合成成功后保留中间文件. 设了 BALATROBOT_RECORD_KEEP 时以它为准.
 --- config_quality: 设置页的 {height, fps, bitrate}, 0 为默认. 设了对应环境变量的项以环境变量为准.
@@ -1241,29 +1101,7 @@ function M.update()
     Audio.tick()
   end
 
-  -- 活动: 请求处理中, 通知在屏幕上, 开局动画, 手动操作, 额外活动来源; 之后动画还没停下的部分也算,
-  -- 但距上一次活动最多 SETTLE_MAX 秒. 暂停期间什么都不算.
-  if not s.cuts.paused then
-    local activity = deps.activity
-    local busy = activity.busy(t)
-      or deps.toast.active()
-      or wall < START_GRACE
-      or t - last_input < 1
-      or extra_active(t)
-    if busy then
-      s.last_busy = t
-    end
-    if busy or (t - s.last_busy < SETTLE_MAX and animating()) then
-      s.cuts:mark(wall)
-    end
-  end
-
   track_state(s)
-  s.timeline:sync_cuts(s.cuts, wall)
-  -- 剪辑区间变多时覆盖草稿脚本 (仅 ffmpeg 后端), 崩溃后合成的剪辑版尽量接近局末的结果
-  if #s.cuts.list ~= s.draft_cuts then
-    write_draft(s)
-  end
   local ok, err = s.timeline:flush(t, false)
   if not ok then
     sendWarnMessage("Failed to write timeline: " .. tostring(err), LOGGER)

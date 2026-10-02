@@ -1,12 +1,12 @@
 --[[
 录制时间线: 与视频同名的 JSON, 标记关键时间点.
-wall 为开局起的墙钟时间, 即完整版视频里的时间; cut 为剪辑版视频里的时间, 单位秒.
+wall 为开局起的墙钟时间, 即视频里的时间, 单位秒.
 字段说明见 docs/agent-api.md. 写入先写临时文件再 rename, 中途崩溃也能留下上一次完整的内容.
 ]]
 
 local json = require("json")
 
-local VERSION = 2
+local VERSION = 3
 local FLUSH_INTERVAL = 2
 
 local Timeline = {}
@@ -24,18 +24,16 @@ function Timeline.new(path, meta)
     data[k] = v
   end
   data.events = {}
-  data.cuts = {}
   return setmetatable({ path = path, data = data, dirty = true, last_flush = -math.huge }, Timeline)
 end
 
 --- 追加一个事件并返回它, 调用方可以之后补充字段 (如响应结果).
----@param wall number 墙钟时间 (完整版时间)
----@param cut number 剪辑版时间
+---@param wall number 墙钟时间 (视频里的时间)
 ---@param kind string
 ---@param fields table?
 ---@return table
-function Timeline:event(wall, cut, kind, fields)
-  local event = { wall = round(wall), cut = round(cut), kind = kind }
+function Timeline:event(wall, kind, fields)
+  local event = { wall = round(wall), kind = kind }
   for k, v in pairs(fields or {}) do
     event[k] = v
   end
@@ -49,35 +47,10 @@ function Timeline:set(key, value)
   self.dirty = true
 end
 
---- 同步剪辑区间与时长.
----@param cuts table record/cuts 实例
----@param wall number 当前墙钟时间
-function Timeline:sync_cuts(cuts, wall)
-  local list = {}
-  for _, cut in ipairs(cuts.list) do
-    list[#list + 1] = { start = round(cut.start), stop = round(cut.stop), at = round(cuts:cut_time(cut.start)) }
-  end
-  if #list ~= #self.data.cuts then
-    self.dirty = true
-  end
-  self.data.cuts = list
-  self.data.duration = { full = round(wall), cut = round(wall - cuts.removed), removed = round(cuts.removed) }
-end
-
---- 重算 wall 不早于 from 的事件在剪辑版里的时间. 暂停期间记下的事件当时剪辑区间还没确定,
---- 恢复 (或结束) 后用它改正.
----@param cuts table record/cuts 实例
----@param from number 墙钟时间
-function Timeline:refresh_cut(cuts, from)
-  for _, event in ipairs(self.data.events) do
-    if event.wall >= from then
-      event.cut = round(cuts:cut_time(event.wall))
-    end
-    if event.wall_end and event.wall_end >= from then
-      event.cut_end = round(cuts:cut_time(event.wall_end))
-    end
-  end
-  self.dirty = true
+--- 记下视频时长 (秒), 局末调用.
+---@param wall number
+function Timeline:set_duration(wall)
+  self:set("duration", round(wall))
 end
 
 --- 写入文件. force 为 false 时最多每 FLUSH_INTERVAL 秒写一次.

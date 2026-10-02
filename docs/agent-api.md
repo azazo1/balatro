@@ -275,7 +275,6 @@ agent 干的事以原版成就通知的样式显示在屏幕上: 黑底灰边, �
   `wait` 默认 `false`: 显示交给通知自己 (见下), 请求立刻返回. 传 `true` 则等这条读完再返回.
   关掉消息显示时立即返回 (消息不显示, 也没有要等的讲解).
 - 一条条显示: 有消息正在显示时新的排队等着, 前一条退场时下一条才滑入, 排队不设上限 (一句解说都不丢).
-  消息还在屏幕上或还排在队里时, 录制把这段视为活动期, 不会被剪掉.
 - 讲解还没退去时, 后面的请求要等它退去才生效 (挂在 `BB_DISPATCHER.dispatch` 上), 这样观众总是先看到
   文字再看到动作. 等的是"自己那条", 也就是该请求之前最后发出的一条讲解, 队列先进先出, 等它等于等前面
   的都退去.
@@ -296,7 +295,7 @@ Show Agent Messages (右侧) 与 Show Tool Calls (左侧), 见 [builtin-agent.md
 
 ## 录制
 
-`just macos run-agent` 默认就按局录制, 每局输出两份带声音的视频和一份时间线 JSON, 不需要另外设置:
+`just macos run-agent` 默认就按局录制, 每局输出一份带声音的视频和一份时间线 JSON, 不需要另外设置:
 
 ```shell
 just macos run-agent          # 录制, 正常速度
@@ -308,33 +307,29 @@ just macos run-agent on 1     # 10 倍速, 仅在需要时使用
 
 | 文件 | 内容 |
 | --- | --- |
-| `<开始时间>-<种子>-full.mp4` | 完整版, 与实际时长相同, 保留 agent 思考的时间 |
-| `<开始时间>-<种子>-cut.mp4` | 剪辑版, 去掉 agent 思考时的无意义等待 (Android 上暂无) |
-| `<开始时间>-<种子>.json` | 关键时间点, 同时给出两份视频里的时间 |
+| `<开始时间>-<种子>-full.mp4` | 视频, 与实际时长相同, 保留 agent 思考的时间 |
+| `<开始时间>-<种子>.json` | 关键时间点 (视频里的时间) |
 | `<开始时间>-<种子>.replay.json` | 回放文件, 见下方 "回放" |
 | `<开始时间>-<种子>-agent.jsonl` | 内置 agent 的转录, 只在内置模式下有 |
 
 - 一局从开局 (或读档) 开始, 到回主菜单, 开下一局或退出为止. 游戏结束后停留在结算界面的部分也会录.
 - 输出在仓库根目录的 `recordings/`. 一局一个文件夹, 上面表格里的名字都是文件夹内的相对路径.
-  两份视频在局末由后台进程生成, 一般几秒到十几秒, 游戏可以继续玩或退出.
+  视频在局末由后台进程合成, 画面直接复制, 一般几秒, 游戏可以继续玩或退出.
   ffmpeg 的报错在同名 `.ffmpeg.txt`. 每次启动的游戏日志 (含崩溃信息) 在 `recordings/<启动时间>-game.log`.
 - 录制中只写中间文件: `.video.mp4` (约 2 秒一个分片, 写完即落盘), `.pcm` (每秒落盘) 和合成脚本 `.post.sh`
   (Windows 上是 `.post.cmd`).
-  脚本开局时就写出, 剪辑区间变多时更新, 局末换成最终版并运行, 成功后删除中间文件.
-- 游戏崩溃时画面最多丢约 2 秒, 声音约 1 秒. `just macos recordings-recover` 列出残留的局, 加 `--run` 补做合成
-  (剪辑版只剪掉崩溃前已确定的区间, 结尾的等待不剪), 再加 `--clean` 在成功后删除中间文件.
+  脚本开局时就写出, 局末换成最终版并运行, 成功后删除中间文件.
+- 游戏崩溃时画面最多丢约 2 秒, 声音约 1 秒. `just macos recordings-recover` 列出残留的局, 加 `--run` 补做合成,
+  再加 `--clean` 在成功后删除中间文件.
   游戏在运行时, 中间文件 30 秒内还在变化的局会跳过. 局末合成失败时同样保留中间文件, 用同一条命令或
   `sh <文件名>.post.sh` (Windows 上直接运行 `<文件名>.post.cmd`) 重跑.
-- 剪辑版保留的部分: agent 请求处理中, 决策消息在屏幕上, 状态变化, 手动操作, 以及之后动画完全停下之前
-  (发牌, 计分, 翻牌等). 每段前留 0.6 秒, 动画停下后留 0.8 秒, 中间的等待剪掉; 不足 1.5 秒的停顿不剪.
-  只查询状态和截图的请求 (`gamestate`, `health`, `screenshot`, `rpc.discover`) 不算活动.
 - 画面与屏幕一致, 包括 CRT 效果和决策消息. fast 模式录到的就是加速后的画面.
 - 声音按游戏发给声音线程的指令另外混出, 与画面同步, 与实际听到的基本一致. 不跟随 Options 里的总音量,
   静音玩时录像仍有声音; 音乐与音效各自的音量照常生效.
 - 需要 ffmpeg, 找不到时只写 JSON. macOS 上默认用 videotoolbox 硬件编码, 对游戏帧率影响很小.
 - Android 上没有 ffmpeg, 改用系统的 MediaCodec 硬件编码 (取不到硬件编码器时退回软件编码器),
   默认 540p 24fps. 录制中写 `.video.mp4`, 局末封装成功后改名成同样的 `<开始时间>-<种子>-full.mp4`.
-  目前**没有音轨**, 也没有剪辑版, 而且中途崩溃会丢掉这一局的视频 (moov 在收尾时才落盘, 留下的
+  目前**没有音轨**, 而且中途崩溃会丢掉这一局的视频 (moov 在收尾时才落盘, 留下的
   `.video.mp4` 播不了). 细节与实现要点见
   [recording.md](<recording.md>) 的 "Android" 一节.
 
@@ -347,47 +342,40 @@ just macos run-agent on 1     # 10 倍速, 仅在需要时使用
 | `BALATROBOT_RECORD_FPS` | 设置页的值, 默认 30 | 视频帧率 |
 | `BALATROBOT_RECORD_HEIGHT` | 设置页的值, 默认 720 | 视频高度, 宽度按窗口比例 |
 | `BALATROBOT_RECORD_BITRATE` | 设置页的值, 默认自动 | 视频码率 (Mbps, 可带小数), 0 为自动 (固定画质, 体积随画面变化) |
-| `BALATROBOT_RECORD_PRE` | 0.6 | 剪辑版每段活动前保留的秒数 |
-| `BALATROBOT_RECORD_POST` | 0.8 | 剪辑版动画停下后保留的秒数 |
 | `BALATROBOT_RECORD_CODEC` | 自动 | `videotoolbox` 或 `x264`; x264 更省体积, 但占 CPU, 动画多时游戏会掉帧 |
 | `BALATROBOT_RECORD_KEEP` | `skip` | `keep` 时合成成功也保留中间文件, 供事后重跑 |
 | `BALATROBOT_RECORD_PREFIX` | 空 | 输出文件名前缀, 回放时为 `replay-` |
 | `BALATROBOT_FFMPEG` | 自动查找 | ffmpeg 路径 |
 
 录像由 bbreplay 负责, 设置在 模组 -> BB Replay -> 配置. 设置页的 "保留方式" 与 `BALATROBOT_RECORD_KEEP` 对应: `skip` 在局末合成成功后删掉 `.video.mp4` 与 `.pcm`,
-`keep` 留着只删脚本自身 (想再改剪辑区间重跑时有用). 合成失败时无论哪种都保留中间文件.
+`keep` 留着只删脚本自身 (想事后重跑时有用). 合成失败时无论哪种都保留中间文件.
 录像的开关与保留方式改完后立刻生效 (下一次录像段开始起算), 桌面端设了对应环境变量时以环境变量为准.
 
-JSON 的时间都是秒. `wall` 为开局起的实际时间, 即完整版里的时间; `cut` 为剪辑版里的时间:
+JSON 的时间都是秒. `wall` 为开局起的实际时间, 即视频里的时间:
 
 ```json
 {
-  "version": 2, "fps": 30, "size": [1280, 720], "audio": true,
-  "videos": {"full": "....-full.mp4", "cut": "....-cut.mp4"},
+  "version": 3, "fps": 30, "size": [1280, 720], "audio": true,
+  "videos": {"full": "....-full.mp4"},
   "deck": "Red Deck", "stake": 1, "seed": "AUDIO1", "seeded": true, "resumed": false,
-  "padding": {"pre": 0.6, "post": 0.8, "min_gap": 1.5},
   "result": {"reason": "menu", "won": false, "ante": 1, "round": 1},
-  "duration": {"full": 58.567, "cut": 25.984, "removed": 32.583},
-  "cuts": [{"start": 8.203, "stop": 24.652, "at": 8.203}],
+  "duration": 58.567,
   "events": [
-    {"wall": 0, "cut": 0, "kind": "run_start", "resumed": false},
-    {"wall": 2.22, "cut": 2.22, "kind": "action", "method": "select", "reason": "小盲注", "ok": true,
-     "wall_end": 5.202, "cut_end": 5.202},
-    {"wall": 5.192, "cut": 5.192, "kind": "blind", "key": "bl_small", "name": "Small Blind", "round": 1},
-    {"wall": 25.252, "cut": 8.803, "kind": "action", "method": "play", "reason": "出五张", "ok": true,
-     "wall_end": 33.685, "cut_end": 17.236}
+    {"wall": 0, "kind": "run_start", "resumed": false},
+    {"wall": 2.22, "kind": "action", "method": "select", "reason": "小盲注", "ok": true, "wall_end": 5.202},
+    {"wall": 5.192, "kind": "blind", "key": "bl_small", "name": "Small Blind", "round": 1},
+    {"wall": 25.252, "kind": "action", "method": "play", "reason": "出五张", "ok": true, "wall_end": 33.685}
   ]
 }
 ```
 
 | 字段 | 含义 |
 | --- | --- |
-| `cuts` | 剪辑版去掉的区间, `start`/`stop` 为完整版里的时间, `at` 为剪辑版里对应的剪辑点 |
-| `duration.removed` | 剪掉的总时长 |
+| `duration` | 视频时长, 录制结束时写入 (崩溃留下的 JSON 没有) |
 | `result.reason` | 结束原因: `menu`, `restart` (开了下一局), `quit`, `agent_user` / `agent_error` (内置 agent 被停止 / 出错停止), `replay` (游戏内回放结束), `disabled` (录像被关掉) |
 | `result.paused` | 暂停中结束时为 true |
-| `pause`, `resume` | 内置 agent 暂停与恢复, 带 `reason`. 两者之间在剪辑版里剪掉, 期间事件的 `cut` 为对应的剪辑点 |
-| `action` | agent 的操作, `wall_end`/`cut_end` 为操作完成的时间, 失败时带 `error` |
+| `pause`, `resume` | 内置 agent 暂停与恢复, 带 `reason` |
+| `action` | agent 的操作, `wall_end` 为操作完成的时间, 失败时带 `error` |
 | `message` | `notify` 发的消息 (`reason` 已记在对应的 `action` 里) |
 | `blind` | 进入盲注 |
 | `state` | 进入选盲注, 结算, 商店, 卡包等状态, 带 `ante`, `round`, `money` |
@@ -408,7 +396,7 @@ fast (快进) 间隔同 tight, 不等讲解读完就做下一步, 讲解仍会�
 显示进度. 结束时显示结果 (完成 / 在第 N 步跑偏 / 已中止), 回到主菜单, 并把存档进度和设置恢复成
 开始前的样子.
 
-命令行回放从启动开始, 录制成 `recordings/replay-*` 的完整版和剪辑版视频:
+命令行回放从启动开始, 录制成 `recordings/replay-*` 的视频:
 
 ```shell
 just macos replay recordings/<stem>            # tight: 去掉 agent 思考的时间

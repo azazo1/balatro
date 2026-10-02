@@ -1,8 +1,8 @@
 --[[
 BB Replay 入口: 按局录像与写回放文件, 游戏内与命令行回放. 只依赖 bbcore; 装了 balatrobot 时录下 agent 的动作,
-agent 停止时结束录像段, 暂停段在剪辑版里剪掉. 加载顺序在 bbcore 与 balatrobot 之后 (priority 1).
+agent 停止时结束录像段. 加载顺序在 bbcore 与 balatrobot 之后 (priority 1).
 
-- BALATROBOT_RECORD=on (或设置页的开关) 时按局录制完整版与剪辑版视频 (带声音) 和时间线 JSON, 见 record/recorder.lua.
+- BALATROBOT_RECORD=on (或设置页的开关) 时按局录制视频 (带声音) 和时间线 JSON, 见 record/recorder.lua.
   同时写回放文件 <stem>.replay.json (replay/log.lua), 人手动的操作也换算成回放步骤 (replay/manual.lua).
 - 回放: 主菜单 选项 -> 回放 (ui/replay_menu.lua), 或启动时设 BALATROBOT_REPLAY=<回放文件> (命令行, 按退出码结束).
   回放进行时在 bbcore 的 BB_CONTROL 上独占游戏, balatrobot 据此不开端口, 内置 loop 不能开始.
@@ -65,9 +65,6 @@ BB_REPLAY.init_early({
 })
 BB_RECORDER.init({
   activity = BB_ACTIVITY,
-  input = BB_INPUT,
-  toast = BB_TOAST,
-  animating = BB_OVERLAY.animating,
   mod_path = MOD.path,
   config_enabled = MOD.config.record == true,
   config_keep = MOD.config.record_keep,
@@ -77,10 +74,6 @@ BB_RECORDER.init({
     bitrate = MOD.config.record_bitrate,
   },
 })
--- 流式条在屏幕上时和决策消息一样算作活动, 剪辑版不剪掉.
-BB_RECORDER.add_activity_source(function()
-  return BB_STREAM.active()
-end)
 -- 回放文件与录像同名, 只在有录像段时写. 录像可以在运行中才打开, 所以不看启动时的录像开关;
 -- 回放的一局不写, 命令行回放在这里排除, 游戏内回放由 replaying 排除.
 if not BB_REPLAY.active then
@@ -107,7 +100,7 @@ if BB_REPLAY.active then
   BB_TOAST.calls_enabled = true
 end
 
--- 装了 balatrobot 时: agent 停止 (含出错停止) 时立即结束当前录像段; 暂停段在剪辑版里剪掉.
+-- 装了 balatrobot 时: agent 停止 (含出错停止) 时立即结束当前录像段; 暂停与恢复记进时间线.
 if BB_RUNNER then
   BB_RUNNER.on_stop[#BB_RUNNER.on_stop + 1] = function(reason)
     BB_RECORDER.set_paused(false, "agent_" .. reason)

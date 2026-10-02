@@ -23,7 +23,7 @@ run-modded: dist-modded
     dist/macos/Balatro-Modded.app/Contents/MacOS/love
 
 # just macos run-agent [on|off] [fast]
-# 打包带 mod 的应用并开启 agent 接口运行, 使用独立存档 Balatro-Agent, 默认正常速度, 按局录制完整版与剪辑版视频到 recordings/.
+# 打包带 mod 的应用并开启 agent 接口运行, 使用独立存档 Balatro-Agent, 默认正常速度, 按局录制视频到 recordings/.
 run-agent record="on" fast="0": dist-modded
     #!/usr/bin/env bash
     set -euo pipefail

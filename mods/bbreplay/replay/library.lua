@@ -234,7 +234,6 @@ end
 local RUN_SUFFIXES = {
   ".replay.json",
   "-full.mp4",
-  "-cut.mp4",
   ".json", -- 时间轴
   "-agent.jsonl",
   ".video.mp4",

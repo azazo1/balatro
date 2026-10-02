@@ -209,7 +209,7 @@ Agent 面板:
   改为按触摸状态判断后修复). 手动打的局也能录制与回放, 已在真机上回放一局 23 步.
 - 5 完成了一部分: `bbnet` 的 arm64-v8a 交叉编译与 APK 打包 (`just android dist-modded` 已验证 .so 进入
   `lib/arm64-v8a/`), 切到后台自动暂停, 运行中防熄屏. armeabi-v7a 缺 rust target; 真机上的触摸流程未验证.
-- 6 完成了一部分: 视频链路已在真机跑通 (颜色转换, 编码器回退, 封装), 声音与剪辑版未做. 见 [recording.md](<recording.md>) 的 "Android" 一节.
+- 6 完成了一部分: 视频链路已在真机跑通 (颜色转换, 编码器回退, 封装), 声音未做. 见 [recording.md](<recording.md>) 的 "Android" 一节.
 
 每一步同步更新 [agent-api.md](<agent-api.md>) 和 AGENTS.md. 测试只覆盖关键逻辑: SSE 分帧, tool call 累积, 手册的路径校验与分页, 错误分类, 回放期间的存档写入拦截.
 

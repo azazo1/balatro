@@ -1,10 +1,5 @@
--- 录制剪辑点与消息的单元测试, 用 luajit 在仓库根目录运行: just test-agent
-local Cuts = dofile("mods/bbreplay/record/cuts.lua")
+-- 录制合成脚本与消息的单元测试, 用 luajit 在仓库根目录运行: just test-agent
 local Post = dofile("mods/bbreplay/record/post.lua")
-package.preload.json = function() -- 时间线只在 flush 时用到, 测试不写文件
-  return { encode = function() return "{}" end }
-end
-local Timeline = dofile("mods/bbreplay/record/timeline.lua")
 local Toast = dofile("mods/bbcore/runtime/toast.lua")
 
 local failures = 0
@@ -15,14 +10,6 @@ local function check(name, cond, detail)
     failures = failures + 1
     print("FAIL " .. name .. (detail and (": " .. detail) or ""))
   end
-end
-
-local function near(a, b)
-  return math.abs(a - b) < 1e-6
-end
-
-local function new_cuts()
-  return Cuts.new({ pre = 0.5, post = 1, min_gap = 1.5 })
 end
 
 local function write_file(path, content)
@@ -49,84 +36,6 @@ local function exists(path)
   return f ~= nil
 end
 
--- 在墙钟时间 w 记一个操作事件 (按当时的剪辑区间算剪辑版时间), 操作在 30.5 结束
-local function timeline_with_event(cuts, w)
-  local tl = Timeline.new("/nonexistent/timeline.json", {})
-  local event = tl:event(w, cuts:cut_time(w), "action", {})
-  event.wall_end = 30.5
-  event.cut_end = cuts:cut_time(30.5)
-  return { tl = tl, event = event }
-end
-
--- 以 0.1 秒为步长, 在 [from, to) 内每一步都标记活动
-local function active(cuts, from, to)
-  for i = math.floor(from * 10 + 0.5), math.floor(to * 10 + 0.5) - 1 do
-    cuts:mark(i / 10)
-  end
-end
-
-do -- 长时间等待: 活动结束后留 post, 下次活动前留 pre, 中间剪掉
-  local c = new_cuts()
-  active(c, 0, 2) -- 最后一次活动在 1.9
-  active(c, 42, 43)
-  c:finish(43)
-  -- 结尾在最后一次活动 (42.9) 之后只有 0.1 秒, 不足 post, 不再剪
-  check("等待被剪成一段", #c.list == 1, tostring(#c.list))
-  local cut = c.list[1]
-  check("剪辑点前后留出 padding", near(cut.start, 2.9) and near(cut.stop, 41.5), cut.start .. "~" .. cut.stop)
-  check("剪掉的总时长", near(c.removed, 38.6), tostring(c.removed))
-end
-
-do -- 结尾的等待: 最后一次活动后留 post, 之后全部剪掉
-  local c = new_cuts()
-  active(c, 0, 1)
-  c:finish(20)
-  local last = c.list[#c.list]
-  check("结尾等待被剪掉", last and near(last.start, 1.9) and near(last.stop, 20))
-end
-
-do -- 短暂停顿不剪: 剪掉的部分不足 min_gap
-  local c = new_cuts()
-  active(c, 0, 1)
-  active(c, 3.5, 4)
-  check("短停顿保留", #c.list == 0, tostring(#c.list))
-end
-
-do -- 剪辑版时间: 剪辑点之后的时间减去剪掉的长度, 落在剪掉区间里的对应剪辑点
-  local c = new_cuts()
-  active(c, 0, 2)
-  active(c, 42, 43)
-  check("剪辑点之前不变", near(c:cut_time(1.5), 1.5))
-  check("剪掉区间内对应剪辑点", near(c:cut_time(20), 2.9))
-  check("剪辑点之后减去剪掉的长度", near(c:cut_time(42), 42 - 38.6), tostring(c:cut_time(42)))
-end
-
-do -- 剪辑版的 select 表达式: 半开区间, 与 cut_time 一致
-  check("没有剪辑区间时不需要表达式", Post.keep_expr({}) == nil)
-  local expr = Post.keep_expr({ { start = 2, stop = 4 }, { start = 6.5, stop = 8 } })
-  check("select 表达式", expr == "not(gte(t,2.000)*lt(t,4.000)+gte(t,6.500)*lt(t,8.000))", expr)
-end
-
-do -- 暂停: 期间的活动不算, 整段按等待剪掉; 期间记下的事件在恢复后改正剪辑版时间
-  local c = new_cuts()
-  active(c, 0, 2)
-  c:pause(2)
-  local during = timeline_with_event(c, 10)
-  active(c, 2, 30) -- 暂停期间的手动操作, 动画等
-  c:resume(30)
-  active(c, 30, 31)
-  check("暂停段被剪掉", #c.list == 1 and near(c.list[1].start, 3) and near(c.list[1].stop, 29.5),
-    #c.list .. " " .. tostring(c.list[1] and (c.list[1].start .. "~" .. c.list[1].stop)))
-  during.tl:refresh_cut(c, 2)
-  check("暂停期间的事件对应剪辑点", near(during.event.cut, 3), tostring(during.event.cut))
-  check("暂停期间开始的操作, 结束时间也改正", near(during.event.cut_end, 30.5 - 26.5), tostring(during.event.cut_end))
-
-  local c2 = new_cuts()
-  active(c2, 0, 2)
-  active(c2, 2, 30)
-  check("不暂停时同样的活动不剪", #c2.list == 0, tostring(#c2.list))
-end
-
 do -- 草稿脚本不删中间文件 (带 --clean 才删), 局末脚本成功后删; 声音在运行时按 .pcm 是否为空决定
   local dir = os.tmpname()
   os.remove(dir)
@@ -136,8 +45,7 @@ do -- 草稿脚本不删中间文件 (带 --clean 才删), 局末脚本成功后
   write_file(fake, '#!/bin/sh\necho "$*" >> "' .. dir .. '/calls.txt"\nfor a; do last=$a; done\necho x > "$last"\n')
   os.execute("chmod +x '" .. fake .. "'")
   local base = dir .. "/run"
-  local opts = { ffmpeg = fake, codec_args = "-c:v libx264", base = base, fps = 30, audio = "auto",
-    cuts = { { start = 2, stop = 4 } }, draft = true }
+  local opts = { ffmpeg = fake, base = base, audio = "auto", draft = true }
   local function reset()
     write_file(base .. ".video.mp4", "v")
     write_file(base .. ".pcm", "")
@@ -177,18 +85,6 @@ do -- 草稿脚本不删中间文件 (带 --clean 才删), 局末脚本成功后
   opts.keep = nil
 
   os.execute("rm -rf '" .. dir .. "'")
-end
-
-do -- 剪辑版重编码的目标码率: 按完整版的实测码率算, 量不到或不合理时给 nil (保持原来的画质档)
-  -- 真机上的那一局: 完整版 2726254461 字节, 196988 帧, 60fps, 平均约 6.47 Mbps
-  local mbps = Post.cut_mbps(2726254461, 196988, 60)
-  check("按实测码率取目标", mbps and mbps > 5.5 and mbps < 6.5, tostring(mbps))
-  check("低一点, 保证剪辑版更小", mbps and mbps < 2726254461 * 8 / (196988 / 60) / 1e6, tostring(mbps))
-  check("帧数为 0 时不给目标", Post.cut_mbps(1000, 0, 60) == nil)
-  check("帧率为 0 时不给目标", Post.cut_mbps(1000, 100, 0) == nil)
-  check("文件为空时不给目标", Post.cut_mbps(0, 100, 60) == nil)
-  check("读不到大小时不给目标", Post.cut_mbps(nil, 100, 60) == nil)
-  check("数值离谱时不给目标", Post.cut_mbps(1e12, 100, 60) == nil)
 end
 
 do -- 清晰度, 帧率, 码率: 环境变量 > 设置页 > 平台默认; 设置页的值不在可选范围内时按默认

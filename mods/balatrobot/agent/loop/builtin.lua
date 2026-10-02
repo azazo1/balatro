@@ -272,7 +272,7 @@ function M.install(opts)
     end,
   })
 
-  -- 录像的暂停剪辑, 停止时结束录像段, 流式条算作活动: 由 balatrobot.lua 挂在 runner 与 recorder 上.
+  -- 录像的暂停记录与停止时结束录像段: 由 bbreplay 的 main.lua 挂在 runner 上.
   M.install_lifecycle(runner, stream)
 end
 

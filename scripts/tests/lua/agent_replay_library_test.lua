@@ -161,7 +161,7 @@ do -- 一局的位置: 每局一个文件夹与旧版平铺都认, 删除只支�
   check(
     "这一局的产物: 回放, 视频, 时间轴与转录",
     set["20261001-162556-SPLIT01.replay.json"] and set["20261001-162556-SPLIT01-full.mp4"]
-      and set["20261001-162556-SPLIT01-cut.mp4"] and set["20261001-162556-SPLIT01.json"]
+      and set["20261001-162556-SPLIT01.json"]
       and set["20261001-162556-SPLIT01-agent.jsonl"] and set["20261001-162556-SPLIT01.video.mp4"] or false
   )
   local escaped = false

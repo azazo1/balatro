@@ -1,53 +1,23 @@
 --[[
-合成脚本: 从中间文件 <stem>.video.mp4 与 <stem>.pcm 生成两份视频.
-- <stem>-full.mp4: 画面 (直接复制) + 声音, 与墙钟等长.
-- <stem>-cut.mp4: 从同一份素材剪掉 cuts 里的区间, 重新编码.
+合成脚本: 从中间文件 <stem>.video.mp4 与 <stem>.pcm 生成 <stem>-full.mp4 (画面直接复制 + 声音, 与墙钟等长).
 
 两种写法 (opts.dialect), 内容一致:
 - "sh" (默认): <stem>.post.sh, macOS / Linux.
 - "cmd": <stem>.post.cmd, Windows 的批处理. 后台运行由调用方 (record/win_proc.lua) 启动, 不开窗口.
 
 脚本有两种:
-- 草稿 (draft): 开局时写出, 剪辑区间变多时覆盖, 只写不执行. 游戏崩溃后用它补做合成
+- 草稿 (draft): 开局时写出, 只写不执行. 游戏崩溃后用它补做合成
   (sh <stem>.post.sh, Windows 上直接运行 <stem>.post.cmd, 或 scripts/recordings_recover.py).
-  剪辑版只剪掉当时已确定的区间, 结尾的等待不剪. 声音在运行时按 .pcm 是否非空决定.
+  声音在运行时按 .pcm 是否非空决定.
   默认不删中间文件, 带 --clean 且全部成功时才删, 即使在录制中被误执行也只会得到一份不完整的视频,
   不会破坏还在写的中间文件.
-- 局末 (final): 局末用最终的剪辑区间覆盖草稿并在后台运行, 游戏继续运行或退出都不影响.
+- 局末 (final): 局末覆盖草稿并在后台运行, 游戏继续运行或退出都不影响.
   成功后删除中间文件与脚本自身 (保留方式为 keep 时只删脚本); 失败时保留, 可以手动重跑.
 两种脚本都以退出码表示是否全部成功 (Windows 上删掉脚本自身后退出码不可靠, 以产物为准).
 写入先写临时文件再改名, 不会留下写了一半的脚本.
 ]]
 
 local M = {}
-
-local function fmt(x)
-  return string.format("%.3f", x)
-end
-
--- 剪辑版重编码时相对完整版实测码率的系数. 丢帧后需要的比特略少, 而且离线编码的码率分配比实时编码
--- 更有效率, 略降一点也看不出差别, 还能保证剪辑版一定比完整版小.
-local CUT_MBPS_FACTOR = 0.95
-
---- 剪辑版重编码的目标码率 (Mbps), 量不到或数值不合理时返回 nil (调用方保持原来的画质档).
---- 录制用的是实时编码, 为了跟上帧率会放宽质量, 同一个画质档出来的码率比离线编码低得多
---- (真机实测 5.7 与 9.0 Mbps), 所以离线重编码的剪辑版会比完整版还大. 按完整版的实测码率给目标码率
---- 就不会有这个问题: 指定码率时两种模式的实际输出基本一致 (实测 8.00 与 8.10 Mbps).
----@param size_bytes integer 完整版视频的字节数
----@param frames integer 帧数
----@param fps integer
----@return number? mbps
-function M.cut_mbps(size_bytes, frames, fps)
-  if not size_bytes or not frames or not fps or frames <= 0 or fps <= 0 or size_bytes <= 0 then
-    return nil
-  end
-  local mbps = size_bytes * 8 / (frames / fps) / 1e6 * CUT_MBPS_FACTOR
-  -- 明显不合理的值不用: 文件没写完, 或者量错了对象
-  if mbps < 0.5 or mbps > 200 then
-    return nil
-  end
-  return mbps
-end
 
 -- ==========================================================================
 -- 两种写法的差异: 引号, 失败标记, 判断, 删除
@@ -59,20 +29,15 @@ local SH = { ext = ".post.sh" }
 function SH.quote(s)
   return "'" .. tostring(s):gsub("'", "'\\''") .. "'"
 end
-SH.arg = SH.quote
 SH.fail = " || ok=0"
 
 local CMD = { ext = ".post.cmd" }
 
---- 批处理里的路径: 改成反斜杠 (copy, del 等内部命令把 / 当成开关), 双引号包住, % 写成 %%.
+--- 批处理里的路径: 改成反斜杠 (del 等内部命令把 / 当成开关), 双引号包住, % 写成 %%.
 --- 路径里不会有双引号 (Windows 文件名不允许).
 function CMD.quote(s)
   local path = tostring(s):gsub("/", "\\"):gsub("%%", "%%%%")
   return '"' .. path .. '"'
-end
---- 非路径参数 (ffmpeg 的滤镜图等): 只处理 %, 不改斜杠. 滤镜图里没有双引号.
-function CMD.arg(s)
-  return '"' .. tostring(s):gsub("%%", "%%%%") .. '"'
 end
 CMD.fail = " || set ok=0"
 
@@ -84,22 +49,7 @@ local function dialect(opts)
   return DIALECTS[opts.dialect or "sh"] or SH
 end
 
---- ffmpeg select 表达式: 保留不在任何剪辑区间里的帧. 没有剪辑区间时返回 nil.
----@param cuts {start: number, stop: number}[]
----@return string?
-function M.keep_expr(cuts)
-  if #cuts == 0 then
-    return nil
-  end
-  local parts = {}
-  for _, cut in ipairs(cuts) do
-    -- 半开区间 [start, stop), 剪掉的帧数与 cut_time 的换算一致
-    parts[#parts + 1] = "gte(t," .. fmt(cut.start) .. ")*lt(t," .. fmt(cut.stop) .. ")"
-  end
-  return "not(" .. table.concat(parts, "+") .. ")"
-end
-
---- 两份视频的合成命令, with_audio 表示是否混入 .pcm.
+--- 合成命令, with_audio 表示是否混入 .pcm. 画面直接复制, 只编码声音.
 ---@return string[] lines
 local function commands(opts, with_audio)
   local d = dialect(opts)
@@ -107,42 +57,19 @@ local function commands(opts, with_audio)
   local ff = q(opts.ffmpeg) .. " -y -hide_banner -loglevel error"
   local video = q(opts.base .. ".video.mp4")
   local full = q(opts.base .. "-full.mp4")
-  local cut = q(opts.base .. "-cut.mp4")
   local log = q(opts.base .. ".ffmpeg.txt")
-  local audio_in = with_audio and (" -f s16le -ar 44100 -ac 2 -i " .. q(opts.base .. ".pcm")) or ""
+  if not with_audio then
+    return { ff .. " -i " .. video .. " -c copy -movflags +faststart " .. full .. " 2>>" .. log .. d.fail }
+  end
+  local audio_in = " -f s16le -ar 44100 -ac 2 -i " .. q(opts.base .. ".pcm")
   -- 崩溃后画面只到最后一个完整的分片 (约 2 秒一个), 声音每秒落盘, 通常更长; 草稿按短的一方截齐.
   -- 局末两者等长, 不需要.
-  local shortest = (with_audio and opts.draft) and " -shortest" or ""
-  local lines = {}
-  -- 完整版: 画面直接复制, 只编码声音
-  if with_audio then
-    lines[#lines + 1] = ff .. " -i " .. video .. audio_in
+  local shortest = opts.draft and " -shortest" or ""
+  return {
+    ff .. " -i " .. video .. audio_in
       .. " -map 0:v -map 1:a -c:v copy -c:a aac -b:a 160k" .. shortest .. " -movflags +faststart " .. full
-      .. " 2>>" .. log .. d.fail
-  else
-    lines[#lines + 1] = ff .. " -i " .. video .. " -c copy -movflags +faststart " .. full .. " 2>>" .. log .. d.fail
-  end
-  -- 剪辑版: 声音按一帧的长度切块, 与画面在同样的帧边界上取舍, 多次剪辑后也不会错位
-  local expr = M.keep_expr(opts.cuts)
-  if not expr then
-    if d == CMD then
-      lines[#lines + 1] = "if %ok%==1 (copy /y " .. full .. " " .. cut .. " >nul" .. d.fail .. ") else set ok=0"
-    else
-      lines[#lines + 1] = "[ $ok = 1 ] && cp " .. full .. " " .. cut .. d.fail
-    end
-  else
-    local graph = "[0:v]select='" .. expr .. "',setpts=N/FRAME_RATE/TB[v]"
-    local maps = " -map " .. d.arg("[v]")
-    if with_audio then
-      local samples = math.floor(44100 / opts.fps + 0.5)
-      graph = graph .. ";[1:a]asetnsamples=n=" .. samples .. ":p=0,aselect='" .. expr .. "',asetpts=N/SR/TB[a]"
-      maps = maps .. " -map " .. d.arg("[a]") .. " -c:a aac -b:a 160k" .. shortest
-    end
-    lines[#lines + 1] = ff .. " -i " .. video .. audio_in .. " -filter_complex " .. d.arg(graph) .. maps
-      .. " " .. opts.codec_args .. " -pix_fmt yuv420p -r " .. opts.fps .. " -movflags +faststart " .. cut
-      .. " 2>>" .. log .. d.fail
-  end
-  return lines
+      .. " 2>>" .. log .. d.fail,
+  }
 end
 
 local function sh_script(opts)
@@ -154,10 +81,10 @@ local function sh_script(opts)
   if opts.draft then
     lines[#lines + 1] = "# bb-post: draft"
     lines[#lines + 1] = "# 由 record/post.lua 在录制中写出, 游戏崩溃时用于补做合成: sh <本文件> [--clean]."
-    lines[#lines + 1] = "# 剪辑版只剪掉写出时已确定的区间. 默认保留中间文件, 带 --clean 且全部成功时删除."
+    lines[#lines + 1] = "# 默认保留中间文件, 带 --clean 且全部成功时删除."
   else
     lines[#lines + 1] = "# bb-post: final"
-    lines[#lines + 1] = "# 由 record/post.lua 在局末写出并运行: 合成完整版与剪辑版视频. 失败时可以手动重跑."
+    lines[#lines + 1] = "# 由 record/post.lua 在局末写出并运行: 合成 -full.mp4. 失败时可以手动重跑."
     if opts.keep then
       lines[#lines + 1] = "# 保留方式为 keep: 成功后不删中间文件."
     end
@@ -194,7 +121,7 @@ local function sh_script(opts)
   return table.concat(lines, "\n") .. "\n"
 end
 
---- 批处理版. 和 sh 版的流程一致; 分支用 goto 而不是括号块 (滤镜图里有括号), 删除脚本自身放在最后一行.
+--- 批处理版. 和 sh 版的流程一致; 分支用 goto 而不是括号块, 删除脚本自身放在最后一行.
 local function cmd_script(opts)
   local q = CMD.quote
   local video = q(opts.base .. ".video.mp4")
@@ -209,10 +136,10 @@ local function cmd_script(opts)
   if opts.draft then
     lines[#lines + 1] = "rem bb-post: draft"
     lines[#lines + 1] = "rem 由 record/post.lua 在录制中写出, 游戏崩溃时用于补做合成: 运行本文件 [--clean]."
-    lines[#lines + 1] = "rem 剪辑版只剪掉写出时已确定的区间. 默认保留中间文件, 带 --clean 且全部成功时删除."
+    lines[#lines + 1] = "rem 默认保留中间文件, 带 --clean 且全部成功时删除."
   else
     lines[#lines + 1] = "rem bb-post: final"
-    lines[#lines + 1] = "rem 由 record/post.lua 在局末写出并在后台运行: 合成完整版与剪辑版视频. 失败时可以手动重跑."
+    lines[#lines + 1] = "rem 由 record/post.lua 在局末写出并在后台运行: 合成 -full.mp4. 失败时可以手动重跑."
     if opts.keep then
       lines[#lines + 1] = "rem 保留方式为 keep: 成功后不删中间文件."
     end
@@ -261,7 +188,7 @@ end
 --- audio: true/false 在生成时确定; "auto" 在运行时按 .pcm 是否非空决定 (草稿用, 写脚本时录音还没结束).
 --- keep: true 时合成成功也保留中间文件 (设置页的 "保留方式: keep"), 只删脚本自身.
 --- dialect: "sh" (默认) 或 "cmd".
----@param opts {ffmpeg: string, codec_args: string, base: string, fps: integer, audio: boolean|"auto", cuts: table, draft: boolean?, keep: boolean?, dialect: string?}
+---@param opts {ffmpeg: string, base: string, audio: boolean|"auto", draft: boolean?, keep: boolean?, dialect: string?}
 ---@return string script
 function M.script(opts)
   if dialect(opts) == CMD then

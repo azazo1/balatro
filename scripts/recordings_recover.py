@@ -2,9 +2,9 @@
 """补做录像合成: 扫描录像目录里游戏崩溃后残留的中间文件, 对还没有 -full.mp4 的局补做合成.
 
 录制中每局只写中间文件 <stem>.video.mp4 (fragmented mp4), <stem>.pcm (s16le 44100Hz 双声道)
-和合成脚本 <stem>.post.sh, 局末才合成 -full.mp4 与 -cut.mp4. 游戏崩溃时局末那一步没有发生,
-这里补上: 优先执行现成的 .post.sh (开局时就写出的草稿, 带当时已确定的剪辑区间);
-没有脚本, 或脚本里的路径已经不在这个目录时, 按 mods/bbreplay/record/post.lua 的规则只合成 -full.mp4.
+和合成脚本 <stem>.post.sh, 局末才合成 -full.mp4. 游戏崩溃时局末那一步没有发生,
+这里补上: 优先执行现成的 .post.sh (开局时就写出的草稿);
+没有脚本, 或脚本里的路径已经不在这个目录时, 按 mods/bbreplay/record/post.lua 的规则直接合成 -full.mp4.
 
 每局一个文件夹 (<stem>/<stem>.*) 与旧版平铺 (<stem>.*) 两种布局都扫.
 
@@ -191,7 +191,7 @@ def classify(stem, files, directory, ctx):
         if ctx["now"] - latest < ctx["idle"]:
             return "active", "游戏在运行, 中间文件 %.0f 秒前还在变化, 可能正在录制" % (ctx["now"] - latest)
     if size_of(base + "-full.mp4") > 0:
-        return "done", "已有 -full.mp4, 残留的是剪辑版失败或清理失败留下的中间文件"
+        return "done", "已有 -full.mp4, 残留的是清理失败或保留方式为 keep 留下的中间文件"
     if size_of(base + ".video.mp4") == 0:
         return "broken", "没有画面 (.video.mp4 缺失或为空), 无法合成"
     return "recover", None

@@ -120,7 +120,7 @@ local function run()
     media.AMediaFormat_setInt32(format, "height", height)
     media.AMediaFormat_setInt32(format, "bit-rate", options.bitrate)
     media.AMediaFormat_setInt32(format, "frame-rate", fps)
-    -- 每秒一个关键帧: 剪辑版按关键帧截取时的精度.
+    -- 每秒一个关键帧.
     -- i-frame-interval 是 float 键 (Java 侧 MediaFormat.KEY_I_FRAME_INTERVAL 也是 float).
     media.AMediaFormat_setFloat(format, "i-frame-interval", 1.0)
     -- NV12 (COLOR_FormatYUV420SemiPlanar): 与 bbnet 的转换输出一致.
