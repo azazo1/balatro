@@ -92,6 +92,17 @@ function M.resume(_runner)
   reset()
 end
 
+--- 演示用的假占用: 每请求涨一截, 给 HUD 占用条动起来.
+---@return integer
+---@return integer
+function M.context_usage()
+  local used = (demo.count or 0) * 32000
+  if used > 256000 then
+    used = 256000
+  end
+  return used, 256000
+end
+
 ---@param dt number
 ---@param runner table
 function M.update(dt, runner)

@@ -197,8 +197,13 @@ do -- runner: 没有 driver 时不启动; 停止与出错各通知一次录像; 
     update = function()
       error("boom")
     end,
+    context_usage = function()
+      return 80, 200
+    end,
   })
   check("有 driver 时启动", Runner.start() and Runner.state == "running")
+  local used, cap = Runner.context_usage()
+  check("运行中把上下文占用转给 HUD", used == 80 and cap == 200, tostring(used) .. "," .. tostring(cap))
   Runner.set_phase("requesting")
   check("暂停", Runner.toggle_pause() and Runner.state == "paused" and Runner.is_busy())
   Runner.set_phase("acting")

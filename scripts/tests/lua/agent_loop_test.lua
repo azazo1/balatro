@@ -629,6 +629,21 @@ do -- 用量汇报后运行控制同步暂停 (单局上限): 队列里的调用
   check("未执行的调用也有结果", paired(env.driver._history.messages))
 end
 
+do -- 上下文占用给 HUD: 没报用量按估算, 报了用上次 prompt+completion, 上限跟设置
+  local env = harness()
+  env.driver.start()
+  env.tick()
+  local used0, limit0 = env.driver.context_usage()
+  check("没报用量时上限是默认 256K", limit0 == 256000)
+  check("没报用量时按历史估算", used0 > 0, tostring(used0))
+  env.cfg.context_limit = 4000
+  env.reply({ { "notify", { message = "a" } } }, { prompt_tokens = 800, completion_tokens = 50 })
+  env.settle()
+  local used, limit = env.driver.context_usage()
+  check("报了用量就用上次请求的大小", used == 850, tostring(used))
+  check("上限跟设置", limit == 4000, tostring(limit))
+end
+
 --- 先正常打几轮, 让历史里有可以压缩的较早部分. 最后一轮的用量由 last_usage 决定.
 ---@param env table
 ---@param turns integer

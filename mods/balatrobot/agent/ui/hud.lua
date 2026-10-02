@@ -1,6 +1,6 @@
 --[[
 内置 agent 运行时的右上角: 最上方是状态文字 (请求中, 执行中, 暂停),
-下面是暂停/继续, 以及是否挡住人手动操作.
+下面一条上下文占用条 (不可点), 再下面是暂停/继续, 以及是否挡住人手动操作.
 
 - 只在 runner 运行或暂停时显示 (BB_HUD 的 agent 源); 一停就拆掉.
 - 挡住操作时仍能点这两颗按钮, 以及 Esc (开菜单) 和 F9.
@@ -51,6 +51,42 @@ local function status_spec()
   }
 end
 
+---@return number
+local function context_ratio()
+  local used, limit = 0, 0
+  if deps.runner.context_usage then
+    used, limit = deps.runner.context_usage()
+  end
+  if not limit or limit <= 0 then
+    return 0
+  end
+  local r = (tonumber(used) or 0) / limit
+  if r < 0 then
+    return 0
+  end
+  if r > 1 then
+    return 1
+  end
+  return r
+end
+
+---@return table
+local function meter_spec()
+  return {
+    fill = context_ratio,
+    colour = function()
+      local r = context_ratio()
+      if r >= 0.95 then
+        return G.C.RED
+      end
+      if r >= 0.8 then
+        return G.C.ORANGE
+      end
+      return G.C.BLUE
+    end,
+  }
+end
+
 ---@return table?
 local function spec()
   local runner = deps.runner
@@ -61,6 +97,7 @@ local function spec()
     -- 菜单开着时不拦, 否则选项和 Agent 面板也点不了.
     blocking = lock_on and not overlay_open(),
     status = status_spec(),
+    meter = meter_spec(),
     buttons = {
       {
         label = "暂停",

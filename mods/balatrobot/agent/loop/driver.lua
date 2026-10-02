@@ -337,6 +337,13 @@ function M.new(deps)
     return limit
   end
 
+  --- 当前上下文占用: 上一次请求的用量, 还没有时按历史估算; 第二个返回值是最大上下文.
+  ---@return integer used
+  ---@return integer limit
+  function self.context_usage()
+    return context_used or history:estimate(), context_limit()
+  end
+
   --- 当前上下文是否到了压缩点.
   ---@return boolean
   local function over_threshold()

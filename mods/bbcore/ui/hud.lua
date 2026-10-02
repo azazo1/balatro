@@ -1,7 +1,7 @@
 --[[
 右上角竖排控制按钮 (BB_HUD): 内置 agent 运行时, 以及回放进行时.
 
-- 按钮由各 mod 用 bind 登记, 每帧取一份 spec (按钮列表 + 是否挡住游戏输入, 可选最上方的状态文字).
+- 按钮由各 mod 用 bind 登记, 每帧取一份 spec (按钮列表 + 是否挡住游戏输入, 可选最上方的状态文字和占用条).
   同时只有一方会占着游戏 (BB_CONTROL), 先返回非空 spec 的生效.
 - UIBox 挂在 G.ROOM_ATTACH 上 (POPUP 层, 可点), 再按 letterbox 推到窗口最右上角, 不贴在内容区边上.
   阶段切换重建 ROOM_ATTACH 时自己重建; loop 一停 spec 变空, 框立刻拆掉.
@@ -13,6 +13,8 @@
 
 local LOGGER = "BB.HUD"
 local MARGIN = 0.2
+local BTN_W = 1.7
+local BTN_H = 0.52
 
 local M = {}
 
@@ -28,6 +30,7 @@ local view = {
   source = nil,
   n = 0,
   status = false,
+  meter = false,
 }
 
 local input_installed = false
@@ -53,6 +56,51 @@ local DROPPED = {
 ---@param src table
 local function copy_colour(dst, src)
   dst[1], dst[2], dst[3], dst[4] = src[1], src[2], src[3], src[4]
+end
+
+--- 占用条的填充宽度和颜色每帧刷新, 从左往右长, 不可点.
+local function hud_meter(e)
+  local ref = e.config.ref_table
+  if not ref then
+    return
+  end
+  local ratio = 0
+  if type(ref.fill) == "function" then
+    ratio = tonumber(ref.fill()) or 0
+  elseif type(ref.fill) == "number" then
+    ratio = ref.fill
+  end
+  if ratio < 0 then
+    ratio = 0
+  elseif ratio > 1 then
+    ratio = 1
+  end
+  local parent = e.parent
+  local pad = parent and parent.config and parent.config.padding or 0.05
+  local maxw = BTN_W - pad * 2
+  local h = BTN_H - pad * 2
+  if parent and parent.T then
+    if type(parent.T.w) == "number" then
+      maxw = math.max(0, parent.T.w - pad * 2)
+    end
+    if type(parent.T.h) == "number" then
+      h = math.max(0, parent.T.h - pad * 2)
+    end
+  end
+  e.T.w = maxw * ratio
+  e.T.h = h
+  if e.VT then
+    e.VT.w = e.T.w
+    e.VT.h = e.T.h
+  end
+  local colour = type(ref.colour) == "function" and ref.colour() or ref.colour
+  if type(colour) ~= "table" then
+    return
+  end
+  if type(e.config.colour) ~= "table" then
+    e.config.colour = { 1, 1, 1, 1 }
+  end
+  copy_colour(e.config.colour, colour)
 end
 
 --- 状态条的颜色, 文字每帧刷新; pulse 时按正弦闪.
@@ -84,13 +132,15 @@ function M.init(options)
   W = options.widgets
   if G and G.FUNCS then
     G.FUNCS.bb_hud_status = hud_status
+    G.FUNCS.bb_hud_meter = hud_meter
   end
 end
 
---- 登记一份按钮. fn 返回 {buttons, blocking, status}? 没有内容时返回 nil.
---- status: {label, colour, pulse}? 画在按钮上方, 与按钮同宽的文字.
+--- 登记一份按钮. fn 返回 {buttons, blocking, status, meter}? 没有内容时返回 nil.
+--- status: {label, colour, pulse}? 画在最上方, 与按钮同宽的文字.
+--- meter: {fill, colour}? 占用条, 画在状态和按钮之间, 与按钮同宽, 不可点. fill 为 0~1.
 ---@param id string
----@param fn fun(): {buttons: table[], blocking: boolean?, status: table?}?
+---@param fn fun(): {buttons: table[], blocking: boolean?, status: table?, meter: table?}?
 function M.bind(id, fn)
   for _, entry in ipairs(binders) do
     if entry.id == id then
@@ -338,7 +388,7 @@ local function remove_box()
   if view.box and not view.box.REMOVED then
     view.box:remove()
   end
-  view.box, view.attach, view.source, view.n, view.status = nil, nil, nil, 0, false
+  view.box, view.attach, view.source, view.n, view.status, view.meter = nil, nil, nil, 0, false, false
 end
 
 ---@param status table
@@ -366,8 +416,8 @@ local function status_node(status)
           padding = 0.05,
           r = 0.1,
           colour = fill,
-          minw = 1.7,
-          minh = 0.52,
+          minw = BTN_W,
+          minh = BTN_H,
           emboss = 0.05,
           func = "bb_hud_status",
           ref_table = ref,
@@ -390,6 +440,59 @@ local function status_node(status)
   }
 end
 
+--- 占用条: 和按钮同宽同高, 深底, 从左往右填色. 没有 button, 点上去不会触发.
+---@param meter table
+---@return table
+local function meter_node(meter)
+  local fill = { 1, 1, 1, 1 }
+  local initial = type(meter.colour) == "function" and meter.colour() or meter.colour or G.C.BLUE
+  if type(initial) == "table" then
+    copy_colour(fill, initial)
+  end
+  local track = { 0.2, 0.2, 0.2, 1 }
+  local dark = G.C and G.C.L_BLACK
+  if type(dark) == "table" then
+    copy_colour(track, dark)
+  end
+  local ref = {
+    fill = meter.fill,
+    colour = meter.colour,
+  }
+  return {
+    n = G.UIT.R,
+    config = { align = "cm", padding = 0.03 },
+    nodes = {
+      {
+        n = G.UIT.C,
+        config = {
+          align = "cl",
+          padding = 0.05,
+          r = 0.1,
+          colour = track,
+          minw = BTN_W,
+          minh = BTN_H,
+          emboss = 0.05,
+        },
+        nodes = {
+          {
+            n = G.UIT.C,
+            config = {
+              align = "cm",
+              r = 0.1,
+              colour = fill,
+              minw = 0,
+              minh = 0,
+              func = "bb_hud_meter",
+              ref_table = ref,
+            },
+            nodes = {},
+          },
+        },
+      },
+    },
+  }
+end
+
 ---@param spec table
 local function create_box(spec)
   if not W or not G or not G.ROOM_ATTACH then
@@ -399,6 +502,9 @@ local function create_box(spec)
   if spec.status then
     nodes[#nodes + 1] = status_node(spec.status)
   end
+  if spec.meter then
+    nodes[#nodes + 1] = meter_node(spec.meter)
+  end
   for _, button in ipairs(spec.buttons) do
     nodes[#nodes + 1] = W.button({
       label = button.label,
@@ -407,8 +513,8 @@ local function create_box(spec)
       colour = button.colour,
       selected = button.selected,
       selected_colour = button.selected_colour,
-      minw = 1.7,
-      minh = 0.52,
+      minw = BTN_W,
+      minh = BTN_H,
       scale = 0.34,
       padding = 0.05,
       outer_padding = 0.03,
@@ -434,6 +540,7 @@ local function create_box(spec)
   view.source = spec.id
   view.n = #spec.buttons
   view.status = spec.status ~= nil
+  view.meter = spec.meter ~= nil
 end
 
 local function apply_offset()
@@ -461,7 +568,8 @@ function M.update()
   end
   spec.id = id
   local has_status = spec.status ~= nil
-  if not view.box or view.source ~= id or view.n ~= #spec.buttons or view.status ~= has_status then
+  local has_meter = spec.meter ~= nil
+  if not view.box or view.source ~= id or view.n ~= #spec.buttons or view.status ~= has_status or view.meter ~= has_meter then
     remove_box()
     create_box(spec)
   end

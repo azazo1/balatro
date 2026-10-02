@@ -7,6 +7,7 @@
   pause(runner)          暂停: 立刻取消在路上的请求, 保留上下文
   resume(runner)         继续: 读取最新状态重新发起请求
   update(dt, runner)     每帧调用 (running 系状态与 paused 时都调用, 由 driver 自己看 runner.state)
+  context_usage()        当前上下文占用与上限, HUD 占用条经 runner 转出来
 driver 的调用都包在 pcall 里, 报错时 runner 进入 error 状态.
 
 driver 通过 runner 汇报进度:
@@ -309,6 +310,18 @@ end
 
 function M.note_retry()
   M.stats.retries = M.stats.retries + 1
+end
+
+--- 当前上下文占用与上限 (token). driver 没给或还没开始时视为 0.
+---@return integer used
+---@return integer limit
+function M.context_usage()
+  local d = active
+  if d and type(d.context_usage) == "function" then
+    local used, limit = d.context_usage()
+    return tonumber(used) or 0, tonumber(limit) or 0
+  end
+  return 0, 0
 end
 
 --- 累计 token 用量. 超过单局上限时自动暂停.

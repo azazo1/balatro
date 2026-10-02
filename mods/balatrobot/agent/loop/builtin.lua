@@ -265,6 +265,9 @@ function M.install(opts)
     update = function()
       driver.update()
     end,
+    context_usage = function()
+      return driver.context_usage()
+    end,
   })
 
   -- 录像的暂停剪辑, 停止时结束录像段, 流式条算作活动: 由 balatrobot.lua 挂在 runner 与 recorder 上.
