@@ -3,6 +3,7 @@
 ---@type BB_LOGGER
 local BB_LOGGER = assert(SMODS.load_file("src/lua/utils/logger.lua"))()
 local pack_wait = assert(SMODS.load_file("src/lua/utils/pack_wait.lua"))()
+local slots = assert(SMODS.load_file("src/lua/utils/slots.lua"))()
 
 -- ==========================================================================
 -- Pack Select Endpoint Params
@@ -168,10 +169,11 @@ return {
       local card_key = card.config and card.config.center and card.config.center.key
 
       -- Check if card is a Joker and validate that we have room
+      -- 本仓库修改: 按游戏的规则算空位 (utils/slots.lua), 负片自带一格, 槽满时也能选.
       if card.ability and card.ability.set == "Joker" then
         local joker_count = G.jokers and G.jokers.config and G.jokers.config.card_count or 0
         local joker_limit = G.jokers and G.jokers.config and G.jokers.config.card_limit or 0
-        if joker_count >= joker_limit then
+        if not slots.has_room(G.jokers, card) then
           send_response({
             message = "Cannot select joker, joker slots are full. Current: "
               .. joker_count

@@ -130,6 +130,9 @@ local NOTES = {
       if given(params, "pack") then
         parts[#parts + 1] = "补充包第 " .. ordinal(params.pack) .. " 个"
       end
+      if #parts > 0 and params.use == true then
+        parts[#parts + 1] = "买下立即使用"
+      end
       return #parts > 0 and join(parts) or nil
     end,
   },

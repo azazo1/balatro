@@ -47,6 +47,7 @@ do -- 有参数时把参数翻成人话
   check("购买商店牌 (下标转序数)", text("buy", { card = 1 }) == "商店第 2 张")
   check("购买优惠券", text("buy", { voucher = 0 }) == "优惠券第 1 张")
   check("购买补充包", text("buy", { pack = 2 }) == "补充包第 3 个")
+  check("买下立即使用", text("buy", { card = 0, use = true }) == "商店第 1 张, 买下立即使用")
   check("出售小丑", text("sell", { joker = 1 }) == "小丑第 2 张")
   check("出售消耗牌", text("sell", { consumable = 0 }) == "消耗牌第 1 张")
   check("卡包选牌带目标", text("pack", { card = 0, targets = { 1, 2 } }) == "卡包第 1 张, 目标手牌 1, 2")

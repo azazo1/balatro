@@ -121,7 +121,7 @@
     {
       "name": "buy",
       "summary": "Buy a card from the shop",
-      "description": "Buy a card, voucher, or pack from the shop. Must provide exactly one of: card, voucher, or pack.",
+      "description": "Buy a card, voucher, or pack from the shop. Must provide exactly one of: card, voucher, or pack. With card pointing to a consumable, use=true buys and uses it immediately without taking a consumable slot, so it works when the slots are full.",
       "tags": [
         {
           "$ref": "#/components/tags/shop"
@@ -153,6 +153,14 @@
           "schema": {
             "type": "integer",
             "minimum": 0
+          }
+        },
+        {
+          "name": "use",
+          "description": "With card: buy a consumable and use it immediately (the shop's Buy and Use button). Fails when the consumable cannot be used right now, e.g. it needs target cards",
+          "required": false,
+          "schema": {
+            "type": "boolean"
           }
         }
       ],

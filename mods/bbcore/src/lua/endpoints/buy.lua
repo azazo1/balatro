@@ -1,5 +1,7 @@
 -- src/lua/endpoints/buy.lua
 
+local slots = assert(SMODS.load_file("src/lua/utils/slots.lua"))()
+
 -- ==========================================================================
 -- Buy Endpoint Params
 -- ==========================================================================
@@ -8,6 +10,7 @@
 ---@field card integer? 0-based index of card to buy
 ---@field voucher integer? 0-based index of voucher to buy
 ---@field pack integer? 0-based index of pack to buy
+---@field use boolean? 与 card 一起用: 买下消耗牌后立即使用, 不进消耗牌槽 (原版的 "买并使用")
 
 -- ==========================================================================
 -- Buy Endpoint
@@ -35,6 +38,11 @@ return {
       type = "integer",
       required = false,
       description = "0-based index of pack to buy",
+    },
+    use = {
+      type = "boolean",
+      required = false,
+      description = "With card: buy a consumable and use it immediately without taking a consumable slot",
     },
   },
 
@@ -129,32 +137,65 @@ return {
       return
     end
 
+    -- 商店里的实际卡牌对象 (只有 card 指向的商店牌会进小丑或消耗牌槽)
+    local shop_card = args.card and G.shop_jokers and G.shop_jokers.cards[pos] or nil
+
     -- Ensure there is space in joker area
-    if card.set == "JOKER" then
-      if gamestate.jokers.count >= gamestate.jokers.limit then
+    -- 本仓库修改: 按游戏的规则算空位 (utils/slots.lua), 负片自带一格, 槽满时也能买.
+    if card.set == "JOKER" and not slots.has_room(G.jokers, shop_card) then
+      send_response({
+        message = "Cannot purchase joker card, joker slots are full. Current: "
+          .. gamestate.jokers.count
+          .. ", Limit: "
+          .. gamestate.jokers.limit,
+        name = BB_ERROR_NAMES.BAD_REQUEST,
+      })
+      return
+    end
+
+    -- 本仓库修改: use=true 时走原版的 "买并使用" (按钮 id 为 buy_and_use), 不进消耗牌槽, 槽满也能买.
+    -- 是否可用与原版按钮一致, 看 can_use_consumeable; 生成牌的效果 (皇帝, 审判等) 仍要有生成空间.
+    if args.use then
+      if not shop_card or not shop_card.ability.consumeable then
         send_response({
-          message = "Cannot purchase joker card, joker slots are full. Current: "
-            .. gamestate.jokers.count
-            .. ", Limit: "
-            .. gamestate.jokers.limit,
+          message = "use=true only works with card pointing to a consumable (Tarot, Planet, Spectral) in the shop",
           name = BB_ERROR_NAMES.BAD_REQUEST,
+        })
+        return
+      end
+      if not shop_card:can_use_consumeable() then
+        send_response({
+          message = "Consumable '" .. shop_card.ability.name .. "' cannot be used right now (it may need target"
+            .. " cards from a hand, or free slots for the cards it creates). Buy it without use instead",
+          name = BB_ERROR_NAMES.NOT_ALLOWED,
+        })
+        return
+      end
+      -- 原版在扣钱并移出商店之后才调 use_card, 那时 check_use 失败 (Ankh 没有小丑空位) 会让卡卡在半路, 先查掉.
+      if shop_card:check_use() then
+        send_response({
+          message = "Cannot use consumable '" .. shop_card.ability.name .. "': insufficient space",
+          name = BB_ERROR_NAMES.NOT_ALLOWED,
         })
         return
       end
     end
 
     -- Ensure there is space in consumable area
-    if card.set == "PLANET" or card.set == "SPECTRAL" or card.set == "TAROT" then
-      if gamestate.consumables.count >= gamestate.consumables.limit then
-        send_response({
-          message = "Cannot purchase consumable card, consumable slots are full. Current: "
-            .. gamestate.consumables.count
-            .. ", Limit: "
-            .. gamestate.consumables.limit,
-          name = BB_ERROR_NAMES.BAD_REQUEST,
-        })
-        return
-      end
+    if
+      not args.use
+      and (card.set == "PLANET" or card.set == "SPECTRAL" or card.set == "TAROT")
+      and not slots.has_room(G.consumeables, shop_card)
+    then
+      send_response({
+        message = "Cannot purchase consumable card, consumable slots are full. Current: "
+          .. gamestate.consumables.count
+          .. ", Limit: "
+          .. gamestate.consumables.limit
+          .. ". Pass use=true to buy and use it immediately without taking a slot",
+        name = BB_ERROR_NAMES.BAD_REQUEST,
+      })
+      return
     end
 
     local initial_shop_count = 0
@@ -199,6 +240,9 @@ return {
     -- Use appropriate function: use_card for vouchers, buy_from_shop for others
     if args.voucher or args.pack then
       G.FUNCS.use_card(btn)
+    elseif args.use then
+      -- 和点原版 "买并使用" 按钮一样: buy_from_shop 认 id 跳过槽位检查, 扣钱后在同一事件里调 use_card.
+      G.FUNCS.buy_from_shop({ config = { id = "buy_and_use", ref_table = G.shop_jokers.cards[pos] } })
     else
       G.FUNCS.buy_from_shop(btn)
     end
@@ -210,7 +254,15 @@ return {
       func = function()
         local done = false
 
-        if args.card then
+        if args.use then
+          -- 买并使用: 卡离开商店, 用完回到商店并解锁. 不看扣钱与目的区域: 隐士, 节制会改钱,
+          -- 皇帝, 审判等会生成牌.
+          local shop_count = (G.shop_jokers and G.shop_jokers.config and G.shop_jokers.config.card_count or 0)
+          done = shop_count == initial_shop_count - 1
+            and G.STATE == G.STATES.SHOP
+            and not G.CONTROLLER.locks.use
+            and not (G.GAME.STOP_USE and G.GAME.STOP_USE > 0)
+        elseif args.card then
           local shop_count = (G.shop_jokers and G.shop_jokers.config and G.shop_jokers.config.card_count or 0)
           local dest_count = (G.jokers and G.jokers.config and G.jokers.config.card_count or 0)
             + (G.consumeables and G.consumeables.config and G.consumeables.config.card_count or 0)

@@ -64,8 +64,15 @@ local DEFS = {
   },
   {
     name = "buy",
-    description = "在商店购买. card, voucher, pack 三选一, 分别是商店牌, 优惠券, 补充包的下标.",
-    parameters = object({ card = INDEX, voucher = INDEX, pack = INDEX, reason = REASON }, { "reason" }),
+    description = "在商店购买. card, voucher, pack 三选一, 分别是商店牌, 优惠券, 补充包的下标."
+      .. " 商店里的消耗牌可以加 use=true 买下立即使用, 不占消耗牌槽, 槽满时也能买 (星球牌等不用选牌的才行).",
+    parameters = object({
+      card = INDEX,
+      voucher = INDEX,
+      pack = INDEX,
+      use = { type = "boolean" },
+      reason = REASON,
+    }, { "reason" }),
   },
   {
     name = "sell",

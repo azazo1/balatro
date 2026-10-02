@@ -62,6 +62,7 @@ test-agent:
     luajit scripts/tests/lua/bbcoring_test.lua
     luajit scripts/tests/lua/bbdynamics_test.lua
     luajit scripts/tests/lua/bbpack_wait_test.lua
+    luajit scripts/tests/lua/bbslots_test.lua
     luajit scripts/tests/lua/bbcall_note_test.lua
     luajit scripts/tests/lua/agent_loop_test.lua
     luajit scripts/tests/lua/agent_knowledge_test.lua

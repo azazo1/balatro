@@ -93,7 +93,7 @@ MENU -> BLIND_SELECT -> SELECTING_HAND -> ROUND_EVAL -> SHOP -+
 | `BLIND_SELECT` | `select`, `skip` (Boss 不能跳过) |
 | `SELECTING_HAND` | `play {"cards"}`, `discard {"cards"}`, `rearrange {"hand"}` |
 | `ROUND_EVAL` | `cash_out` |
-| `SHOP` | `buy {"card"或"voucher"或"pack"}`, `reroll`, `sell {"joker"或"consumable"}`, `next_round` |
+| `SHOP` | `buy {"card"或"voucher"或"pack"}`, `buy {"card","use":true}` (消耗牌买下立即使用, 不占槽位), `reroll`, `sell {"joker"或"consumable"}`, `next_round` |
 | `SMODS_BOOSTER_OPENED` | `pack {"card","targets"?}` 或 `pack {"skip":true}`, `sell {"joker"或"consumable"}` |
 | 任意 | `gamestate`, `health`, `rearrange`, `menu`, `save`/`load {"path"}`, `screenshot {"path"}` |
 | `SELECTING_HAND`, `SHOP`, `SMODS_BOOSTER_OPENED` | `use {"consumable","cards"?}`; 需要选牌的只能在出牌或发了手牌的卡包 (秘术, 幻灵) 里用 |
