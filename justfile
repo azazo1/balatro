@@ -45,12 +45,13 @@ check-scripts:
 test-scripts:
     {{ python }} -m unittest discover -s scripts/tests -t scripts
 
-# 用 LuaJIT 运行 agent mod 的纯逻辑单元测试 (录制, 回放, 回放列表, 端点在进程内调用, 模型协议, UTF-8 截断, 出牌计分记录, 动态值, 补充包等待, 工具调用文案, 内置 agent 主循环).
+# 用 LuaJIT 运行 agent mod 的纯逻辑单元测试 (录制, 回放, 回放列表, 端点在进程内调用, 模型协议, UTF-8 截断, 出牌计分记录, 动态值, 补充包等待, 流式条回放, 工具调用文案, 内置 agent 主循环).
 test-agent:
     luajit scripts/tests/lua/agent_record_test.lua
     luajit scripts/tests/lua/agent_record_toggle_test.lua
     luajit scripts/tests/lua/agent_media_ffi_test.lua
     luajit scripts/tests/lua/agent_replay_test.lua
+    luajit scripts/tests/lua/agent_replay_stream_test.lua
     luajit scripts/tests/lua/agent_replay_library_test.lua
     luajit scripts/tests/lua/agent_replay_manual_test.lua
     luajit scripts/tests/lua/agent_replay_tutorial_test.lua

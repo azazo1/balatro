@@ -84,6 +84,60 @@ local function transcript_writer(encode)
   end
 end
 
+--- 把流式条的增量抄给回放文件. 没在录像时 BB_REPLAY_LOG 不存在, 这些调用是空操作.
+---@param stream table
+---@return table
+local function tap_stream(stream)
+  local function rec()
+    return BB_REPLAY_LOG
+  end
+  local wrapped = {}
+  setmetatable(wrapped, { __index = stream })
+  function wrapped.begin_request(label)
+    local log = rec()
+    if log and log.stream_begin then
+      log.stream_begin(label)
+    end
+    return stream.begin_request(label)
+  end
+  function wrapped.push(kind, text)
+    local log = rec()
+    if log and log.stream_delta then
+      log.stream_delta(kind, text)
+    end
+    return stream.push(kind, text)
+  end
+  function wrapped.reset()
+    local log = rec()
+    if log and log.stream_reset then
+      log.stream_reset()
+    end
+    return stream.reset()
+  end
+  function wrapped.finish()
+    local log = rec()
+    if log and log.stream_end then
+      log.stream_end()
+    end
+    return stream.finish()
+  end
+  function wrapped.show_error(...)
+    local log = rec()
+    if log and log.stream_end then
+      log.stream_end()
+    end
+    return stream.show_error(...)
+  end
+  function wrapped.clear()
+    local log = rec()
+    if log and log.stream_drop then
+      log.stream_drop()
+    end
+    return stream.clear()
+  end
+  return wrapped
+end
+
 --- 从手册目录取卡的中文名与效果, 给状态摘要用. 手册不可用时返回 nil, 摘要改用 gamestate 里的名字.
 local function describer()
   local cache = {}
@@ -159,7 +213,7 @@ function M.install(opts)
       return BB_OVERLAY.animating() and true or false
     end,
     describe = describer(),
-    bar = stream,
+    bar = tap_stream(stream),
     log = log,
     transcript = transcript_writer(Client.Chat.encode),
     on_state = function(state)

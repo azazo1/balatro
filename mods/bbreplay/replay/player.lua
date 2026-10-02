@@ -11,7 +11,9 @@
 - tight: 上一步完成且动画停下后, 稍等 TIGHT_GAP 秒就做下一步, 去掉原局里 agent 思考的时间.
   讲解 (notify) 仍等阅读时长 (传 wait: true), 但 toast 改用紧凑时长, 退去更快.
   回放期间关掉讲解门槛, 原局里操作是怎么排的就怎么排. 工具调用那条左侧始终用短时长.
+  流式条把原局那段输出压进这段短等待, 按压缩后的平均字速滚.
 - original: 按原局里两步之间的实际间隔回放, 包括思考的时间; 动画没停时也会等它停下.
+  流式条按录制时的起止时间以平均字速滚模型输出.
 
 弹窗不会一出现就关:
 - 解锁通知: 停留 UNLOCK_HOLD 秒后点继续 (original 节奏下取原局的停留时长, 至少 UNLOCK_HOLD).
@@ -24,6 +26,8 @@
 ]]
 
 local json = require("json")
+local StreamPlay = assert(SMODS.load_file("replay/stream_play.lua", "bbreplay"))()
+local StreamText = assert(SMODS.load_file("ui/stream_text.lua", "bbcore"))()
 
 local LOGGER = "BB.AGENT.REPLAY"
 
@@ -60,6 +64,7 @@ local deps = {}
 local OWNER = "回放"
 local data = nil -- 回放文件内容
 local st = {} -- 回放进度
+local stream_finish -- 结束当前流式条; 定义在 gap_ready 之前, finish_later 会调用
 
 local function now()
   return love.timer.getTime()
@@ -159,6 +164,7 @@ local function finish_later(code, hold)
   st.freeze_at = nil
   st.exit_code = code
   st.quit_at = now() + hold
+  stream_finish()
   set_phase("ending")
 end
 
@@ -350,6 +356,72 @@ local function dispatch(method, params, reason, synthetic)
   st.waiting = { method = method, sent = now(), synthetic = synthetic }
   st.result = nil
   deps.dispatcher.dispatch({ jsonrpc = "2.0", method = method, params = request_params, id = st.request_id })
+end
+
+stream_finish = function()
+  if st.stream_open and deps.stream then
+    deps.stream.finish()
+  end
+  st.stream_open = false
+  st.stream_id = nil
+  st.stream_chars = nil
+end
+
+--- 按原局时间把记录的模型输出露到流式条上, 字速取这一段的平均.
+---@param t number
+local function stream_tick(t)
+  if not deps.stream or not deps.stream.reveal then
+    return
+  end
+  local streams = data and data.streams
+  if type(streams) ~= "table" or #streams == 0 then
+    return
+  end
+  -- 正在执行一步: 思考已经结束, 让条停留.
+  if st.waiting then
+    stream_finish()
+    return
+  end
+  local origin = st.reference or 0
+  local next_index = st.index
+  if st.phase == "verify" or st.deferred then
+    next_index = st.index + 1
+  end
+  local action = data.actions[next_index]
+  local orig_now
+  if not action then
+    orig_now = origin + math.max(0, t - (st.prev_done or t))
+  else
+    local wait_start = st.prev_done or t
+    if cfg.pacing ~= "original" then
+      wait_start = math.max(wait_start, st.last_busy or 0)
+    end
+    local elapsed = t - wait_start
+    if elapsed < 0 then
+      elapsed = 0
+    end
+    local orig_span = deps.format.original_gap(action, origin)
+    local wait_span = cfg.pacing == "original" and orig_span or cfg.tight_gap
+    orig_now = StreamPlay.map_time(origin, elapsed, orig_span, wait_span)
+  end
+  local stream, id = StreamPlay.active_stream(streams, orig_now)
+  if not stream then
+    stream_finish()
+    return
+  end
+  local total = StreamText.char_count(stream.segments)
+  local duration = (stream.wall_end or stream.wall or 0) - (stream.wall or 0)
+  local visible = StreamPlay.visible_chars(orig_now - (stream.wall or 0), duration, total)
+  if visible <= 0 and not (type(stream.label) == "string" and stream.label ~= "") then
+    return
+  end
+  if st.stream_id == id and st.stream_chars == visible then
+    return
+  end
+  deps.stream.reveal(stream.segments, visible, stream.label)
+  st.stream_open = true
+  st.stream_id = id
+  st.stream_chars = visible
 end
 
 --- 这一步之前要不要再等: 动画没停, 或者 original 节奏下原局间隔还没到.
@@ -853,8 +925,14 @@ function M.update()
     end
   elseif phase == "run" then
     run_tick(t)
+    if (deps.input_lock.abort_progress() or 0) <= 0 then
+      stream_tick(t)
+    end
   elseif phase == "verify" then
     verify_tick(t)
+    if (deps.input_lock.abort_progress() or 0) <= 0 then
+      stream_tick(t)
+    end
   elseif phase == "ending" then
     if t >= st.quit_at then
       set_phase("quit")

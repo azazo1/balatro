@@ -202,6 +202,51 @@ function M.tail(segments, max_width, measure, max_pieces)
   return pieces
 end
 
+--- 分段里一共多少个字.
+---@param segments {kind: string, text: string}[]?
+---@return integer
+function M.char_count(segments)
+  local n = 0
+  for _, seg in ipairs(segments or {}) do
+    n = n + char_count(seg.text or "")
+  end
+  return n
+end
+
+--- 从左往右取前 n 个字, 按分段拆开. 回放按平均字速露出时用.
+---@param segments {kind: string, text: string}[]?
+---@param n integer
+---@return {kind: string, text: string}[]
+function M.prefix(segments, n)
+  if not segments or n <= 0 then
+    return {}
+  end
+  local out = {}
+  local left = n
+  for _, seg in ipairs(segments) do
+    local text = seg.text or ""
+    local c = char_count(text)
+    if c <= left then
+      if c > 0 then
+        out[#out + 1] = { kind = seg.kind, text = text }
+      end
+      left = left - c
+      if left == 0 then
+        break
+      end
+    else
+      local chars = M.utf8_chars(text)
+      local parts = {}
+      for i = 1, left do
+        parts[i] = chars[i]
+      end
+      out[#out + 1] = { kind = seg.kind, text = table.concat(parts) }
+      break
+    end
+  end
+  return out
+end
+
 --- 从左往右截取开头, 放不下时以 "..." 结尾. 用于报错和状态文字: 开头的信息最重要.
 ---@param text string
 ---@param max_width number

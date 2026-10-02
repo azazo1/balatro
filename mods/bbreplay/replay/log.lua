@@ -8,6 +8,7 @@
   人手动的操作 (出牌, 购买, 拖动排序, 弹窗上选无尽或回主菜单等, 见 replay/manual.lua)
   换算成同样的步骤, 标 manual = true. 手动步骤没有 "完成" 的时刻, 它的状态摘要在下一步开始时取:
   人点下一步时画面已经停下, 与回放时这一步的接口返回时的状态对应.
+- streams: 内置 agent 的模型输出 (思维链和正文), 带第一个字和结束的时间. 回放时按平均字速滚流式条.
 
 旧版本的文件只记了手动操作的次数 (manual_inputs), 没有具体操作, 回放时据此提示结果可能不同.
 
@@ -15,6 +16,7 @@
 ]]
 
 local json = require("json")
+local StreamPlay = assert(SMODS.load_file("replay/stream_play.lua", "bbreplay"))()
 
 local LOGGER = "BB.AGENT.REPLAY"
 local FLUSH_INTERVAL = 3
@@ -26,6 +28,8 @@ local log = nil -- 当前一局
 local unsettled = nil -- 最近一步还没取状态摘要的手动步骤
 local pending = nil -- 开局时录像还没开始的一段, 见 M.update 里的补写
 local PENDING_LIMIT = 2 -- 等录像段出现的时间上限
+local stream_acc = StreamPlay.new_acc()
+local stream_wall = nil -- 当前这段输出第一个字的 wall
 
 local function now()
   return love.timer.getTime()
@@ -114,6 +118,74 @@ local function add_action(fields)
   return fields
 end
 
+--- 把累积的一段模型输出写进回放文件.
+---@param rec table?
+local function add_stream(rec)
+  if not log or not rec then
+    return
+  end
+  log.data.streams = log.data.streams or {}
+  table.insert(log.data.streams, {
+    wall = rec.wall,
+    wall_end = rec.wall_end,
+    label = rec.label,
+    segments = rec.segments,
+  })
+  log.dirty = true
+end
+
+local function take_stream()
+  local rec = stream_acc:take()
+  local wall = stream_wall
+  stream_wall = nil
+  if not rec or wall == nil then
+    return
+  end
+  rec.wall = wall
+  rec.wall_end = elapsed()
+  add_stream(rec)
+end
+
+--- 内置 agent 一次请求开始. 流式条 begin_request 时调用.
+---@param label string?
+function M.stream_begin(label)
+  take_stream()
+  if not log then
+    stream_acc:drop()
+    return
+  end
+  stream_acc:begin(label)
+end
+
+--- 一段增量. 第一个字记下 wall.
+---@param kind string
+---@param text string
+function M.stream_delta(kind, text)
+  if not log then
+    return
+  end
+  if stream_acc:delta(kind, text) then
+    stream_wall = elapsed()
+  end
+end
+
+--- 请求重发: 丢掉已收到的半截.
+function M.stream_reset()
+  stream_acc:reset()
+  stream_wall = nil
+end
+
+--- 请求结束, 有正文才写入.
+function M.stream_end()
+  take_stream()
+end
+
+--- 丢掉当前这段, 不写入 (clear).
+function M.stream_drop()
+  stream_acc:drop()
+  stream_wall = nil
+end
+
 --- 记一步人手动的操作. fields 至少有 method, 可以带 params.
 ---
 --- reorder (拖动排序) 可能发生在上一步的动画中途, 那时的状态和回放时上一步完成时不同, 所以它不给
@@ -156,6 +228,7 @@ end
 
 local function finish(reason)
   unsettled = nil
+  take_stream()
   if not log then
     return
   end
@@ -213,6 +286,7 @@ local function begin(resumed_save, snap, tutorial)
       },
       snapshot = snap,
       actions = {},
+      streams = {},
     },
   }
   flush(true)

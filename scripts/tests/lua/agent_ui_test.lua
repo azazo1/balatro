@@ -114,6 +114,17 @@ do -- 缓冲: 换行换成空格, 同类合并, 超出上限从前面丢
   check("整段丢掉", #b.segments == 1 and b.segments[1].text == "bcdefghijk", b.segments[1].text)
 end
 
+do -- 回放用的前缀: 从左往右按字数切开
+  local segs = { { kind = "reasoning", text = "思考ab" }, { kind = "content", text = "结论" } }
+  check("字数合计", Text.char_count(segs) == 6)
+  check("空前缀", #Text.prefix(segs, 0) == 0)
+  local p2 = Text.prefix(segs, 2)
+  check("切在第一段里", #p2 == 1 and p2[1].text == "思考", p2[1] and p2[1].text)
+  local p5 = Text.prefix(segs, 5)
+  check("整段加上半段", #p5 == 2 and p5[1].text == "思考ab" and p5[2].text == "结", p5[2] and p5[2].text)
+  check("超过总长原样", Text.char_count(Text.prefix(segs, 99)) == 6)
+end
+
 do -- 开头截取: 报错文字保留开头
   check("放得下原样返回", Text.head("429 重试", 20, measure) == "429 重试")
   check("放不下以省略号结尾", Text.head("请求失败: 429", 8, measure) == "请求...", Text.head("请求失败: 429", 8, measure))

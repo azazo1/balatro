@@ -253,6 +253,33 @@ function M.finish()
   end
 end
 
+--- 回放用: 把缓冲换成 segments 的前 chars 个字, 立刻显示.
+--- 还没有字且没有前缀时不滑入, 和直播时等首个增量一样.
+---@param segments {kind: string, text: string}[]?
+---@param chars integer
+---@param label string?
+function M.reveal(segments, chars, label)
+  buffer:clear()
+  state.label = label
+  state.fresh = false
+  state.request = true
+  state.mode = "stream"
+  state.message = nil
+  state.hold = nil
+  local prefix = Text.prefix(segments, chars)
+  local added = false
+  for _, seg in ipairs(prefix) do
+    if buffer:append(seg.kind, seg.text) then
+      added = true
+    end
+  end
+  if added or (type(label) == "string" and label ~= "") then
+    show()
+  else
+    state.dirty = true
+  end
+end
+
 --- 显示红字. text 可以是函数, 每次刷新重新求值 (倒计时).
 --- hold_seconds 为 nil 时一直显示, 直到下一个增量, 下一次 show_* 或 clear.
 ---@param text string|fun(): string
