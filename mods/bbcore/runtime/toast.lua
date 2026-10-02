@@ -46,8 +46,6 @@ local LINE_WIDTH = 5.2 -- 右侧的换行宽度 (游戏单位)
 local CALL_LINE_WIDTH = 4.4
 local WIDE = 20 -- 右侧那行的最小宽度: 内容贴屏幕左边, 多出来的部分留在屏幕右边外
 local MARGIN = 0.8 -- 内容离屏幕边缘的留白
--- 左侧滑出时的位置: 比最宽的左侧弹窗再往外一些, 保证完全离开屏幕
-local CALL_HIDE_X = -(CALL_LINE_WIDTH + 8)
 local TITLE_SCALE = 0.32
 local TEXT_SCALE = 0.36
 local GAP = 0.12
@@ -354,10 +352,10 @@ local function show(entry)
   local box = UIBox({
     definition = build_definition(title, text, lane.side),
     -- 先摆在屏幕外, update 里等尺寸算出来再滑入.
-    -- 左侧用 "cli": offset.x 就是框的左边缘, 框宽跟着内容走; 右侧用 "cr": offset.x 是相对屏幕右边的偏移.
+    -- 左侧用 "cli": offset.x 相对 ROOM_ATTACH 左边缘; 右侧用 "cr": offset.x 相对其右边缘.
     config = {
       align = lane.side == "left" and "cli" or "cr",
-      offset = { x = lane.side == "left" and CALL_HIDE_X or WIDE, y = 0 },
+      offset = { x = lane.side == "left" and -(CALL_LINE_WIDTH + 8) or WIDE, y = 0 },
       major = G.ROOM_ATTACH,
       bond = "Weak",
       instance_type = "POPUP",
@@ -455,8 +453,9 @@ function M.active()
 end
 
 --- 一条通知在屏幕上的横坐标.
---- 左侧: "cli" 下 offset.x 就是框的左边缘, 内容靠左, 直接贴屏幕左边 (框宽由内容决定).
---- 右侧: "cr" 下 offset.x 是相对屏幕右边的偏移, 靠内容宽度把框推到只露出内容 (原版做法).
+--- 左侧: "cli" 下 offset.x 相对 ROOM_ATTACH 左边缘 (本地 0, 世界坐标已经是 G.ROOM.T.x).
+---   再加 G.ROOM.T.x 会把框推进游戏区里浮着; 减去它才和右侧一样贴窗口边.
+--- 右侧: "cr" 下 offset.x 是相对 ROOM_ATTACH 右边的偏移, 靠内容宽度把框推到只露出内容 (原版做法).
 ---@param item table
 ---@param leaving boolean
 ---@return number
@@ -464,9 +463,9 @@ local function offset_x(item, leaving)
   local lane = item.lane
   if lane.side == "left" then
     if leaving then
-      return CALL_HIDE_X
+      return -G.ROOM.T.x - (CALL_LINE_WIDTH + 8)
     end
-    return G.ROOM.T.x + MARGIN
+    return MARGIN - G.ROOM.T.x
   end
   if leaving then
     return WIDE

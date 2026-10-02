@@ -394,9 +394,9 @@ do -- 两条车道: 左侧的工具调用记录与右侧的决策消息各自排
   check("左侧框不设最小宽度", inner_minw(defs[2]) == nil, tostring(inner_minw(defs[2])))
   check("右侧框保留宽 minw", inner_minw(defs[1]) == 20, tostring(inner_minw(defs[1])))
 
-  -- 滑入后: 左侧框的左边缘贴屏幕左边, 右侧内容贴屏幕右边
+  -- 滑入后: 左侧框贴窗口左边 (offset 要扣掉 ROOM 的 letterbox, 不能再加一次 G.ROOM.T.x), 右侧内容贴窗口右边
   Toast.update(0.2)
-  check("左侧框贴屏幕左边", boxes[2].alignment.offset.x == G.ROOM.T.x + 0.8, tostring(boxes[2].alignment.offset.x))
+  check("左侧框贴屏幕左边", boxes[2].alignment.offset.x == 0.8 - G.ROOM.T.x, tostring(boxes[2].alignment.offset.x))
   check("右侧内容贴屏幕右边", boxes[1].alignment.offset.x == G.ROOM.T.x - 2 - 0.8, tostring(boxes[1].alignment.offset.x))
 
   -- 左侧那条不拦操作, 关掉开关后不再显示, 右侧照常
