@@ -35,12 +35,15 @@ local REPLAY_MANUAL = assert(SMODS.load_file("replay/manual.lua"))()
 local REPLAY_TUTORIAL = assert(SMODS.load_file("replay/tutorial.lua"))()
 REPLAY_SESSION.init({ snapshot = REPLAY_SNAPSHOT })
 BB_REPLAY = assert(SMODS.load_file("replay/player.lua"))()
+-- 回放输入锁是 bbcore 输入门上的一个策略, 不自己包 love.* 回调, 装的先后不影响层次.
+local REPLAY_INPUT = assert(SMODS.load_file("replay/input_lock.lua"))()
+REPLAY_INPUT.init({ input = BB_INPUT })
 local function replaying()
   return BB_REPLAY.active == true
 end
 
 -- 顺序: 回放的 start_run 钩子要在录制之内 (先改好 seeded 再开始录制);
--- 回放文件的钩子在录制之外 (开局前取存档进度); 输入锁在所有输入钩子之外.
+-- 回放文件的钩子在录制之外 (开局前取存档进度).
 BB_REPLAY.init_early({
   dispatcher = BB_DISPATCHER,
   activity = BB_ACTIVITY,
@@ -55,13 +58,14 @@ BB_REPLAY.init_early({
   snapshot = REPLAY_SNAPSHOT,
   session = REPLAY_SESSION,
   tutorial = REPLAY_TUTORIAL,
-  input_lock = assert(SMODS.load_file("replay/input_lock.lua"))(),
+  input_lock = REPLAY_INPUT,
   manual = REPLAY_MANUAL,
   game_version = GAME_VERSION,
   mod_version = MOD_VERSION,
 })
 BB_RECORDER.init({
   activity = BB_ACTIVITY,
+  input = BB_INPUT,
   toast = BB_TOAST,
   animating = BB_OVERLAY.animating,
   mod_path = MOD.path,
@@ -95,7 +99,7 @@ if not BB_REPLAY.active then
   -- 人手动的操作换算成回放步骤. 按钮函数的钩子装在这里, 回放时 log 不存在, 不装.
   REPLAY_MANUAL.install({ record = BB_REPLAY_LOG.record_manual })
 end
--- 本 mod 最后加载, 输入锁包在所有 mod 的输入钩子之外.
+-- 命令行回放从启动就上锁.
 BB_REPLAY.init_late()
 if BB_REPLAY.active then
   -- 讲解与工具调用记录都是回放的一部分, 不受 balatrobot 设置页开关的影响 (只改内存, 不写回配置).

@@ -1,9 +1,10 @@
 --[[
-运行控制入口: 选项菜单的 "Agent" 按钮, Agent 面板, F9 快捷键. 运行时右上角的暂停与锁操作见 agent/ui/hud.lua.
+运行控制入口: 选项菜单的 "Agent" 按钮, Agent 面板, F9 的处理. 运行时右上角的暂停与锁操作见 agent/ui/hud.lua,
+F9 按键由 agent/input.lua 观察输入门得到.
 
 - 按钮登记在 bbcore 的选项菜单入口 (BB_MENU.entries) 里, 显示与否等逻辑都在这里. 只在内置模式下显示.
 - 按钮颜色跟随 runner 状态: 运行中绿色, 暂停金色, 出错与停止为原版按钮的红色 (标签文字区分两者).
-- Agent 面板: 状态, 本局统计, 开始 / 暂停或继续 / 停止 / 前往设置.
+- Agent 面板: 状态, 本局统计, 开始 / 暂停或继续 / 锁操作 / 停止 / 前往设置.
 ]]
 
 ---@type table bbcore 的 ui/widgets.lua, init 时注入
@@ -21,6 +22,7 @@ local M = {}
 ---@field toast table bbcore 的 runtime/toast.lua
 ---@field widgets table bbcore 的 ui/widgets.lua (已 init)
 ---@field menu table bbcore 的 ui/menu.lua
+---@field lock table agent/input.lua (锁操作)
 local deps
 
 local view = {
@@ -101,6 +103,26 @@ local function panel_definition()
         runner.toggle_pause()
       end,
     }),
+    -- 与右上角 HUD 的锁操作是同一个开关. 手柄点不到 HUD, 从这里解锁.
+    W.button({
+      label = "锁操作",
+      label_fn = function()
+        return deps.lock.locked() and "可操作" or "锁操作"
+      end,
+      col = true,
+      minw = 2,
+      minh = 0.6,
+      scale = 0.4,
+      colour = function()
+        return deps.lock.locked() and G.C.ORANGE or G.C.L_BLACK
+      end,
+      enabled = function()
+        return runner.is_busy()
+      end,
+      on_click = function()
+        deps.lock.toggle()
+      end,
+    }),
     W.button({
       label = "停止",
       col = true,
@@ -178,16 +200,21 @@ local function agent_entry()
     end,
   })
 end
---- F9: 内置模式下切换暂停/继续.
+--- F9: 内置模式下切换暂停/继续. 由 agent/input.lua 观察输入门的按键后调用.
 function M.hotkey()
   if not deps or not deps.mode.is_builtin() then
     return
   end
-  local runner = deps.runner
-  if runner.is_busy() then
-    runner.toggle_pause()
-  else
-    deps.stream.show_status("内置 agent 未运行, 在 选项 -> Agent 中开始", 2.5)
+  local ok, err = pcall(function()
+    local runner = deps.runner
+    if runner.is_busy() then
+      runner.toggle_pause()
+    else
+      deps.stream.show_status("内置 agent 未运行, 在 选项 -> Agent 中开始", 2.5)
+    end
+  end)
+  if not ok then
+    sendErrorMessage("F9 handler failed: " .. tostring(err), LOGGER)
   end
 end
 
@@ -196,17 +223,6 @@ function M.init(options)
   deps = options
   W = options.widgets
   options.menu.entries[#options.menu.entries + 1] = agent_entry
-  SMODS.Keybind({
-    key = "agent_pause",
-    key_pressed = "f9",
-    event = "pressed",
-    action = function()
-      local ok, err = pcall(M.hotkey)
-      if not ok then
-        sendErrorMessage("F9 handler failed: " .. tostring(err), LOGGER)
-      end
-    end,
-  })
 end
 
 return M

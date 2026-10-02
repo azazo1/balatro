@@ -205,9 +205,8 @@ function M.install(opts)
       return BB_OVERLAY.kind()
     end,
     busy = function()
-      -- 人打开了任何菜单 (包括主菜单上的设置, BB_OVERLAY.kind 对它返回 nil) 时都不动, 解锁通知与胜利界面除外.
-      local kind = BB_OVERLAY.kind()
-      if G.OVERLAY_MENU and kind ~= "unlock" and kind ~= "win" then
+      -- 人打开了任何菜单 (包括主菜单上的设置) 时都不动, 解锁通知与胜利界面除外. 与锁操作共用 menu_open.
+      if BB_OVERLAY.menu_open() then
         return true
       end
       return BB_OVERLAY.animating() and true or false
@@ -265,6 +264,9 @@ function M.install(opts)
     update = function()
       driver.update()
     end,
+    manual = function()
+      driver.manual()
+    end,
     context_usage = function()
       return driver.context_usage()
     end,
@@ -289,8 +291,8 @@ function M.install_lifecycle(runner, stream)
   if not mobile or not love.handlers then
     return
   end
-  -- 触摸平台没有 F9.
-  runner.pause_hint = "已暂停, 在 选项 -> Agent 里继续"
+  -- 触摸平台没有 F9. 锁操作开着时屏幕上的 "选项" 按钮点不到, 所以指向右上角 HUD 的按钮.
+  runner.pause_hint = "已暂停, 点右上角的 继续"
   local function background()
     if runner.is_active() then
       runner.pause()

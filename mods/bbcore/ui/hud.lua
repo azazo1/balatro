@@ -1,14 +1,15 @@
 --[[
 右上角竖排控制按钮 (BB_HUD): 内置 agent 运行时, 以及回放进行时.
 
-- 按钮由各 mod 用 bind 登记, 每帧取一份 spec (按钮列表 + 是否挡住游戏输入, 可选最上方的状态文字和占用条).
-  同时只有一方会占着游戏 (BB_CONTROL), 先返回非空 spec 的生效.
-- UIBox 挂在 G.ROOM_ATTACH 上 (POPUP 层, 可点), 再按 letterbox 推到窗口最右上角, 不贴在内容区边上.
+- 按钮由各 mod 用 bind 登记, 每帧取一份 spec (按钮列表, 可选最上方的状态文字和占用条).
+  同时只有一方会占着游戏 (BB_CONTROL), 先返回非空 spec 的生效. 挡不挡游戏输入不归这里管,
+  见 runtime/input/gate.lua 的策略.
+- UIBox 挂在 G.ROOM_ATTACH 上 (POPUP 层), 再按 letterbox 推到窗口最右上角, 不贴在内容区边上.
   阶段切换重建 ROOM_ATTACH 时自己重建; loop 一停 spec 变空, 框立刻拆掉.
-- 挡住输入时仍放行 Esc / F9; 移动光标不拦, 方便看牌.
-  点在本框上的鼠标/触摸由 HUD 自己点按钮 (悬停, 按下, 换文字), 不交给游戏:
-  回放把光标停在左上角, 控制器上锁或光标落在 letterbox 外时, 游戏自己点不到这些按钮.
-  钩子在 after_load 里装, 包在回放输入锁之外.
+- 点在本框上的鼠标/触摸由输入门交给这里 (set_hud), 不交给游戏, 不受锁操作或回放锁影响:
+  回放把游戏读到的光标停在左上角, 控制器上锁或光标落在 letterbox 外时, 游戏自己点不到这些按钮.
+  与原版一样松开时才算点击: 按下与松开落在同一颗按钮上才触发, 按下后拖出去就取消.
+- 悬停按真实光标位置算 (不经回放的停放); 触摸时没有手指在屏幕上就不悬停, 免得最后一次点按后一直亮着.
 ]]
 
 local LOGGER = "BB.HUD"
@@ -33,24 +34,11 @@ local view = {
   meter = false,
 }
 
-local input_installed = false
+---@type table? bbcore 的 runtime/input/gate.lua, 取真实光标位置
+local input
 
-local DROPPED = {
-  "mousepressed",
-  "mousereleased",
-  "wheelmoved",
-  "keypressed",
-  "keyreleased",
-  "textinput",
-  "gamepadpressed",
-  "gamepadreleased",
-  "gamepadaxis",
-  "joystickpressed",
-  "joystickreleased",
-  "joystickaxis",
-  "touchpressed",
-  "touchreleased",
-}
+---@type table? 按下时落在的按钮, 松开时落在同一颗上才点
+local pressed = nil
 
 ---@param dst table
 ---@param src table
@@ -127,20 +115,24 @@ local function hud_status(e)
   end
 end
 
----@param options {widgets: table}
+---@param options {widgets: table, input: table?}
 function M.init(options)
   W = options.widgets
+  input = options.input
   if G and G.FUNCS then
     G.FUNCS.bb_hud_status = hud_status
     G.FUNCS.bb_hud_meter = hud_meter
   end
+  if input then
+    input.set_hud({ hit = M.hit, press = M.press, release = M.release })
+  end
 end
 
---- 登记一份按钮. fn 返回 {buttons, blocking, status, meter}? 没有内容时返回 nil.
+--- 登记一份按钮. fn 返回 {buttons, status, meter}? 没有内容时返回 nil.
 --- status: {label, colour, pulse}? 画在最上方, 与按钮同宽的文字.
 --- meter: {fill, colour}? 占用条, 画在状态和按钮之间, 与按钮同宽, 不可点. fill 为 0~1.
 ---@param id string
----@param fn fun(): {buttons: table[], blocking: boolean?, status: table?, meter: table?}?
+---@param fn fun(): {buttons: table[], status: table?, meter: table?}?
 function M.bind(id, fn)
   for _, entry in ipairs(binders) do
     if entry.id == id then
@@ -228,51 +220,12 @@ function M.hit(x, y)
   return rect ~= nil and M.point_in_rect(x, y, rect)
 end
 
----@param name string
----@param a any
----@param b any
----@param c any
----@return number?
----@return number?
-local function event_xy(name, a, b, c)
-  if name == "touchpressed" or name == "touchreleased" or name == "touchmoved" then
-    return b, c
-  end
-  if name == "mousepressed" or name == "mousereleased" or name == "mousemoved" then
-    return a, b
-  end
-  return nil, nil
-end
-
---- 当前生效的 spec 是否要挡住游戏输入.
+--- 是不是 widgets.button 建的按钮. 认 func 而不认 config.button: 禁用或选中时 bb_button_state 会把
+--- config.button 清空, 认它的话按钮会从命中与悬停里消失.
+---@param node table
 ---@return boolean
-function M.blocking()
-  local _, spec = resolve()
-  return spec ~= nil and spec.blocking == true
-end
-
---- 这个输入事件要不要交给游戏. 没开阻挡, Esc/F9, 移动光标: 都放行.
---- 点在 HUD 上的按下/松开由 handle_pointer 自己消化, 不走这里.
----@param name string
----@param a any
----@param b any
----@param c any
----@return boolean
-function M.should_pass(name, a, b, c)
-  if not M.blocking() then
-    return true
-  end
-  if (name == "keypressed" or name == "keyreleased") and (a == "escape" or a == "f9") then
-    return true
-  end
-  if name == "mousemoved" or name == "touchmoved" then
-    return true
-  end
-  local x, y = event_xy(name, a, b, c)
-  if x and M.hit(x, y) then
-    return true
-  end
-  return false
+function M.is_button(node)
+  return type(node) == "table" and type(node.config) == "table" and node.config.func == "bb_button_state"
 end
 
 ---@param node table?
@@ -281,7 +234,7 @@ local function each_button(node, fn)
   if type(node) ~= "table" then
     return
   end
-  if node.config and node.config.button then
+  if M.is_button(node) then
     fn(node)
   end
   if node.UIRoot then
@@ -330,61 +283,77 @@ local function set_hover(node, hover)
   end
 end
 
+--- 悬停用的指针位置: 真实光标 (不经回放的停放). 触摸时屏幕上没有手指就没有指针,
+--- 否则 SDL 的鼠标位置停在最后一次触点, 按钮会一直亮着.
+---@return number? x
+---@return number? y
+local function pointer()
+  local hid = G and G.CONTROLLER and G.CONTROLLER.HID
+  if hid and hid.touch then
+    local touch = love and love.touch
+    if not (touch and touch.getTouches and next(touch.getTouches()) ~= nil) then
+      return nil, nil
+    end
+  end
+  if input then
+    return input.real_position()
+  end
+  if love and love.mouse and love.mouse.getPosition then
+    return love.mouse.getPosition()
+  end
+  return nil, nil
+end
+
 local function refresh_hover()
-  if not view.box or not love or not love.mouse or not love.mouse.getPosition then
+  if not view.box then
     return
   end
-  local x, y = love.mouse.getPosition()
-  if type(x) ~= "number" or type(y) ~= "number" then
-    return
+  local x, y = pointer()
+  local target = nil
+  if type(x) == "number" and type(y) == "number" and M.hit(x, y) then
+    target = button_at(x, y)
   end
-  local target = M.hit(x, y) and button_at(x, y) or nil
   each_button(view.box, function(node)
     set_hover(node, node == target)
-    if node.config and node.config.func == "bb_button_state" and G and G.FUNCS and G.FUNCS.bb_button_state then
+    if G and G.FUNCS and G.FUNCS.bb_button_state then
       G.FUNCS.bb_button_state(node)
     end
   end)
 end
 
---- HUD 自己点按钮, 不把按下交给游戏 (回放光标停在左上角, letterbox 外控制器也不碰这些节点).
----@param name string
----@param a any
----@param b any
----@param c any
----@return boolean consumed
-local function handle_pointer(name, a, b, c)
-  local x, y = event_xy(name, a, b, c)
-  if not x then
-    return false
+--- 输入门交来的按下 (已确认落在框上): 记下落在哪颗按钮上, 松开时再点. 只认左键 (触摸也是 1).
+---@param ev table runtime/input/events.lua 的事件
+function M.press(ev)
+  pressed = nil
+  if ev.button ~= nil and ev.button ~= 1 then
+    return
   end
-  if name == "mousemoved" or name == "touchmoved" then
-    if M.hit(x, y) then
-      refresh_hover()
-    end
-    return false
+  pressed = button_at(ev.x, ev.y)
+end
+
+--- 只给测试用: 直接换掉当前的框.
+---@param box table?
+function M._set_box(box)
+  view.box = box
+  pressed = nil
+end
+
+--- 输入门交来的松开 (它的按下落在框上): 与按下落在同一颗按钮上才点, 与原版一样.
+--- 禁用的按钮 config.button 为空, UIElement:click 什么也不做.
+---@param ev table
+function M.release(ev)
+  local node = pressed
+  pressed = nil
+  if not node or node.REMOVED or not node.click then
+    return
   end
-  if not M.hit(x, y) then
-    return false
+  if type(ev.x) == "number" and type(ev.y) == "number" and button_at(ev.x, ev.y) == node then
+    node:click()
   end
-  if name == "mousepressed" or name == "touchpressed" then
-    -- 鼠标第三个参数是按键, 触摸没有, 只响应左键.
-    if name == "mousepressed" and c ~= nil and c ~= 1 then
-      return true
-    end
-    local node = button_at(x, y)
-    if node and node.click then
-      node:click()
-    end
-    return true
-  end
-  if name == "mousereleased" or name == "touchreleased" then
-    return true
-  end
-  return false
 end
 
 local function remove_box()
+  pressed = nil
   if view.box and not view.box.REMOVED then
     view.box:remove()
   end
@@ -575,25 +544,6 @@ function M.update()
   end
   apply_offset()
   refresh_hover()
-end
-
---- 包在其它输入钩子之外. 挡住时丢弃游戏操作; HUD 自己的点击不交给游戏.
-function M.install_input()
-  if input_installed then
-    return
-  end
-  input_installed = true
-  for _, name in ipairs(DROPPED) do
-    local original = love[name]
-    love[name] = function(a, b, c, ...)
-      if handle_pointer(name, a, b, c) then
-        return
-      end
-      if M.should_pass(name, a, b, c) then
-        return original and original(a, b, c, ...)
-      end
-    end
-  end
 end
 
 return M

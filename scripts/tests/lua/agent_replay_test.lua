@@ -72,19 +72,33 @@ do -- 教程局: 开局前的设置里还有强制内容, 或者教程没完成
   check("教程: 有记录时以记录为准", not Format.is_tutorial({ seed = "TUTORIAL", seeded = false, tutorial = false }))
 end
 
-do -- 长按中止: 游戏主循环不分发 touchpressed, 按住时长只能按 love.touch 的当前状态算
-  local clock, fingers = 100, {}
+do -- 中止的按住时长: 触摸按 love.touch 的当前状态算 (主循环不分发 touchpressed), HUD 上的手指不算
+  local clock, fingers, positions = 100, {}, {}
+  local focused = true
   local saved_love = love
   love = {
     timer = { getTime = function() return clock end },
-    touch = { getTouches = function() return fingers end },
+    touch = {
+      getTouches = function() return fingers end,
+      getPosition = function(id) return positions[id][1], positions[id][2] end,
+    },
     mouse = { setVisible = function() end },
-    graphics = { getWidth = function() return 1280 end },
+    window = { hasFocus = function() return focused end },
   }
+  -- 假的输入门: 记下策略与观察者, HUD 占着 x >= 1000.
+  local gate = { policies = {}, observers = {} }
+  function gate.add_policy(id, fn) gate.policies[id] = fn end
+  function gate.observe(id, fn) gate.observers[id] = fn end
+  function gate.hud_hit(x) return type(x) == "number" and x >= 1000 end
   local InputLock = dofile("mods/bbreplay/replay/input_lock.lua")
+  InputLock.init({ input = gate })
+  check("没上锁时没有策略", gate.policies.replay() == nil)
   InputLock.install()
+  local policy = gate.policies.replay()
+  check("上锁后丢弃点击, 停放光标, 拦摇杆", policy and not policy.pass({ kind = "press" }) and policy.park and policy.block_axis)
+
   -- 只有手指按下, 没有任何 touchpressed 事件 (与 game/main.lua 的 love.run 一致).
-  fingers = { "finger-1" }
+  fingers, positions = { "f1" }, { f1 = { 10, 10 } }
   InputLock.abort_progress()
   clock = clock + 0.75
   local half = InputLock.abort_progress()
@@ -92,13 +106,36 @@ do -- 长按中止: 游戏主循环不分发 touchpressed, 按住时长只能按
   local full = InputLock.abort_progress()
   fingers = {}
   local released = InputLock.abort_progress()
-  InputLock.release()
-  love = saved_love
   check(
     "长按 1.5 秒中止不依赖 touchpressed",
     math.abs(half - 0.5) < 1e-9 and full == 1 and released == 0,
     string.format("half=%s full=%s released=%s", half, full, released)
   )
+
+  fingers, positions = { "f2" }, { f2 = { 1200, 10 } }
+  InputLock.abort_progress()
+  clock = clock + 2
+  check("按在 HUD 上的手指不算中止", InputLock.abort_progress() == 0)
+  fingers = {}
+
+  -- Esc 的按下由观察者看到 (事件本身被丢弃).
+  gate.observers.replay({ kind = "key_press", key = "escape" }, "drop")
+  clock = clock + 0.5
+  local esc_half = InputLock.abort_progress()
+  focused = false
+  local unfocused = InputLock.abort_progress()
+  focused = true
+  check("按住 Esc 计时, 失焦时清零", math.abs(esc_half - 0.5) < 1e-9 and unfocused == 0, tostring(esc_half))
+
+  gate.observers.replay({ kind = "pad_press", source = "gamepad", joystick = "js", button = "back" }, "drop")
+  clock = clock + 1
+  check("按住手柄 back 1 秒中止", InputLock.abort_progress() == 1)
+  gate.observers.replay({ kind = "pad_release", source = "gamepad", joystick = "js", button = "back" }, "drop")
+  check("松开后清零", InputLock.abort_progress() == 0)
+
+  InputLock.release()
+  check("解锁后没有策略", gate.policies.replay() == nil)
+  love = saved_love
 end
 
 if failures > 0 then

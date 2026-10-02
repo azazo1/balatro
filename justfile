@@ -67,6 +67,7 @@ test-agent:
     luajit scripts/tests/lua/agent_knowledge_test.lua
     luajit scripts/tests/lua/agent_ui_test.lua
     luajit scripts/tests/lua/agent_hud_test.lua
+    luajit scripts/tests/lua/bbinput_gate_test.lua
     luajit scripts/tests/lua/android_storage_test.lua
     luajit scripts/tests/lua/smods_config_path_test.lua
 

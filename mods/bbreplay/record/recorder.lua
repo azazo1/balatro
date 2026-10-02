@@ -59,7 +59,7 @@ local setup_done = false
 local ready = false -- setup 成功, 可以录制
 
 local cfg = {}
-local deps = {} -- activity, toast, mod_path
+local deps = {} -- activity, input, toast, mod_path
 local session = nil
 local finishing = {} -- 已结束但编码线程还在收尾的录制
 local redirect = false -- 本局是否录视频
@@ -1080,15 +1080,14 @@ local function setup()
     log_event(session, "message", { title = title, text = text })
   end)
 
-  -- 手动操作也算活动, 人玩的部分不会被剪掉.
-  for _, name in ipairs({ "mousepressed", "keypressed", "gamepadpressed", "touchpressed" }) do
-    local original = love[name]
-    love[name] = function(...)
-      last_input = now()
-      if original then
-        return original(...)
+  -- 手动操作也算活动, 人玩的部分不会被剪掉. 经 bbcore 的输入门观察, 被锁操作或回放锁丢掉的不算;
+  -- 点 HUD (暂停, 中止) 算. 触摸以 press (istouch) 进来.
+  if deps.input then
+    deps.input.observe("recorder", function(ev, outcome)
+      if outcome ~= "drop" and (ev.kind == "press" or ev.kind == "key_press" or ev.kind == "pad_press") then
+        last_input = now()
       end
-    end
+    end)
   end
 
   local start_run = Game.start_run
@@ -1133,8 +1132,8 @@ local function setup()
   return true
 end
 
----@param options {activity: table, toast: table, animating: fun(): boolean, mod_path: string, config_enabled: boolean?, config_keep: string?, config_quality: table?}
---- activity / toast / animating: bbcore 的 BB_ACTIVITY, BB_TOAST, BB_OVERLAY.animating.
+---@param options {activity: table, input: table?, toast: table, animating: fun(): boolean, mod_path: string, config_enabled: boolean?, config_keep: string?, config_quality: table?}
+--- activity / input / toast / animating: bbcore 的 BB_ACTIVITY, BB_INPUT, BB_TOAST, BB_OVERLAY.animating.
 --- config_enabled: 设置页的录像开关. 设了 BALATROBOT_RECORD 环境变量时以环境变量为准 (Android 没有环境变量).
 --- config_keep: 设置页的保留方式, "keep" 时合成成功后保留中间文件. 设了 BALATROBOT_RECORD_KEEP 时以它为准.
 --- config_quality: 设置页的 {height, fps, bitrate}, 0 为默认. 设了对应环境变量的项以环境变量为准.

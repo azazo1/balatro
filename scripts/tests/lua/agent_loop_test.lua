@@ -592,6 +592,63 @@ do -- 暂停: 取消进行中的请求, 恢复后重新给状态
   check("恢复后重新请求, 末尾是新的状态", #env.requests == 2 and msgs[#msgs].role == "user" and msgs[#msgs].content:find("暂停", 1, true))
 end
 
+do -- 手动操作 (解锁后人点了游戏): 取消进行中的请求, 等人停手再按新状态请求, 附上说明
+  local env = harness()
+  env.driver.start()
+  env.tick()
+  env.driver.manual()
+  check("手动操作取消请求但不暂停", env.cancelled == 1 and env.driver.state == "idle", env.driver.state)
+  env.t = 1
+  env.tick(3)
+  check("人停手前不重新请求", #env.requests == 1, tostring(#env.requests))
+  env.t = 2
+  env.settle()
+  local msgs = env.requests[2] or {}
+  check(
+    "停手后按新状态请求, 带说明",
+    #env.requests == 2 and msgs[#msgs].role == "user" and msgs[#msgs].content:find("手动操作", 1, true) ~= nil
+  )
+end
+
+do -- 手动操作发生在动作执行中: 这个动作做完, 剩下的回 "未执行", 结果仍成对
+  local env = harness()
+  env.responder = function(method)
+    if method == "play" then
+      env.driver.manual() -- 端点回调前人点了游戏, 此时动作还在执行
+    end
+    return env.gs
+  end
+  env.driver.start()
+  env.tick()
+  env.reply({ { "play", { cards = { 0 } } }, { "discard", { cards = { 1 } } } })
+  env.tick()
+  check("执行中的动作做完", #env.calls == 1 and env.calls[1].method == "play", tostring(#env.calls))
+  env.tick()
+  check("剩下的不执行", #env.calls == 1 and env.driver.state == "idle", env.driver.state)
+  env.t = 5
+  env.settle()
+  local msgs = env.requests[2] or {}
+  check("作废的调用也有结果", #env.requests == 2 and paired(msgs))
+  local skipped = false
+  for _, m in ipairs(msgs) do
+    if m.role == "tool" and m.content:find("未执行", 1, true) then
+      skipped = true
+    end
+  end
+  check("剩下的调用回 未执行", skipped)
+end
+
+do -- 暂停或停止时手动操作不做事
+  local env = harness()
+  env.driver.manual()
+  check("停止时不做事", env.driver.state == "stopped")
+  env.driver.start()
+  env.tick()
+  env.driver.pause()
+  env.driver.manual()
+  check("暂停时不做事", env.driver.state == "paused" and env.cancelled == 1)
+end
+
 do -- 模型不调用工具: 提醒, 连续 3 次停下
   local env = harness()
   env.driver.start()

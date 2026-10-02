@@ -13,6 +13,8 @@ BB Core 入口: balatrobot 与 bbreplay 共用的运行时, 由本仓库从 Bala
 - BB_CALL_NOTE: 工具调用的左侧弹窗文案 (runtime/call_note.lua), 别的 mod 用 register 补自己端点的.
 - BB_SCORING: 一次出牌的计分过程, 写进 gamestate 的 round.last_hand (runtime/scoring.lua).
 - BB_TOAST, BB_STREAM: 决策消息与顶部状态条. BB_WIDGETS: 界面组件. BB_HUD: 右上角竖排控制按钮.
+- BB_INPUT: 唯一的输入门 (runtime/input/gate.lua). 各操作方登记策略 (挡哪些输入), 其它模块登记观察者,
+  不再自己包 love.* 输入回调.
 - BB_CONTROL: 谁在操作游戏, 回放与 agent 的互斥 (runtime/control.lua).
 - BB_MENU: 选项菜单里的公共入口 (ui/menu.lua, lovely/menu.toml).
 - BB_CORE: ready, version, after_load.
@@ -26,7 +28,7 @@ BB_CORE = {
   version = MOD.version,
   ---@type fun()[] 所有 mod 加载完之后, 第一帧 update 时依次调用一次.
   --- Steamodded 没有 "全部 mod 加载完" 的回调, 而 balatrobot 按模式启停 HTTP 服务要等 bbreplay 先判断是不是
-  --- 命令行回放 (bbreplay 加载得更晚). HUD 的输入钩子也在第一帧装, 包在回放锁之外.
+  --- 命令行回放 (bbreplay 加载得更晚). 输入门也在第一帧装, 包在所有 mod 的输入钩子之外.
   after_load = {},
 }
 
@@ -87,8 +89,10 @@ BB_CONTROL = assert(SMODS.load_file("runtime/control.lua"))()
 BB_MENU = assert(SMODS.load_file("ui/menu.lua"))()
 BB_WIDGETS = assert(SMODS.load_file("ui/widgets.lua"))()
 BB_WIDGETS.init({ toast = BB_TOAST })
+BB_INPUT = assert(SMODS.load_file("runtime/input/gate.lua"))()
+BB_INPUT.init({ events = assert(SMODS.load_file("runtime/input/events.lua"))() })
 BB_HUD = assert(SMODS.load_file("ui/hud.lua"))()
-BB_HUD.init({ widgets = BB_WIDGETS })
+BB_HUD.init({ widgets = BB_WIDGETS, input = BB_INPUT })
 
 -- 端点只能注册一次, 与谁在调用无关.
 if not BB_DISPATCHER.init(BB_TRANSPORT, BB_ENDPOINTS, MOD.id) then
@@ -131,8 +135,8 @@ love.update = function(dt) ---@diagnostic disable-line: duplicate-set-field
   BB_HUD.update()
   if not loaded then
     loaded = true
-    -- 输入钩子要包在回放锁之外, 所以推迟到所有 mod 加载完.
-    BB_HUD.install_input()
+    -- 输入门要包在所有 mod 的输入钩子之外, 所以推迟到所有 mod 加载完.
+    BB_INPUT.install({ love = love, controller_class = Controller })
     for _, fn in ipairs(BB_CORE.after_load) do
       local ok, err = pcall(fn)
       if not ok then

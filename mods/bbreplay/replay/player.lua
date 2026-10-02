@@ -23,8 +23,8 @@
 - 胜利界面: Jimbo 出现后再停 WIN_HOLD 秒, 然后按原局的选择 (endless 或 menu) 继续.
 
 每步完成后比对状态摘要, 不一致时在 VERIFY_WINDOW 秒内反复确认, 仍不一致就停止回放, 录像保留到这里.
-回放期间锁定输入, 窗口最右上角有暂停/继续, 节奏 (原速 -> 紧凑 -> 快进 循环) 和中止;
-按住 Esc 1 秒也能中止 (触摸是长按 1.5 秒).
+回放期间锁定输入 (replay/input_lock.lua), 窗口最右上角有暂停/继续, 节奏 (原速 -> 紧凑 -> 快进 循环) 和中止;
+按住 Esc 或手柄 back 1 秒也能中止 (触摸是长按 1.5 秒, 按在 HUD 上不算).
 命令行回放完成退出码为 0, 跑偏为 1, 中止为 2, 文件无法回放为 3; 游戏内以同样的数字回调给界面, 用来显示结果.
 ]]
 
@@ -40,7 +40,7 @@ local M = {
   status = "off",
 }
 
-local ABORT_HINT = "右上角可暂停, 切换节奏或中止; 按住 Esc 1 秒也能中止, 触摸时长按 1.5 秒"
+local ABORT_HINT = "右上角可暂停, 切换节奏或中止; 按住 Esc (手柄 back) 1 秒也能中止, 触摸时长按 1.5 秒"
 
 local function env_number(name, default)
   local value = tonumber(os.getenv(name) or "")
@@ -315,8 +315,8 @@ local function replay_hud_spec()
   if not controlling() then
     return nil
   end
+  -- 只管按钮. 挡输入是 input_lock 在输入门上的策略, 收尾停留期间也挡着, 那时这里已经没有按钮了.
   return {
-    blocking = false,
     buttons = {
       {
         label = "暂停",
@@ -812,7 +812,7 @@ function M.init_early(options)
   update_status()
 end
 
---- 装在其它输入钩子之外, 必须在录制与回放文件初始化之后调用.
+--- 命令行回放从启动就上锁. 输入锁是输入门上的策略, 早装晚装都一样.
 function M.init_late()
   if M.active then
     deps.input_lock.install()
@@ -931,7 +931,7 @@ function M.update()
   local progress = deps.input_lock.abort_progress()
   if progress > 0 and st.phase ~= "ending" and st.phase ~= "quit" then
     -- 按住期间显示进度, 松手后按下一次刷新 (0.3 秒) 收起.
-    deps.stream.show_status(string.format("松开: 中止回放 (%d%%)", math.floor(progress * 100 + 0.5)), 0.3)
+    deps.stream.show_status(string.format("按住中止回放 (%d%%), 松开取消", math.floor(progress * 100 + 0.5)), 0.3)
   end
   if progress >= 1 and M.abort() then
     return
@@ -992,12 +992,13 @@ function M.update()
     end
   elseif phase == "run" then
     run_tick(t)
-    if (deps.input_lock.abort_progress() or 0) <= 0 then
+    -- 按住中止时流式条让给进度提示.
+    if progress <= 0 then
       stream_tick(t)
     end
   elseif phase == "verify" then
     verify_tick(t)
-    if (deps.input_lock.abort_progress() or 0) <= 0 then
+    if progress <= 0 then
       stream_tick(t)
     end
   elseif phase == "ending" then

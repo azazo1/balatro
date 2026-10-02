@@ -202,6 +202,15 @@ SETTINGS_TAB.init({
 })
 MOD.config_tab = SETTINGS_TAB.build
 BB_AGENT_MENU = assert(SMODS.load_file("agent/ui/agent_menu.lua"))()
+-- 锁操作, F9 与手动操作检测: 经 bbcore 的输入门生效.
+local AGENT_INPUT = assert(SMODS.load_file("agent/input.lua"))()
+AGENT_INPUT.init({
+  runner = BB_RUNNER,
+  input = BB_INPUT,
+  menu_open = BB_OVERLAY.menu_open,
+  hotkey = BB_AGENT_MENU.hotkey,
+  manual = BB_RUNNER.manual_input,
+})
 BB_AGENT_MENU.init({
   mod = MOD,
   mode = BB_MODE,
@@ -210,10 +219,12 @@ BB_AGENT_MENU.init({
   toast = BB_TOAST,
   widgets = BB_WIDGETS,
   menu = BB_MENU,
+  lock = AGENT_INPUT,
 })
 assert(SMODS.load_file("agent/ui/hud.lua"))().init({
   runner = BB_RUNNER,
   hud = BB_HUD,
+  lock = AGENT_INPUT,
 })
 
 -- 按模式启停 HTTP 服务. 推迟到所有 mod 加载完: 命令行回放由 bbreplay 判断 (它加载得更晚),

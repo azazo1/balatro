@@ -7,6 +7,7 @@
   pause(runner)          暂停: 立刻取消在路上的请求, 保留上下文
   resume(runner)         继续: 读取最新状态重新发起请求
   update(dt, runner)     每帧调用 (running 系状态与 paused 时都调用, 由 driver 自己看 runner.state)
+  manual(runner)         人在运行中手动操作了游戏 (解开锁操作后): 作废按旧状态做的计划
   context_usage()        当前上下文占用与上限, HUD 占用条经 runner 转出来
 driver 的调用都包在 pcall 里, 报错时 runner 进入 error 状态.
 
@@ -38,8 +39,8 @@ local M = {
   on_stop = {},
   ---@type fun(state: string, previous: string)[] 状态变化时调用
   on_state = {},
-  -- 暂停时流式条上的提示, 触摸平台可以改掉 F9 的字样
-  pause_hint = "已暂停 (F9 继续)",
+  -- 暂停时流式条上的提示. 触摸平台没有 F9, 由 agent/loop/builtin.lua 改成指向右上角的按钮.
+  pause_hint = "已暂停 (F9 或右上角继续)",
 }
 
 M.LABELS = {
@@ -219,6 +220,15 @@ function M.pause(reason)
     log("info", "Runner paused")
   end
   return true
+end
+
+--- 人在运行中 (解开了锁操作) 手动操作了游戏: 交给 driver 作废按旧状态做的计划. 暂停时不用管,
+--- 继续时 driver 本来就会重新给状态.
+function M.manual_input()
+  if not M.is_active() then
+    return
+  end
+  invoke("manual", M)
 end
 
 --- 继续.

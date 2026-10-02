@@ -74,7 +74,19 @@ bbcore, balatrobot, bbreplay 的关系:
 - 加载顺序按 priority: bbcore (-50) -> balatrobot (0) -> bbreplay (1). 后两个都只依赖 bbcore, 可以单独装.
 - bbcore 提供全局 `BB_DISPATCHER` (执行端点), `BB_TRANSPORT` (端点结果的出口, HTTP 服务与内置 loop
   从这里取结果), `BB_CONTROL` (谁在操作游戏: 回放进行时登记独占, 内置 agent 运行时登记为忙,
-  两者互斥), `BB_MENU` (选项菜单里的按钮入口), `BB_HUD` (右上角竖排控制按钮), 以及弹窗拦截, 决策消息, 流式条与界面组件.
+  两者互斥), `BB_MENU` (选项菜单里的按钮入口), `BB_HUD` (右上角竖排控制按钮), `BB_INPUT` (输入门),
+  以及弹窗拦截, 决策消息, 流式条与界面组件.
+- 输入只经过 `BB_INPUT` (`runtime/input/gate.lua`), 各 mod 不再自己包 `love.*` 输入回调. bbcore 在第一帧
+  装一次 (所有 mod 加载完之后), 所以层次固定, 与哪个 mod 先装钩子, 回放从哪个入口开始都无关. 顺序:
+  1. 点在右上角 HUD 上的按下交给 HUD, 松开在同一颗按钮上才算点击;
+  2. 当前操作方的策略决定交给游戏还是丢弃 (`add_policy`): balatrobot 的锁操作, bbreplay 的回放锁;
+  3. 交给原版;
+  4. 观察者 (`observe`) 收到事件和去向: 录像的活动判断, 回放的中止计时, agent 的 F9 与手动操作检测.
+
+  按下与松开成对 (松开跟着它的按下走), 拖到 HUD 上松手或按住期间上锁, 游戏都能收到松开.
+  策略还能让游戏读到的光标停在左上角 (`love.mouse.getPosition`), 以及不轮询手柄的摇杆与扳机
+  (`Controller:update_axis`), 这两处原版不经过输入回调.
+  触摸以 `mousepressed(..., istouch)` 进来 (原版主循环不分发 `touchpressed`), 所以不包 `touch*` 回调.
 - balatrobot 在 bbcore 上加 HTTP 服务, 手册查询端点与内置 agent; bbreplay 加录像, 回放文件与回放.
   装了 balatrobot 时 bbreplay 会跟随 agent 的暂停与停止切分录像段.
 - 各自的配置分开存: `config/balatrobot.jkr` (agent 模式与内置 agent), `config/bbreplay.jkr` (录像).

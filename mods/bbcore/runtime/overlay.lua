@@ -84,6 +84,18 @@ function M.kind()
   return "other"
 end
 
+--- 人打开了菜单: 有覆盖菜单, 且不是解锁通知或胜利界面 (这两种由 agent 自动处理).
+--- 局外的菜单 (主菜单上的设置等, kind 对它们返回 nil) 也算. 内置 agent 据此原地等, 锁操作据此放开输入,
+--- agent 的手动操作检测也据此不算菜单里的点击. 三处共用这一个判断.
+---@return boolean
+function M.menu_open()
+  if not (G and G.OVERLAY_MENU) then
+    return false
+  end
+  local kind = M.kind()
+  return kind ~= "unlock" and kind ~= "win"
+end
+
 --- 胜利界面已完全弹出: 原版在界面打开 2.5 秒后把 Jimbo 放进 jimbo_spot.
 --- 等到这时再返回, 录像里才有完整的胜利界面, 也和人先看到界面再做决定一致.
 ---@return boolean

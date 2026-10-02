@@ -1,10 +1,10 @@
 --[[
 内置 agent 运行时的右上角: 最上方是状态文字 (请求中, 执行中, 暂停),
-下面一条上下文占用条 (不可点), 再下面是暂停/继续, 以及是否挡住人手动操作.
+下面一条上下文占用条 (不可点), 再下面是暂停/继续, 以及锁操作开关.
 
 - 只在 runner 运行或暂停时显示 (BB_HUD 的 agent 源); 一停就拆掉.
-- 挡住操作时仍能点这两颗按钮, 以及 Esc (开菜单) 和 F9.
-- 开始一轮时默认挡住; 暂停期间可以解开自己操作, 选择会保持到下次开始.
+- 锁操作的状态与挡哪些输入在 agent/input.lua. 锁着时仍能点这两颗按钮 (HUD 不受锁影响).
+- 运行中也能解锁: 人操作后 agent 作废当前计划, 等人停手再按新状态决定. 下次开始时重新锁上.
 ]]
 
 local M = {}
@@ -12,14 +12,8 @@ local M = {}
 ---@class BBAgentHudDeps
 ---@field runner table
 ---@field hud table bbcore 的 ui/hud.lua
+---@field lock table agent/input.lua
 local deps
-
--- 是否挡住人手动操作. 开始时打开, 停止后下次开始再打开.
-local lock_on = true
-
-local function overlay_open()
-  return G and G.SETTINGS and G.SETTINGS.paused and G.OVERLAY_MENU ~= nil
-end
 
 local STATUS = {
   running = { label = "运行中", colour = "PALE_GREEN" },
@@ -93,9 +87,8 @@ local function spec()
   if not runner.is_busy() then
     return nil
   end
+  local lock = deps.lock
   return {
-    -- 菜单开着时不拦, 否则选项和 Agent 面板也点不了.
-    blocking = lock_on and not overlay_open(),
     status = status_spec(),
     meter = meter_spec(),
     buttons = {
@@ -114,13 +107,13 @@ local function spec()
       {
         label = "锁操作",
         label_fn = function()
-          return lock_on and "可操作" or "锁操作"
+          return lock.locked() and "可操作" or "锁操作"
         end,
         colour = function()
-          return lock_on and G.C.ORANGE or G.C.L_BLACK
+          return lock.locked() and G.C.ORANGE or G.C.L_BLACK
         end,
         on_click = function()
-          lock_on = not lock_on
+          lock.toggle()
         end,
       },
     },
@@ -131,11 +124,6 @@ end
 function M.init(options)
   deps = options
   options.hud.bind("agent", spec)
-  options.runner.on_state[#options.runner.on_state + 1] = function(_state, previous)
-    if previous == "stopped" or previous == "error" then
-      lock_on = true
-    end
-  end
 end
 
 return M

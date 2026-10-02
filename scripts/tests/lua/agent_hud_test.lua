@@ -30,63 +30,85 @@ do -- 窗口像素要加上 letterbox, 否则点在可见按钮上对不上
   check("没有 ROOM 时略缩进", offset.x < 0 and offset.y > 0)
 end
 
-do -- 挡住时只放行 HUD, Esc/F9, 移动光标
-  local blocking = false
-  Hud.bind("agent", function()
-    return blocking and { buttons = { { label = "暂停" } }, blocking = true } or nil
-  end)
-  check("没开阻挡时放行点击", Hud.should_pass("mousepressed", 1, 1, 1))
-  blocking = true
-  check("开了阻挡时丢掉点击", not Hud.should_pass("mousepressed", 1, 1, 1))
-  check("挡住时仍放行 Esc", Hud.should_pass("keypressed", "escape"))
-  check("挡住时仍放行 F9", Hud.should_pass("keypressed", "f9"))
-  check("挡住时仍放行移动光标", Hud.should_pass("mousemoved", 1, 1))
-  check("挡住时丢掉滚轮", not Hud.should_pass("wheelmoved", 0, 1))
-  blocking = false
-  check("关掉阻挡后点击放行", Hud.should_pass("mousepressed", 1, 1, 1))
+do -- 认按钮看 func: 禁用或选中时 bb_button_state 会把 config.button 清空, 按钮不能因此消失
+  check("禁用的按钮仍是按钮", Hud.is_button({ config = { func = "bb_button_state", button = nil } }))
+  check("状态文字不是按钮", not Hud.is_button({ config = { func = "bb_hud_status" } }))
 end
 
-do -- 回放输入锁对 HUD 放行
-  local passed = 0
-  local mx, my = 0, 0
-  local saved_love, saved_hud = love, BB_HUD
-  love = {
-    timer = { getTime = function() return 0 end },
-    mouse = {
-      setVisible = function() end,
-      getPosition = function()
-        return mx, my
-      end,
-      getX = function()
-        return mx
-      end,
-      getY = function()
-        return my
-      end,
-    },
-    mousepressed = function()
-      passed = passed + 1
+do -- HUD 按钮松开才点: 按下与松开落在同一颗上才触发, 拖出去取消
+  local clicks = 0
+  local node = {
+    config = { func = "bb_button_state" },
+    T = { x = 0, y = 0, w = 2, h = 1 },
+    click = function()
+      clicks = clicks + 1
     end,
   }
-  BB_HUD = {
-    hit = function(x, y)
-      return x == 12 and y == 8
-    end,
-  }
-  local InputLock = dofile("mods/bbreplay/replay/input_lock.lua")
-  InputLock.install()
-  love.mousepressed(12, 8, 1)
-  check("点在 HUD 上放行", passed == 1, tostring(passed))
-  love.mousepressed(0, 0, 1)
-  check("点在别处仍丢掉", passed == 1, tostring(passed))
-  mx, my = 12, 8
-  local hx, hy = love.mouse.getPosition()
-  check("HUD 上 getPosition 仍是真实坐标", hx == 12 and hy == 8, tostring(hx) .. "," .. tostring(hy))
-  mx, my = 0, 0
-  local px, py = love.mouse.getPosition()
-  check("别处 getPosition 停在左上角", px == 4 and py == 4, tostring(px) .. "," .. tostring(py))
-  InputLock.release()
-  love, BB_HUD = saved_love, saved_hud
+  -- button_at 遍历 view.box; 用一个装着这颗按钮的假框 (hud.update 建框要 UIBox, 这里直接塞).
+  G = { ROOM = { T = { x = 0, y = 0 } }, TILESCALE = 1, TILESIZE = 10 }
+  Hud._set_box({ T = { x = 0, y = 0, w = 2, h = 1 }, UIRoot = { children = { node } } })
+  Hud.press({ kind = "press", x = 5, y = 5, button = 1 })
+  check("按下时不点", clicks == 0)
+  Hud.release({ kind = "release", x = 6, y = 5, button = 1 })
+  check("松开在同一颗上才点", clicks == 1, tostring(clicks))
+  Hud.press({ kind = "press", x = 5, y = 5, button = 1 })
+  Hud.release({ kind = "release", x = 50, y = 5, button = 1 })
+  check("拖出去松手不点", clicks == 1, tostring(clicks))
+  Hud.press({ kind = "press", x = 5, y = 5, button = 2 })
+  Hud.release({ kind = "release", x = 5, y = 5, button = 2 })
+  check("右键不点", clicks == 1, tostring(clicks))
+  Hud._set_box(nil)
+  G = nil
+end
+
+do -- agent 锁操作: 何时生效, 放行哪些, F9 与手动操作检测
+  local runner = { state = "running", on_state = {} }
+  function runner.is_busy() return runner.state ~= "stopped" end
+  function runner.is_active() return runner.state == "running" end
+  local menu, hotkeys, manuals = false, 0, 0
+  local gate = {}
+  function gate.add_policy(_, fn) gate.policy = fn end
+  function gate.observe(_, fn) gate.observer = fn end
+  sendInfoMessage = function() end
+  local Lock = dofile("mods/balatrobot/agent/input.lua")
+  Lock.init({
+    runner = runner,
+    input = gate,
+    menu_open = function() return menu end,
+    hotkey = function() hotkeys = hotkeys + 1 end,
+    manual = function() manuals = manuals + 1 end,
+  })
+  local policy = gate.policy()
+  check("运行中默认锁着", policy ~= nil and policy.block_axis)
+  check("锁着时丢掉点击", not policy.pass({ kind = "press" }))
+  check("锁着时放行 Esc, F9, 移动, 手柄 start", policy.pass({ kind = "key_press", key = "escape" })
+    and policy.pass({ kind = "key_press", key = "f9" })
+    and policy.pass({ kind = "move" })
+    and policy.pass({ kind = "pad_press", source = "gamepad", button = "start" }))
+  check("锁着时丢掉手柄 a", not policy.pass({ kind = "pad_press", source = "gamepad", button = "a" }))
+  menu = true
+  check("开着菜单时不拦", gate.policy() == nil)
+  menu = false
+  Lock.toggle()
+  check("解锁后不拦", gate.policy() == nil)
+
+  gate.observer({ kind = "key_press", key = "f9" }, "game")
+  gate.observer({ kind = "key_press", key = "f9" }, "drop")
+  check("F9 只在交给游戏时触发", hotkeys == 1, tostring(hotkeys))
+
+  gate.observer({ kind = "press", x = 1, y = 1, button = 1 }, "game")
+  gate.observer({ kind = "press", x = 1, y = 1, button = 1 }, "hud")
+  gate.observer({ kind = "pad_press", source = "gamepad", button = "start" }, "game")
+  check("点了游戏算手动, 点 HUD 和手柄 start 不算", manuals == 1, tostring(manuals))
+  menu = true
+  gate.observer({ kind = "press", x = 1, y = 1, button = 1 }, "game")
+  menu = false
+  runner.state = "paused"
+  gate.observer({ kind = "press", x = 1, y = 1, button = 1 }, "game")
+  check("菜单里或暂停时的点击不算", manuals == 1, tostring(manuals))
+
+  runner.on_state[1]("running", "stopped")
+  check("重新开始时锁上", Lock.locked())
 end
 
 if failures > 0 then

@@ -17,6 +17,9 @@
   由运行控制转为自动暂停, 等 user 处理后继续. 单局 token 上限由运行控制按汇报的用量判断.
 - 暂停: 进行中的请求直接取消 (半截回复丢弃, 不进历史); 正在执行的动作做完为止, 剩余的工具调用
   回一条 "未执行", 保证每个 tool_call 都有结果. 继续时重新给一次状态摘要 (暂停期间 user 可能手动操作过).
+- 手动操作 (manual, user 解开锁操作后在运行中点了游戏): 之前按旧状态做的计划作废, 处理方式同暂停,
+  只是不停下: 请求取消, 正在执行的动作做完为止, 剩余调用回 "未执行". 等 user 停手 MANUAL_QUIET 秒后
+  按新状态重新请求, 状态前附上说明. 写摘要的请求不受影响 (它不看游戏状态).
 
 deps:
 - client.start(cfg, messages, tools, callbacks) -> req, req:update(), req:cancel()
@@ -60,6 +63,8 @@ local DEFAULT_CONTEXT = 256000 -- 配置里没有最大上下文时的默认值
 local COMPACT_AT = 0.8 -- 上下文到最大上下文的这个比例时压缩
 local COMPACT_KEEP = 0.3 -- 压缩时最近的原文约占最大上下文的比例
 local COMPACT_LABEL = "压缩中: "
+local MANUAL_QUIET = 1.5 -- 人手动操作后, 停手这么久才按新状态重新请求
+local MANUAL_NOTE = "(user 刚才手动操作了游戏, 之前的计划已作废, 以下面的状态为准)"
 
 ---@param deps table
 ---@return table
@@ -92,6 +97,8 @@ function M.new(deps)
   local nudges = 0
   local fail_key, fail_count = nil, 0
   local pause_requested = false
+  local manual_requested = false -- 人在动作执行中手动操作了, 这个动作做完后作废剩下的计划
+  local manual_at = nil -- 最近一次手动操作的时刻, 人停手 MANUAL_QUIET 秒后才重新请求
   local retry = nil -- {at, attempt, max, reason}
   local context_used = nil -- 上一次请求报的上下文大小, nil 时按字数估算
   local compacting = nil -- {cut, older_tokens} 写摘要的请求进行中
@@ -594,6 +601,11 @@ function M.new(deps)
     if deps.busy() then
       return
     end
+    -- 人刚手动操作过: 等他停手再看状态, 否则每点一下就重发一次请求.
+    if manual_at and deps.now() - manual_at < MANUAL_QUIET then
+      return
+    end
+    manual_at = nil
     local cfg = deps.config()
     local overlay = deps.overlay()
     if (overlay == "unlock" or overlay == "win") and not overlay_ready(overlay) then
@@ -667,6 +679,7 @@ function M.new(deps)
     end
     nudges, fail_key, fail_count = 0, nil, 0
     fresh, note, pause_requested = false, nil, false
+    manual_requested, manual_at = false, nil
     compacting, force_compact, just_compacted = nil, false, false
     self.last_error = nil
     transcript({ type = "start" })
@@ -687,6 +700,8 @@ function M.new(deps)
     end
     -- 写摘要的请求取消后历史没动, 继续时会重新判断要不要压缩.
     compacting = nil
+    -- 暂停后继续本来就重新给状态, 手动操作的作废与等停手都不用再做.
+    manual_requested, manual_at = false, nil
     if calling then
       pause_requested = true
       return
@@ -694,6 +709,43 @@ function M.new(deps)
     skip_rest("已暂停")
     transcript({ type = "pause" })
     set_state("paused")
+  end
+
+  --- 作废按旧状态做的计划: 剩余调用回 "未执行", 下一轮重新给状态并附上说明.
+  local function drop_plan()
+    skip_rest("user 手动操作了游戏")
+    fresh = false
+    if not (note and note:find(MANUAL_NOTE, 1, true)) then
+      note = (note and note .. "\n" or "") .. MANUAL_NOTE
+    end
+  end
+
+  --- 人在运行中手动操作了游戏 (解开锁操作后). 写摘要的请求照常进行, 其余见文件头.
+  function self.manual()
+    local state = self.state
+    if state == "stopped" or state == "paused" or state == "halted" then
+      return
+    end
+    manual_at = deps.now()
+    if compacting then
+      return
+    end
+    if calling then
+      -- 动作正在执行: 做完 (它的结果写进历史) 后在 update 里作废剩下的.
+      manual_requested = true
+      return
+    end
+    if req then
+      req:cancel()
+      finish_request()
+      deps.bar.reset()
+    end
+    transcript({ type = "manual", state = state })
+    log("info", "Manual input during " .. state .. ", dropping the current plan")
+    drop_plan()
+    if state ~= "idle" then
+      set_state("idle")
+    end
   end
 
   function self.resume()
@@ -719,6 +771,7 @@ function M.new(deps)
     end
     queue = nil
     pause_requested = false
+    manual_requested, manual_at = false, nil
     compacting, force_compact, context_used, just_compacted = nil, false, nil, false
     history:reset()
     transcript({ type = "stop", reason = why })
@@ -740,6 +793,16 @@ function M.new(deps)
       pause_requested = false
       skip_rest("已暂停")
       set_state("paused")
+      return
+    end
+    if manual_requested then
+      manual_requested = false
+      transcript({ type = "manual", state = self.state })
+      log("info", "Manual input during an action, dropping the rest of the plan")
+      drop_plan()
+      if self.state == "acting" then
+        set_state("idle")
+      end
       return
     end
     if self.state == "acting" then
