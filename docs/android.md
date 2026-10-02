@@ -71,6 +71,11 @@ Android 上的存储位置, 存档目录的权限修正, 以及触摸流程. 录
 
 权限: 运行时 APK 的 manifest 已声明 `android.permission.INTERNET`.
 
+## 分屏与小窗
+
+官方 LÖVE 的 GameActivity 声明 `android:resizeableActivity="false"`, 系统因此拒绝分屏与小窗.
+打包时改成 true. 游戏本身已有 `love.resize`, 窗口变小后按比例缩放并居中.
+
 触摸流程:
 
 1. 主菜单 → 模组 → balatrobot: 选内置模式, 粘贴 endpoint 和 key, 填模型名, 打开录像.

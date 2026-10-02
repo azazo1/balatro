@@ -199,6 +199,7 @@ Android 的存档通过 `t.externalstorage` 写入外置存储, 而不是应用�
 两个包会声明同名权限, 签名不同时第二个装不上.
 
 屏幕方向设为 `sensorLandscape`, 即锁定横屏但允许随手机方向左右翻转.
+官方 LÖVE 把 `resizeableActivity` 关掉了, 系统会拒绝分屏与小窗; 打包时改成 true.
 
 #### 退出处理
 

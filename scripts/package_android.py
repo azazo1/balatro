@@ -261,7 +261,9 @@ def main():
             "11.5a": version,
         }
         # sensorLandscape: 锁定横屏, 但允许随手机方向左右翻转.
-        ints = {"screenOrientation": 5, "versionCode": version_code}
+        # 官方 LÖVE 把 resizeableActivity 设为 false, 系统因此拒绝分屏与小窗.
+        ints = {"screenOrientation": 5, "versionCode": version_code,
+                "resizeableActivity": True}
         android_manifest.patch_apk(runtime_apk, base_apk, strings, ints)
 
         log.info("生成各密度图标")

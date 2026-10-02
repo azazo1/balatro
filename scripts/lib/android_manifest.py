@@ -19,9 +19,14 @@ RES_XML_START_ELEMENT = 0x0102
 UTF8_FLAG = 0x100
 TYPE_INT_DEC = 0x10
 TYPE_INT_HEX = 0x11
+TYPE_INT_BOOLEAN = 0x12
+# Android 二进制 XML 里布尔真值是 0xFFFFFFFF, 不是 1.
+BOOL_TRUE = 0xFFFFFFFF
 
-# 允许通过规则改写的整数属性, 其余一律忽略以免误改.
-INT_ATTR_NAMES = {"screenOrientation", "versionCode", "versionCodeMajor"}
+# 允许通过规则改写的整数/布尔属性, 其余一律忽略以免误改.
+INT_ATTR_NAMES = {"screenOrientation", "versionCode", "versionCodeMajor", "resizeableActivity"}
+BOOL_ATTR_NAMES = {"resizeableActivity"}
+INT_VALUE_TYPES = (TYPE_INT_DEC, TYPE_INT_HEX, TYPE_INT_BOOLEAN)
 
 
 class ManifestError(Exception):
@@ -132,6 +137,25 @@ class StringPool:
         return bytes(out), size - self.old_size
 
 
+def _coerce_int(name, value):
+    """把规则值收成 32 位无符号整数. 布尔属性接受 True/False 或 0/1."""
+    if name in BOOL_ATTR_NAMES:
+        if isinstance(value, bool):
+            return BOOL_TRUE if value else 0
+        value = int(value)
+        if value in (0, 1):
+            return BOOL_TRUE if value else 0
+        return value & 0xFFFFFFFF
+    return int(value)
+
+
+def _fmt_int(name, value):
+    """日志与改动说明里的整数值. 布尔写成 true/false."""
+    if name in BOOL_ATTR_NAMES:
+        return "true" if value == BOOL_TRUE else "false"
+    return "%d" % value
+
+
 def _patch_ints(blob, pool, int_rules):
     """就地改写指定属性名的整数值, 返回改动列表."""
     pos = 8 + pool.old_size
@@ -153,33 +177,23 @@ def _patch_ints(blob, pool, int_rules):
                 if name_idx >= len(pool.strings):
                     continue
                 name = pool.strings[name_idx]
-                if name in int_rules and v_type in (TYPE_INT_DEC, TYPE_INT_HEX):
+                if name in int_rules and v_type in INT_VALUE_TYPES:
                     struct.pack_into("<I", blob, value_off + 4, int_rules[name])
                     patched.append((name, v_data, int_rules[name]))
         pos += size
     return patched
 
 
-def patch_apk(src_apk, dst_apk, strings=None, ints=None):
-    """把 src_apk 复制为 dst_apk 并改写其中的 AndroidManifest.xml.
+def patch_manifest(blob, strings=None, ints=None):
+    """改写二进制 AndroidManifest.xml.
 
-    strings 是 旧字符串 -> 新字符串, ints 是 属性名 -> 新整数值.
-    返回 (改动说明列表, manifest 新大小).
+    strings 是 旧字符串 -> 新字符串, ints 是 属性名 -> 新整数值 (布尔可用 True/False).
+    返回 (新字节, 改动说明列表).
     """
     strings = strings or {}
-    ints = {k: v for k, v in (ints or {}).items() if k in INT_ATTR_NAMES}
+    ints = {k: _coerce_int(k, v) for k, v in (ints or {}).items() if k in INT_ATTR_NAMES}
 
-    with zipfile.ZipFile(src_apk) as zf:
-        entries = [(info, zf.read(info.filename)) for info in zf.infolist()]
-
-    manifest = None
-    for info, data in entries:
-        if info.filename == "AndroidManifest.xml":
-            manifest = bytearray(data)
-            break
-    if manifest is None:
-        raise ManifestError("输入 APK 里没有 AndroidManifest.xml: %s" % src_apk)
-
+    manifest = bytearray(blob)
     pool = StringPool(bytes(manifest), 8)
     log.info("字符串池: %d 项, 编码 %s, 大小 %d 字节"
              % (pool.string_count, "UTF-8" if pool.utf8 else "UTF-16", pool.old_size))
@@ -202,12 +216,35 @@ def patch_apk(src_apk, dst_apk, strings=None, ints=None):
 
     if ints:
         for name, old, new in _patch_ints(new_manifest, StringPool(bytes(new_manifest), 8), ints):
-            log.info("  整数属性 %s: %d -> %d" % (name, old, new))
-            changes.append(("%s=%d" % (name, old), "%s=%d" % (name, new)))
+            log.info("  整数属性 %s: %s -> %s" % (name, _fmt_int(name, old), _fmt_int(name, new)))
+            changes.append(("%s=%s" % (name, _fmt_int(name, old)),
+                            "%s=%s" % (name, _fmt_int(name, new))))
+
+    return bytes(new_manifest), changes
+
+
+def patch_apk(src_apk, dst_apk, strings=None, ints=None):
+    """把 src_apk 复制为 dst_apk 并改写其中的 AndroidManifest.xml.
+
+    strings 是 旧字符串 -> 新字符串, ints 是 属性名 -> 新整数值 (布尔可用 True/False).
+    返回 (改动说明列表, manifest 新大小).
+    """
+    with zipfile.ZipFile(src_apk) as zf:
+        entries = [(info, zf.read(info.filename)) for info in zf.infolist()]
+
+    manifest = None
+    for info, data in entries:
+        if info.filename == "AndroidManifest.xml":
+            manifest = data
+            break
+    if manifest is None:
+        raise ManifestError("输入 APK 里没有 AndroidManifest.xml: %s" % src_apk)
+
+    new_manifest, changes = patch_manifest(manifest, strings, ints)
 
     with zipfile.ZipFile(dst_apk, "w", zipfile.ZIP_DEFLATED) as zf:
         for info, data in entries:
-            payload = bytes(new_manifest) if info.filename == "AndroidManifest.xml" else data
+            payload = new_manifest if info.filename == "AndroidManifest.xml" else data
             new_info = zipfile.ZipInfo(info.filename, date_time=info.date_time)
             new_info.compress_type = info.compress_type
             new_info.external_attr = info.external_attr
