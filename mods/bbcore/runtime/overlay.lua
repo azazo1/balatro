@@ -87,9 +87,14 @@ end
 --- 人打开了菜单: 有覆盖菜单, 且不是解锁通知或胜利界面 (这两种由 agent 自动处理).
 --- 局外的菜单 (主菜单上的设置等, kind 对它们返回 nil) 也算. 内置 agent 据此原地等, 锁操作据此放开输入,
 --- agent 的手动操作检测也据此不算菜单里的点击. 三处共用这一个判断.
+--- 游戏结束界面也是覆盖菜单, 但不是人打开的 (且 no_esc, 上面开不了别的菜单), 不算: 否则内置 agent 一直等,
+--- 走不到回主菜单与 after_run 的处理.
 ---@return boolean
 function M.menu_open()
   if not (G and G.OVERLAY_MENU) then
+    return false
+  end
+  if G.STAGE == G.STAGES.RUN and G.STATE == G.STATES.GAME_OVER then
     return false
   end
   local kind = M.kind()
