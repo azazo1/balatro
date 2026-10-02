@@ -26,6 +26,7 @@
 每步完成后比对状态摘要, 不一致时在 VERIFY_WINDOW 秒内反复确认, 仍不一致就停止回放, 录像保留到这里.
 回放期间锁定输入 (replay/input_lock.lua), 窗口最右上角有暂停/继续, 节奏 (原速 -> 紧凑 -> 快进 循环) 和中止;
 按住 Esc 或手柄 back 1 秒也能中止 (触摸是长按 1.5 秒, 按在 HUD 上不算).
+开局请求已经发出但还没进局时中止, 先等开局落地再收尾, 避免叠一层转场崩溃.
 命令行回放完成退出码为 0, 跑偏为 1, 中止为 2, 文件无法回放为 3; 游戏内以同样的数字回调给界面, 用来显示结果.
 ]]
 
@@ -216,7 +217,7 @@ local function bump_times(dt)
 end
 
 local function controlling()
-  return M.active and st.phase ~= "ending" and st.phase ~= "quit" and st.phase ~= "off"
+  return M.active and not st.aborting and st.phase ~= "ending" and st.phase ~= "quit" and st.phase ~= "off"
 end
 
 --- 暂停回放: 不再做下一步, 已经发出去的请求仍等结果. 收尾阶段不能暂停.
@@ -294,11 +295,19 @@ function M.cycle_pacing()
 end
 
 --- 中止回放, 与按住 Esc 到头相同.
+--- 开局请求已经发出但还没完成时先等它结束再收尾: start/load 的等待事件是 no_delete,
+--- 一边进局一边 session.finish / go_to_menu 会叠一层转场, 原版 wipe_off 空引用崩溃.
 ---@return boolean
 function M.abort()
+  if st.aborting then
+    return true
+  end
   if not controlling() then
     return false
   end
+  st.aborting = true
+  M.paused = false
+  st.freeze_at = nil
   sendWarnMessage("Replay aborted by user", LOGGER)
   toast("回放中止", "用户中止了回放", 3)
   deps.recorder.annotate("replay", {
@@ -308,6 +317,12 @@ function M.abort()
     aborted = true,
     step = st.index,
   })
+  -- 还没发出开局请求 (warn) 或已经在局里: 立刻进入收尾.
+  -- starting 阶段让 update 等开局响应, 再走同一条收尾.
+  if st.phase == "starting" then
+    sendInfoMessage("Replay abort waiting for start to settle", LOGGER)
+    return true
+  end
   finish_later(2, 1)
   return true
 end
@@ -948,8 +963,8 @@ function M.update()
     -- 按住期间显示进度, 松手后按下一次刷新 (0.3 秒) 收起.
     deps.stream.show_status(string.format("按住中止回放 (%d%%), 松开取消", math.floor(progress * 100 + 0.5)), 0.3)
   end
-  if progress >= 1 and M.abort() then
-    return
+  if progress >= 1 then
+    M.abort()
   end
   if M.paused then
     bump_times(t - (st.freeze_at or t))
@@ -993,6 +1008,10 @@ function M.update()
     if st.result then
       local result = st.result
       st.result, st.waiting = nil, nil
+      if st.aborting then
+        finish_later(2, 1)
+        return
+      end
       if not result.ok then
         diverge("开局失败: " .. tostring(result.error))
         return
@@ -1003,6 +1022,10 @@ function M.update()
       st.prev_done = t
       set_phase("run")
     elseif t - st.phase_at > 60 then
+      if st.aborting then
+        finish_later(2, 1)
+        return
+      end
       diverge("开局超过 60 秒没有完成")
     end
   elseif phase == "run" then
@@ -1017,7 +1040,8 @@ function M.update()
       stream_tick(t)
     end
   elseif phase == "ending" then
-    if t >= st.quit_at then
+    -- 开局转场还在时回主菜单会叠一层 wipe, 拆掉 G.screenwipe 后原版 wipe_off 空引用.
+    if t >= st.quit_at and not (G.screenwipe and t - st.phase_at < 5) then
       set_phase("quit")
       deps.input_lock.release()
       if st.ingame then

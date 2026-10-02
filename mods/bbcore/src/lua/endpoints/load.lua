@@ -127,9 +127,14 @@ return {
         end
 
         if G.STATE == G.STATES.BLIND_SELECT then
-          done = G.GAME.blind_on_deck ~= nil
-            and G.blind_select_opts ~= nil
-            and G.blind_select_opts["small"]:get_UIE_by_ID("tag_Small") ~= nil
+          -- small 可能尚未建好, 已被拆掉, 或这一局隐藏了 Small. 直接 :get_UIE_by_ID 会空引用.
+          local small = G.blind_select_opts and G.blind_select_opts.small
+          done = G.GAME
+            and G.GAME.blind_on_deck ~= nil
+            and type(small) == "table"
+            and small.UIRoot
+            and not small.REMOVED
+            and small:get_UIE_by_ID("tag_Small") ~= nil
         end
 
         if G.STATE == G.STATES.SELECTING_HAND then
