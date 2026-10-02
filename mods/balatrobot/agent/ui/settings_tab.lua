@@ -3,7 +3,7 @@ mod 设置页 (模组 -> BalatroBot -> 配置), 即 MOD.config_tab.
 
 左列: agent 模式, 内置 agent 的连接 (endpoint, 模型名, key, 鉴权方式) 与状态行.
 右列: 内置 agent 的对局设置 (单局 token 上限, 最大上下文, 思考强度, 赢后处理, 打完一局之后, 种子, 策略) 与显示开关.
-底部整行: 粘贴, 清除等操作的结果. 录像与回放的设置在 bbreplay 自己的设置页.
+底部整行: 对局相关说明, 以及粘贴, 清除等操作的结果. 录像与回放的设置在 bbreplay 自己的设置页.
 
 - 原版文本框的字符表没有 '/', 还会把 '0' 改成 'o', 所以 endpoint, 模型名, key, 策略都用 "从剪贴板粘贴" 输入.
   策略还能复制回剪贴板, 改完再粘回来.
@@ -425,9 +425,6 @@ local function play_column()
     }),
     seed_row(),
     strategy_row(),
-    W.row({ W.text("种子: 最多 8 位字母和数字, 空为随机; 固定种子的局按原版规则不计解锁和统计.", 0.26, G.C.UI.TEXT_INACTIVE) }),
-    W.row({ W.text("打完一局: 停止则回主菜单后关掉; 继续则保留对话, 由模型自己开下一局.", 0.26, G.C.UI.TEXT_INACTIVE) }),
-    W.row({ W.text("策略: 自己写的打法要求, 粘贴后下一次开始时生效.", 0.26, G.C.UI.TEXT_INACTIVE) }),
     W.title("显示"),
   }
   nodes[#nodes + 1] = toggle("显示 agent 消息", "show_messages", function(value)
@@ -461,6 +458,10 @@ function M.build()
         W.col({}, { minw = 0.2 }),
         play_column(),
       }, { align = "tm", padding = 0 }),
+      -- 对局说明放整行, 避免右列比左列高出一截.
+      W.row({ W.text("种子: 最多 8 位字母和数字, 空为随机; 固定种子的局按原版规则不计解锁和统计.", 0.26, G.C.UI.TEXT_INACTIVE) }),
+      W.row({ W.text("打完一局: 停止则回主菜单后关掉; 继续则保留对话, 由模型自己开下一局.", 0.26, G.C.UI.TEXT_INACTIVE) }),
+      W.row({ W.text("策略: 自己写的打法要求, 粘贴后下一次开始时生效.", 0.26, G.C.UI.TEXT_INACTIVE) }),
       -- 粘贴, 清除, 切换模式的结果: 两列的按钮共用, 放在底部整行.
       W.row({ W.live(view, "action_note", 0.27, G.C.UI.TEXT_INACTIVE) }, { align = "cm" }),
     },
