@@ -5,7 +5,7 @@
   (回放要从开局开始). 别的东西在操作游戏 (BB_CONTROL, 例如内置 agent 运行中) 时不可用.
 - 列表: 扫描录像目录, 按时间倒序分页, 每行是开始时间, 牌组, 赌注, 种子, 结果, 步数, 原局时长.
   不能回放的文件不可点, 行的文字里带上原因.
-- 确认页: 回放前的提示, 节奏 (tight / original), 是否录像, 然后开始.
+- 确认页: 回放前的提示, 节奏 (original / tight / fast, 回放中途还能在右上角切换), 是否录像, 然后开始.
 
 开始时的动作: 检查互斥 -> 存档隔离 (replay/session.lua) -> 按选择设定录像 -> 关掉菜单 ->
 交给 replay/player.lua (它在 BB_CONTROL 上申请独占). 结束时 player 释放独占并回调到这里: 恢复录像设置, 显示结果.
@@ -501,8 +501,9 @@ local function confirm_definition()
   nodes[#nodes + 1] = W.row({
     W.text("节奏", 0.32),
     W.radio({
-      { "tight", "紧凑" },
       { "original", "原速" },
+      { "tight", "紧凑" },
+      { "fast", "快进" },
     }, function()
       return confirm.pacing
     end, function(value)

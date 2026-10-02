@@ -255,12 +255,18 @@ do -- 消息截断按 UTF-8 字符, 不切断多字节字符
   check("显式 cap 仍生效", Toast.duration_for(string.rep("中", 200), nil, 8) == 8)
   local normal_right = Toast.duration_for(string.rep("中", 20))
   local left_before = Toast.duration_for(string.rep("中", 20), nil, nil, left_opts)
-  Toast.compact = true
+  Toast.set_pace("compact")
   local compact_right = Toast.duration_for(string.rep("中", 20))
   local left_compact = Toast.duration_for(string.rep("中", 20), nil, nil, left_opts)
-  Toast.compact = false
+  Toast.set_pace("fast")
+  -- 快进: 原局讲解显式给的时长也不等; 回放自己的提示 (fixed) 仍按正常时长.
+  local fast_explicit = Toast.duration_for("hi", 12)
+  local fixed_fast = Toast.duration_for(string.rep("中", 20), nil, nil, { fixed = true })
+  Toast.set_pace("normal")
   check("紧凑模式右侧更快", compact_right < normal_right, tostring(compact_right) .. " vs " .. tostring(normal_right))
   check("左侧不跟紧凑开关走", left_compact == left_before, tostring(left_compact))
+  check("快进几乎不等读完", fast_explicit < 0.2, tostring(fast_explicit))
+  check("fixed 不跟快进走", fixed_fast == normal_right, tostring(fixed_fast))
 end
 
 do -- 队列: 一条条显示, 顺序不丢; 讲解的 id 让后面的操作能等它退去
@@ -418,7 +424,7 @@ do -- 两条车道: 左侧的工具调用记录与右侧的决策消息各自排
 
   -- 显式 duration=1 时: 左侧 linger 0.4, 右侧 2. 左侧应先退去.
   Toast.clear()
-  Toast.compact = false
+  Toast.set_pace("normal")
   local right_i = #boxes + 1
   Toast.push("右侧", "决策", 1)
   local left_i = #boxes + 1
@@ -428,14 +434,42 @@ do -- 两条车道: 左侧的工具调用记录与右侧的决策消息各自排
   end
   check("2.3 秒后左侧已退去, 右侧还在", boxes[left_i].REMOVED and not boxes[right_i].REMOVED)
   Toast.clear()
-  Toast.compact = true
+  Toast.set_pace("compact")
   local compact_i = #boxes + 1
   Toast.push("右侧", "决策", 1)
   for _ = 1, 23 do
     Toast.update(0.1)
   end
   check("紧凑右侧 2.3 秒已退去", boxes[compact_i].REMOVED)
-  Toast.compact = false
+  Toast.clear()
+  -- 回放中途切到快进: 屏幕上那条按新档位重算, 等着它读完的调用方很快放行.
+  Toast.set_pace("normal")
+  local read = false
+  Toast.push("右侧", string.rep("中", 60), nil, function()
+    read = true
+  end)
+  Toast.update(0.5)
+  Toast.set_pace("fast")
+  Toast.update(0.1)
+  check("切到快进后屏幕上的讲解立刻读完", read)
+  Toast.clear()
+  -- 快进: 回调立刻放行, 但框要停够滑入的时间 (约 0.4 秒), 否则还没进屏幕就退场了.
+  -- 第二条不排队, 直接叠上来.
+  local first_i = #boxes + 1
+  local fast_read = false
+  Toast.push("右侧", "讲解一", nil, function()
+    fast_read = true
+  end, { gated = true })
+  Toast.update(0.2)
+  local second_i = #boxes + 1
+  Toast.push("右侧", "讲解二", nil, nil, { gated = true })
+  check("快进时第二条不排队", boxes[second_i] ~= nil)
+  for _ = 1, 6 do
+    Toast.update(0.1)
+  end
+  check("快进时回调很快放行", fast_read)
+  check("快进时框仍停留够滑入的时间", not boxes[first_i].REMOVED)
+  Toast.set_pace("normal")
   Toast.clear()
 
   -- 左侧的换行宽度比右侧窄: 同样一段文字, 左侧折出的行更短 (弹窗水平方向不会拉长)

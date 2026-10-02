@@ -7,13 +7,15 @@
 - 游戏内: 主菜单的 选项 -> 回放 选一个文件, 见 ui/replay_menu.lua. 存档隔离与收尾交给
   replay/session.lua (丢弃存档写入, 结束后读回进度并恢复设置), 结束后回调给界面显示结果.
 
-节奏 (BALATROBOT_REPLAY_PACING, 游戏内由确认页选):
-- tight: 上一步完成且动画停下后, 稍等 TIGHT_GAP 秒就做下一步, 去掉原局里 agent 思考的时间.
-  讲解 (notify) 仍等阅读时长 (传 wait: true), 但 toast 改用紧凑时长, 退去更快.
-  回放期间关掉讲解门槛, 原局里操作是怎么排的就怎么排. 工具调用那条左侧始终用短时长.
-  流式条把原局那段输出压进这段短等待, 按压缩后的平均字速滚.
-- original: 按原局里两步之间的实际间隔回放, 包括思考的时间; 动画没停时也会等它停下.
+节奏 (BALATROBOT_REPLAY_PACING, 游戏内由确认页选, 回放中途可用右上角按钮切换):
+- original (原速): 按原局里两步之间的实际间隔回放, 包括思考的时间; 动画没停时也会等它停下.
   流式条按录制时的起止时间以平均字速滚模型输出.
+- tight (紧凑): 上一步完成且动画停下后, 稍等 TIGHT_GAP 秒就做下一步, 去掉原局里 agent 思考的时间.
+  讲解 (notify) 仍等阅读时长 (传 wait: true), 但 toast 改用紧凑时长, 退去更快.
+  流式条把原局那段输出压进这段短等待, 按压缩后的平均字速滚.
+- fast (快进): 间隔同 tight, 讲解的阅读时长几乎为零, 弹出后随即做下一步; 框仍停留一小会儿, 新的叠在上面.
+回放期间关掉讲解门槛, 原局里操作是怎么排的就怎么排. 工具调用那条左侧始终用短时长.
+回放自己的提示 (警告, 中止方法, 结果) 不跟节奏走, 始终按正常时长显示.
 
 弹窗不会一出现就关:
 - 解锁通知: 停留 UNLOCK_HOLD 秒后点继续 (original 节奏下取原局的停留时长, 至少 UNLOCK_HOLD).
@@ -21,8 +23,8 @@
 - 胜利界面: Jimbo 出现后再停 WIN_HOLD 秒, 然后按原局的选择 (endless 或 menu) 继续.
 
 每步完成后比对状态摘要, 不一致时在 VERIFY_WINDOW 秒内反复确认, 仍不一致就停止回放, 录像保留到这里.
-回放期间锁定输入, 窗口最右上角有暂停/继续, 快进和中止; 按住 Esc 1 秒也能中止 (触摸是长按 1.5 秒).
-快进只取消讲解的阅读等待: 文字照常弹出, 不等读完就做下一步.
+回放期间锁定输入, 窗口最右上角有暂停/继续, 节奏 (原速 -> 紧凑 -> 快进 循环) 和中止;
+按住 Esc 1 秒也能中止 (触摸是长按 1.5 秒).
 命令行回放完成退出码为 0, 跑偏为 1, 中止为 2, 文件无法回放为 3; 游戏内以同样的数字回调给界面, 用来显示结果.
 ]]
 
@@ -35,11 +37,10 @@ local LOGGER = "BB.AGENT.REPLAY"
 local M = {
   active = false,
   paused = false,
-  fast = false,
   status = "off",
 }
 
-local ABORT_HINT = "右上角可暂停, 快进或中止; 按住 Esc 1 秒也能中止, 触摸时长按 1.5 秒"
+local ABORT_HINT = "右上角可暂停, 切换节奏或中止; 按住 Esc 1 秒也能中止, 触摸时长按 1.5 秒"
 
 local function env_number(name, default)
   local value = tonumber(os.getenv(name) or "")
@@ -88,16 +89,30 @@ local function set_phase(phase)
   st.phase_at = now()
 end
 
+--- 回放自己的提示 (警告, 中止方法, 结果): 不跟节奏的时长档位走, 快进时也读得到.
+local FIXED_TOAST = { fixed = true }
 local function toast(title, text, duration)
-  deps.toast.push(title, text, duration)
+  deps.toast.push(title, text, duration, nil, FIXED_TOAST)
+end
+
+-- 节奏: 原速, 紧凑, 快进. 顺序即 HUD 按钮循环切换的顺序.
+local PACINGS = { "original", "tight", "fast" }
+local PACING_LABELS = { original = "原速", tight = "紧凑", fast = "快进" }
+-- 节奏对应的右侧消息时长档位, 见 bbcore 的 toast.set_pace.
+local TOAST_PACE = { original = "normal", tight = "compact", fast = "fast" }
+
+---@param value any
+---@return boolean
+local function valid_pacing(value)
+  return PACING_LABELS[value] ~= nil
 end
 
 --- 回放期间关掉 "等讲解退去" 的门槛: 原局里操作是在讲解停留期间执行的, 回放照原样重做.
---- 紧凑节奏同时打开 toast.compact, 右侧消息更快退去. 结束或开始失败时都要恢复.
+--- 同时按节奏设右侧消息的时长档位. 结束或开始失败时都要恢复.
 ---@param active boolean
 local function set_replay_toast(active)
   deps.toast.gate_enabled = not active
-  deps.toast.compact = active and cfg.pacing == "tight"
+  deps.toast.set_pace(active and TOAST_PACE[cfg.pacing] or "normal")
 end
 
 local REPLAY_SUFFIX = ".replay.json"
@@ -163,7 +178,6 @@ end
 --- 停留 hold 秒后结束回放: 命令行按退出码结束进程, 游戏内把结果交回界面, 由它收尾.
 local function finish_later(code, hold)
   M.paused = false
-  M.fast = false
   st.freeze_at = nil
   st.exit_code = code
   st.quit_at = now() + hold
@@ -245,19 +259,37 @@ function M.toggle_pause()
   return M.pause()
 end
 
---- 快进: 讲解照常弹出, 只是不等阅读时长. 再点一次恢复.
+---@return string
+function M.pacing()
+  return cfg.pacing
+end
+
+--- 回放中途切换节奏. 屏幕上的讲解随即按新档位重算停留, 下一步的间隔按新节奏算.
+---@param pacing string original / tight / fast
 ---@return boolean
-function M.toggle_fast()
-  if not controlling() then
+function M.set_pacing(pacing)
+  if not controlling() or not valid_pacing(pacing) or pacing == cfg.pacing then
     return false
   end
-  M.fast = not M.fast
-  if M.fast and deps.toast and deps.toast.skip_reads then
-    -- 正在等读完的那条立刻放行, 通知本身继续显示.
-    deps.toast.skip_reads()
+  local before = cfg.pacing
+  cfg.pacing = pacing
+  set_replay_toast(true)
+  if deps.stream then
+    deps.stream.show_status("回放节奏: " .. PACING_LABELS[pacing], 1.2)
   end
-  sendInfoMessage(M.fast and "Replay fast-forward on" or "Replay fast-forward off", LOGGER)
+  sendInfoMessage(string.format("Replay pacing %s -> %s at step %d", before, pacing, st.index or 0), LOGGER)
   return true
+end
+
+--- HUD 按钮: 原速 -> 紧凑 -> 快进 -> 原速 循环.
+---@return boolean
+function M.cycle_pacing()
+  for i, pacing in ipairs(PACINGS) do
+    if pacing == cfg.pacing then
+      return M.set_pacing(PACINGS[i % #PACINGS + 1])
+    end
+  end
+  return M.set_pacing(PACINGS[1])
 end
 
 --- 中止回放, 与按住 Esc 到头相同.
@@ -299,15 +331,19 @@ local function replay_hud_spec()
         end,
       },
       {
-        label = "快进",
+        -- 显示当前节奏, 点一下切到下一种.
+        label = PACING_LABELS[cfg.pacing],
         label_fn = function()
-          return M.fast and "原速" or "快进"
+          return PACING_LABELS[cfg.pacing]
         end,
         colour = function()
-          return M.fast and G.C.BLUE or G.C.L_BLACK
+          if cfg.pacing == "fast" then
+            return G.C.BLUE
+          end
+          return cfg.pacing == "tight" and G.C.L_BLACK or G.C.GREY
         end,
         on_click = function()
-          M.toggle_fast()
+          M.cycle_pacing()
         end,
       },
       {
@@ -329,7 +365,6 @@ local function finish_ingame()
   local warnings = deps.session.finish()
   M.active = false
   M.paused = false
-  M.fast = false
   M.status = "off"
   st.phase = "off"
   -- 先释放再回调: 界面收尾时 agent 已经按当前模式恢复.
@@ -351,9 +386,6 @@ local function update_status()
   end
   if M.paused then
     M.status = M.status .. " paused"
-  end
-  if M.fast then
-    M.status = M.status .. " fast"
   end
 end
 
@@ -497,11 +529,11 @@ local function run_action(action)
     st.waiting = { method = action.method, sent = now(), pending = true }
     return
   end
-  -- 讲解照原局那样按阅读时长等: 端点默认改成不等了, 回放要的仍是原来的节奏.
-  -- 快进时文字照常弹出, 只是不等读完.
+  -- 讲解按阅读时长等: 端点默认改成不等了, 回放要的仍是原来的节奏.
+  -- 时长由节奏对应的档位决定, 快进时几乎不等.
   if action.method == "notify" then
     local params = copy(action.params or {})
-    params.wait = not M.fast
+    params.wait = true
     dispatch(action.method, params, action.reason, false)
     return
   end
@@ -753,11 +785,10 @@ function M.init_early(options)
   -- 启动时没有别的东西在操作游戏, 这里只是登记, 让 balatrobot 不开端口.
   deps.control.claim(OWNER)
   M.active = true
-  M.fast = false
   st = { phase = "boot", phase_at = now(), index = 1, prev_done = now(), last_busy = now(), reference = 0 }
 
   local pacing = os.getenv("BALATROBOT_REPLAY_PACING")
-  if pacing == "tight" or pacing == "original" then
+  if valid_pacing(pacing) then
     cfg.pacing = pacing
   end
   cfg.unlock_hold = env_number("BALATROBOT_REPLAY_UNLOCK_HOLD", cfg.unlock_hold)
@@ -818,7 +849,7 @@ local function show_warnings(extra, duration)
   for _, text in ipairs(list) do
     sendWarnMessage("Replay warning: " .. text, LOGGER)
     toast("回放警告", text, duration)
-    wait = wait + deps.toast.duration_for(text) + 0.5
+    wait = wait + deps.toast.duration_for(text, duration, nil, FIXED_TOAST) + 0.5
   end
   return wait
 end
@@ -862,7 +893,7 @@ function M.start(options)
     deps.control.release(OWNER)
     return false, problem
   end
-  cfg.pacing = options.pacing == "original" and "original" or "tight"
+  cfg.pacing = valid_pacing(options.pacing) and options.pacing or "tight"
   -- 回放期间不写盘: 待弹的解锁通知也保持磁盘上的原样, 回放里没有的通知就跳过对应步骤.
   local ok, result = pcall(deps.snapshot.apply, decoded.snapshot, { write_notify = false })
   if not ok then
@@ -882,13 +913,12 @@ function M.start(options)
   }
   M.active = true
   M.paused = false
-  M.fast = false
   set_replay_toast(true)
   st.warn_until = now() + show_warnings(result, 4)
   deps.input_lock.install()
   deps.recorder.annotate("replay", { source = data.source, file = options.path, pacing = cfg.pacing, entry = "ingame" })
   sendInfoMessage(string.format("游戏内回放开始: %s, %d 步, 节奏 %s", options.path, #data.actions, cfg.pacing), LOGGER)
-  toast("回放中", ABORT_HINT, deps.toast.duration_for(ABORT_HINT))
+  toast("回放中", ABORT_HINT, deps.toast.duration_for(ABORT_HINT, nil, nil, FIXED_TOAST))
   update_status()
   return true
 end

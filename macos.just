@@ -45,15 +45,15 @@ run-agent record="on" fast="0": dist-modded
     echo "游戏日志: $log"
     dist/macos/Balatro-Modded.app/Contents/MacOS/love 2>&1 | tee "$log"
 
-# just macos replay recordings/<stem> [tight|original]
+# just macos replay recordings/<stem> [tight|original|fast]
 # 按回放文件重玩一局并录制到 recordings/, 使用临时存档 Balatro-Replay, 期间锁定输入, 按住 Esc 1 秒中止.
 # 参数可以是这一局的文件夹 (每局一个文件夹), 也可以是里面的 .replay.json 文件本身.
 replay file pacing="tight": dist-modded
     #!/usr/bin/env bash
     set -euo pipefail
     case {{ quote(pacing) }} in
-        tight|original) ;;
-        *) echo "pacing 只能是 tight 或 original, 收到: {{ pacing }}" >&2; exit 2 ;;
+        tight|original|fast) ;;
+        *) echo "pacing 只能是 tight, original 或 fast, 收到: {{ pacing }}" >&2; exit 2 ;;
     esac
     file={{ quote(file) }}
     case "$file" in

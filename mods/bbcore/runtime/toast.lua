@@ -17,7 +17,9 @@ agent 提示消息, 仿原版成就解锁通知 (functions/common_events.lua 的
   排队不设上限, 一句解说都不丢 (agent 打得太快时文字会落后于画面, 这是取舍).
 - 每条通知有阅读时长 (按字数估算) 和额外停留: 阅读时长过后 on_read 回调触发.
   左侧那条的正文短, 始终用更短的阅读上限和停留, 不跟右侧走.
-  右侧在 M.compact (回放紧凑节奏) 时同样改用更短的阅读与停留.
+  右侧按 M.pace 选时长: 回放紧凑节奏用更短的阅读与停留; 快进时阅读时长几乎为零 (等着的调用方随即放行),
+  框仍停留一小会儿, 且不排队, 新来的直接叠在最上面 (见 M.set_pace).
+  push 时带 fixed 的消息 (回放自己的提示) 不跟 pace 走, 始终按正常时长.
 - 讲解 (gate 为 true 的那些, 目前是 notify) 还能被后面的操作等: 见 M.gate_id / M.gate_open,
   改状态的操作要等自己那条讲解退去才执行 (dispatcher 的门槛), 观众先看到文字再看到动作.
   左侧那条不拦操作.
@@ -32,8 +34,9 @@ local M = {
   -- 讲解是否拦后面的操作 (dispatcher 的门槛). 回放时关掉: 原局里操作是在讲解停留期间就执行的,
   -- 回放照原样重做, 不该再被拦一次 (回放自身用 notify 的 wait 复现原来的节奏).
   gate_enabled = true,
-  -- 右侧用更短的阅读与停留 (回放紧凑节奏打开). 左侧工具调用始终用短时长, 不看这个开关.
-  compact = false,
+  -- 右侧的时长档位: normal / compact (回放紧凑节奏) / fast (回放快进, 几乎不等).
+  -- 左侧工具调用始终用短时长, 不看这个档位. 回放中途切换用 M.set_pace.
+  pace = "normal",
 }
 
 local MAX_ITEMS = 3
@@ -70,6 +73,17 @@ local COMPACT_TIMING = {
   read_base = 0.7,
   read_wide = 0.10,
   read_narrow = 0.04,
+}
+-- 右侧快进: 读完的回调几乎立刻触发 (等着的回放随即做下一步), 但框仍停留 linger 秒.
+-- 滑入要 0.3~0.4 秒 (原版的弹簧移动), 停留太短时框还没进屏幕就开始退场, 等于看不到.
+-- 快进时这一侧不排队, 新来的直接叠在最上面 (见 stacking), 文字不会落后于画面.
+local FAST_TIMING = {
+  linger = 1.4,
+  read_min = 0.05,
+  read_max = 0.05,
+  read_base = 0.05,
+  read_wide = 0,
+  read_narrow = 0,
 }
 -- 左侧工具调用: 正文只有一句参数说明, 始终比右侧短, 不跟紧凑开关走.
 local CALL_TIMING = {
@@ -279,26 +293,36 @@ local function build_definition(title, text, side)
 end
 
 ---@param side "left"|"right"?
+---@param fixed boolean? 不跟 pace 走, 始终按正常时长
 ---@return table
-local function timing_for(side)
+local function timing_for(side, fixed)
   if side == "left" then
     return CALL_TIMING
   end
-  if M.compact then
+  if fixed then
+    return NORMAL_TIMING
+  end
+  if M.pace == "fast" then
+    return FAST_TIMING
+  end
+  if M.pace == "compact" then
     return COMPACT_TIMING
   end
   return NORMAL_TIMING
 end
 
 --- 阅读时长: 中日韩等多字节字符按 wide 计, ASCII 按 narrow 计, 限制在 min~cap.
---- 显式给出 duration 时以它为准. 左侧与紧凑节奏用各自更短的一套数.
+--- 显式给出 duration 时以它为准, 只有快进例外 (原局讲解带的时长也不等). 左侧与紧凑节奏用各自更短的一套数.
 ---@param text string
 ---@param duration number?
 ---@param cap number? 上限, 按字数算时默认该侧 read_max, 显式给了 duration 时默认 MAX_WALL
----@param opts {side: "left"|"right"?}?
+---@param opts {side: "left"|"right"?, fixed: boolean?}?
 ---@return number
 function M.duration_for(text, duration, cap, opts)
-  local timing = timing_for(opts and opts.side)
+  local timing = timing_for(opts and opts.side, opts and opts.fixed)
+  if timing == FAST_TIMING then
+    return timing.read_min
+  end
   if type(duration) == "number" and duration > 0 then
     return math.min(duration, cap or MAX_WALL)
   end
@@ -354,6 +378,15 @@ local function remove_item(item)
   end
 end
 
+--- 按当前档位算一条消息的阅读时长与总停留. 显示时算一次, 切换档位时对屏幕上的再算一次.
+---@param entry table
+local function retime(entry)
+  local side = entry.lane.side
+  local timing = timing_for(side, entry.fixed)
+  entry.read = M.duration_for(entry.shown_text, entry.duration, nil, { side = side, fixed = entry.fixed })
+  entry.life = math.min(entry.read + timing.linger, MAX_WALL)
+end
+
 --- 让一条消息开始显示: 建 UIBox 并放进它那条车道.
 ---@param entry table
 local function show(entry)
@@ -379,11 +412,28 @@ local function show(entry)
   entry.box = box
   entry.attach = G.ROOM_ATTACH
   entry.age = 0
-  local timing = timing_for(lane.side)
-  entry.read = M.duration_for(text, entry.duration, nil, { side = lane.side })
-  entry.life = math.min(entry.read + timing.linger, MAX_WALL)
+  entry.shown_text = text
   entry.leave_at = nil
+  retime(entry)
   table.insert(lane.items, 1, entry)
+end
+
+--- 这条车道是否不排队, 新来的直接叠在最上面: 右侧快进时. 排队会让文字一条条落后于画面.
+---@param lane BB.Toast.Lane
+---@return boolean
+local function stacking(lane)
+  return lane.side == "right" and M.pace == "fast"
+end
+
+--- 超出数量时这条车道上最旧的那些立即滑出.
+--- 排队时同时显示的多是退场中的前一条, 一般到不了这里; 快进叠放时靠它限住条数.
+---@param lane BB.Toast.Lane
+local function trim(lane)
+  for i = MAX_ITEMS + 1, #lane.items do
+    local old = lane.items[i]
+    old.leave_at = old.leave_at or old.age
+    fire_read(old)
+  end
 end
 
 --- 显示一条消息. 同一条车道上已有消息时排队等着 (前一条开始退场时下一条才滑入), 调用方立刻返回.
@@ -393,7 +443,8 @@ end
 ---@param text string
 ---@param duration number?
 ---@param on_read fun()?
----@param opts {gated: boolean?, side: "right"|"left"?}? gated 为 true 时这条是讲解, 可供 dispatcher 的门槛等待
+---@param opts {gated: boolean?, side: "right"|"left"?, fixed: boolean?}? gated 为 true 时这条是讲解, 可供 dispatcher 的门槛等待;
+--- fixed 为 true 时不跟 pace 走 (回放自己的提示, 快进时也要读得到)
 ---@return boolean shown
 function M.push(title, text, duration, on_read, opts)
   local side = (opts and opts.side) == "left" and "left" or "right"
@@ -411,22 +462,18 @@ function M.push(title, text, duration, on_read, opts)
     duration = duration,
     on_read = on_read,
     gated = (opts and opts.gated) == true,
+    fixed = (opts and opts.fixed) == true,
   }
   if entry.gated then
     gated_inflight[entry.id] = true
   end
-  if #lane.items > 0 or #lane.pending > 0 then
+  -- 切到快进前排的队还没放完时仍排在后面, 保持顺序; update 里每帧放一条.
+  if #lane.pending > 0 or (#lane.items > 0 and not stacking(lane)) then
     lane.pending[#lane.pending + 1] = entry
   else
     show(entry)
   end
-  -- 超出数量时这条车道上最旧的一条立即滑出.
-  -- 排队之后同时显示的多是退场中的前一条, 一般到不了这里.
-  for i = MAX_ITEMS + 1, #lane.items do
-    local old = lane.items[i]
-    old.leave_at = old.leave_at or old.age
-    fire_read(old)
-  end
+  trim(lane)
   return true
 end
 
@@ -547,8 +594,10 @@ end
 function M.update(dt)
   for _, lane in pairs(lanes) do
     -- 一条一条来: 这条车道上没有还在显示的消息 (前一条已开始退场) 时, 把队首放出来.
-    if #lane.pending > 0 and not lane_showing(lane) then
+    -- 叠放时 (快进) 不等前一条退场, 每帧放一条.
+    if #lane.pending > 0 and (stacking(lane) or not lane_showing(lane)) then
       show(table.remove(lane.pending, 1))
+      trim(lane)
     end
     if #lane.items > 0 then
       lane.items = advance_lane(lane, dt)
@@ -556,14 +605,20 @@ function M.update(dt)
   end
 end
 
---- 立刻触发还没读完的 on_read, 通知本身继续显示. 回放快进时用: 不等讲解读完, 下一步照做.
-function M.skip_reads()
-  for _, lane in pairs(lanes) do
-    for _, item in ipairs(lane.items) do
-      fire_read(item)
-    end
-    for _, item in ipairs(lane.pending) do
-      fire_read(item)
+--- 切换右侧的时长档位 (回放开始, 结束, 或回放中途切换节奏时用).
+--- 屏幕上还没退场的那些按新档位重算, 已经停留够的随即退场; 排队的显示时自然按新档位算.
+---@param pace "normal"|"compact"|"fast"
+function M.set_pace(pace)
+  if pace ~= "compact" and pace ~= "fast" then
+    pace = "normal"
+  end
+  if M.pace == pace then
+    return
+  end
+  M.pace = pace
+  for _, item in ipairs(lanes.right.items) do
+    if not item.leave_at and not item.fixed then
+      retime(item)
     end
   end
 end
