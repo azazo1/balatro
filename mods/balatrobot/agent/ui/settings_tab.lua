@@ -2,8 +2,8 @@
 mod 设置页 (模组 -> BalatroBot -> 配置), 即 MOD.config_tab.
 
 左列: agent 模式, 内置 agent 的连接 (endpoint, 模型名, key, 鉴权方式) 与状态行.
-右列: 内置 agent 的对局设置 (单局 token 上限, 最大上下文, 思考强度, 赢后处理, 打完一局之后, 种子, 策略) 与显示开关.
-底部整行: 对局相关说明, 以及粘贴, 清除等操作的结果. 录像与回放的设置在 bbreplay 自己的设置页.
+右列: 内置 agent 的对局设置 (单局 token 上限, 最大上下文, 思考强度, 赢后处理, 打完一局之后, 种子, 策略).
+底部整行: 显示开关 (横排), 对局相关说明, 以及粘贴, 清除等操作的结果. 录像与回放的设置在 bbreplay 自己的设置页.
 
 - 原版文本框的字符表没有 '/', 还会把 '0' 改成 'o', 所以 endpoint, 模型名, key, 策略都用 "从剪贴板粘贴" 输入.
   策略还能复制回剪贴板, 改完再粘回来.
@@ -275,7 +275,8 @@ local function toggle(label, ref_value, callback)
     label = label,
     ref_table = config(),
     ref_value = ref_value,
-    w = 3.2,
+    col = true, -- 三个开关横排在同一行
+    w = 2.4,
     label_scale = SCALE,
     callback = function(value)
       save()
@@ -361,7 +362,7 @@ local function connection_column()
   return W.col(nodes, { minw = COL_W, padding = 0.05 })
 end
 
---- 右列: 内置 agent 怎么打 (用量上限, 上下文, 赢后处理, 打完一局之后, 种子, 策略) 与显示开关.
+--- 右列: 内置 agent 怎么打 (用量上限, 上下文, 赢后处理, 打完一局之后, 种子, 策略).
 local function play_column()
   local limit_options = {}
   for i, v in ipairs(Fields.TOKEN_LIMITS) do
@@ -425,22 +426,28 @@ local function play_column()
     }),
     seed_row(),
     strategy_row(),
-    W.title("显示"),
   }
-  nodes[#nodes + 1] = toggle("显示 agent 消息", "show_messages", function(value)
-    deps.toast.enabled = value
-    if not value then
-      deps.toast.clear("right")
-    end
-  end)
-  nodes[#nodes + 1] = toggle("显示工具调用", "show_calls", function(value)
-    deps.toast.calls_enabled = value
-    if not value then
-      deps.toast.clear("left")
-    end
-  end)
-  nodes[#nodes + 1] = toggle("演示流式条 (开发用)", "demo_stream")
   return W.col(nodes, { minw = COL_W, padding = 0.05 })
+end
+
+--- 显示开关: 横排一整行放在两列下方. 竖排在右列里会让右列比左列高出一截, 撑高整个页面.
+local function display_row()
+  return W.row({
+    W.col({ W.text("显示", 0.4, G.C.FILTER) }, { padding = 0.05 }),
+    toggle("显示 agent 消息", "show_messages", function(value)
+      deps.toast.enabled = value
+      if not value then
+        deps.toast.clear("right")
+      end
+    end),
+    toggle("显示工具调用", "show_calls", function(value)
+      deps.toast.calls_enabled = value
+      if not value then
+        deps.toast.clear("left")
+      end
+    end),
+    toggle("演示流式条 (开发用)", "demo_stream"),
+  }, { padding = 0 })
 end
 
 --- MOD.config_tab
@@ -458,6 +465,7 @@ function M.build()
         W.col({}, { minw = 0.2 }),
         play_column(),
       }, { align = "tm", padding = 0 }),
+      display_row(),
       -- 对局说明放整行, 避免右列比左列高出一截.
       W.row({ W.text("种子: 最多 8 位字母和数字, 空为随机; 固定种子的局按原版规则不计解锁和统计.", 0.26, G.C.UI.TEXT_INACTIVE) }),
       W.row({ W.text("打完一局: 停止则回主菜单后关掉; 继续则保留对话, 由模型自己开下一局.", 0.26, G.C.UI.TEXT_INACTIVE) }),
