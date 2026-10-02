@@ -341,7 +341,7 @@ local function connection_column()
       "endpoint",
       "endpoint",
       nil,
-      tip("endpoint", "填完整地址或 API 根地址 (如 .../v1), 从剪贴板粘贴.", "末尾已有 /chat/completions, /responses, /messages 时先去掉, 再按接口补路径.")
+      tip("endpoint", "填完整地址或 API 根地址 (如 .../v1), 从剪贴板粘贴.", "末尾已有 /chat/completions, /responses, /messages 时先去掉,", "再按接口补路径.")
     ),
     value_row("模型名", "model", "model"),
     value_row(
