@@ -3,6 +3,8 @@
 
 - 中文文字要用带中日韩字形的字体: 文本节点都经 toast.pick_lang 选 lang; 原版部件 (create_toggle 等)
   生成的定义用 localize_tree 补上.
+- 悬停说明走原版 tooltip / create_popup_UIBox_tooltip; 弹层是 hover 时才生成的, init 里给
+  create_popup_UIBox_tooltip 包一层 localize_tree, 中文才有字形.
 - 按钮的颜色, 可点与否, 标签文字每帧由 G.FUNCS.bb_button_state 按 ref 表里的函数刷新,
   与原版 can_play 这类 func 的做法一致, 菜单不用重建就能跟着状态变.
 ]]
@@ -15,6 +17,30 @@ local toast
 ---@param options {toast: table}
 function M.init(options)
   toast = options.toast
+  -- 弹层在 hover 时才用原版函数生成, 那时已经过了 localize_tree. 包一层, 中文提示才有字形.
+  -- 只对含非 ASCII 的文本节点补 lang, 原版英文提示不受影响.
+  if type(create_popup_UIBox_tooltip) == "function" and not M._tooltip_wrapped then
+    local orig = create_popup_UIBox_tooltip
+    function create_popup_UIBox_tooltip(tooltip)
+      return M.localize_tree(orig(tooltip))
+    end
+    M._tooltip_wrapped = true
+  end
+end
+
+--- 原版 tooltip 表: {title?, text = string[]}, 一行一条, 不会自动折行.
+---@param title string?
+---@param ... string
+---@return {title: string?, text: string[]}
+function M.tip(title, ...)
+  local text = {}
+  for i = 1, select("#", ...) do
+    text[i] = select(i, ...)
+  end
+  if title then
+    return { title = title, text = text }
+  end
+  return { text = text }
 end
 
 ---@return table 带中日韩字形的 lang
@@ -166,6 +192,7 @@ end
 ---@field col boolean? 作为列排列 (横排按钮)
 ---@field padding number? 按钮内边距, 默认 0.06
 ---@field outer_padding number? 按钮外边距, 默认 0.04
+---@field tooltip table? 原版 {title?, text: string[]}, 悬停弹出. 点不了的选中态按钮同样能悬停.
 
 --- 按钮, 外观与 UIBox_button 一致 (圆角, 阴影, 悬停).
 ---@param args BBButtonArgs
@@ -206,6 +233,7 @@ function M.button(args)
           button = "bb_button_click",
           func = "bb_button_state",
           ref_table = ref,
+          tooltip = args.tooltip,
         },
         nodes = {
           {
@@ -258,8 +286,8 @@ end
 
 --- 单选按钮组, 返回一列 (G.UIT.C) 横排的按钮. 单独占一行时用 M.row 包起来:
 --- 行 (R) 的子节点是竖排的, 列 (C) 的子节点才横排.
---- options: { {value, label}, ... }.
----@param options {[1]: any, [2]: string}[]
+--- options: { {value, label, tooltip?}, ... }. tooltip 是原版 {title?, text: string[]}.
+---@param options {[1]: any, [2]: string, [3]: table?}[]
 ---@param current fun(): any
 ---@param on_select fun(value: any)
 ---@param opts {enabled: (fun(value: any): boolean)?, minw: number?, scale: number?}?
@@ -268,12 +296,13 @@ function M.radio(options, current, on_select, opts)
   opts = opts or {}
   local nodes = {}
   for i, option in ipairs(options) do
-    local value, label = option[1], option[2]
+    local value, label, tooltip = option[1], option[2], option[3]
     nodes[i] = M.button({
       label = label,
       col = true,
       minw = opts.minw or 1.2,
       scale = opts.scale,
+      tooltip = tooltip,
       selected = function()
         return current() == value
       end,

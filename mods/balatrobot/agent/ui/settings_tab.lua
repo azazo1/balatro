@@ -2,8 +2,9 @@
 mod 设置页 (模组 -> BalatroBot -> 配置), 即 MOD.config_tab.
 
 左列: agent 模式, 内置 agent 的连接 (endpoint, 模型名, key, 鉴权方式, 接口协议) 与状态行.
-右列: 内置 agent 的对局设置 (单局 token 上限, 最大上下文, 思考强度, Claude 思考方式, 赢后处理, 打完一局之后, 种子, 策略).
-底部整行: 显示开关 (横排), 对局相关说明, 以及粘贴, 清除等操作的结果. 录像与回放的设置在 bbreplay 自己的设置页.
+右列: 内置 agent 的对局设置 (单局 token 上限, 最大上下文, 思考强度, 思考方式, 赢后处理, 打完一局之后, 种子, 策略).
+底部整行: 显示开关 (横排), 以及粘贴, 清除等操作的结果. 字段说明放在悬停提示里, 避免把页面撑高.
+录像与回放的设置在 bbreplay 自己的设置页.
 
 - 原版文本框的字符表没有 '/', 还会把 '0' 改成 'o', 所以 endpoint, 模型名, key, 策略都用 "从剪贴板粘贴" 输入.
   策略还能复制回剪贴板, 改完再粘回来.
@@ -176,6 +177,11 @@ local function paste(field)
   sendInfoMessage("Builtin agent " .. field .. " updated from clipboard", LOGGER)
 end
 
+--- 悬停提示, 一行一条, 原版弹层不会自动折行.
+local function tip(title, ...)
+  return W.tip(title, ...)
+end
+
 --- 行尾的小按钮 (复制, 清除).
 ---@param label string
 ---@param colour table?
@@ -201,7 +207,10 @@ end
 --- 策略一行: 预览, 粘贴, 复制, 清除. 预览比其它行窄, 给多出的两个按钮让位.
 local function strategy_row()
   return W.row({
-    W.col({ W.text("策略", SCALE) }, { minw = LABEL_W }),
+    W.col({ W.text("策略", SCALE) }, {
+      minw = LABEL_W,
+      tooltip = tip("策略", "自己写的打法要求, 粘贴后下一次开始时生效."),
+    }),
     W.col({ W.live(view, "strategy", SCALE, G.C.UI.TEXT_LIGHT) }, { minw = STRATEGY_W }),
     W.button({
       label = "粘贴",
@@ -231,10 +240,11 @@ end
 ---@param ref_value string
 ---@param field string
 ---@param extra table?
+---@param tooltip table?
 ---@return table
-local function value_row(label, ref_value, field, extra)
+local function value_row(label, ref_value, field, extra, tooltip)
   local nodes = {
-    W.col({ W.text(label, SCALE) }, { minw = LABEL_W }),
+    W.col({ W.text(label, SCALE) }, { minw = LABEL_W, tooltip = tooltip }),
     W.col({ W.live(view, ref_value, SCALE, G.C.UI.TEXT_LIGHT) }, { minw = VALUE_W }),
     W.button({
       label = "粘贴",
@@ -255,15 +265,21 @@ end
 
 --- 种子一行: 当前种子 (空为 "随机"), 粘贴, 清除. 要放在 value_row 之后, 局部函数没有提升.
 local function seed_row()
-  return value_row("种子", "seed", "seed", small_button("清除", nil, function()
-    return (config().seed or "") ~= ""
-  end, function()
-    config().seed = ""
-    save()
-    refresh_values()
-    view.action_note = "已清除种子, 内置 agent 开局随机"
-    sendInfoMessage("Builtin agent seed cleared", LOGGER)
-  end))
+  return value_row(
+    "种子",
+    "seed",
+    "seed",
+    small_button("清除", nil, function()
+      return (config().seed or "") ~= ""
+    end, function()
+      config().seed = ""
+      save()
+      refresh_values()
+      view.action_note = "已清除种子, 内置 agent 开局随机"
+      sendInfoMessage("Builtin agent seed cleared", LOGGER)
+    end),
+    tip("种子", "最多 8 位字母和数字, 空为随机.", "固定种子的局按原版规则不计解锁和统计.")
+  )
 end
 
 ---@param label string
@@ -295,10 +311,11 @@ local function connection_column()
     mode_options[i] = { key, deps.modes.LABELS[key] }
   end
   local auth_options = { { "bearer", "Bearer" }, { "x-api-key", "x-api-key" } }
-  local format_options = {}
-  for i, v in ipairs(Fields.API_FORMATS) do
-    format_options[i] = { v, Fields.API_FORMAT_LABELS[i] }
-  end
+  local format_options = {
+    { "chat", "Chat", tip("Chat", "OpenAI chat completions, 默认.") },
+    { "responses", "Responses", tip("Responses", "OpenAI Responses, 无状态, 每次带完整历史.") },
+    { "anthropic", "Anthropic", tip("Anthropic", "Messages 接口.", "Claude 思考用这个, 默认自适应.") },
+  }
 
   local nodes = {
     W.title("agent 模式"),
@@ -319,26 +336,47 @@ local function connection_column()
     }),
     W.row({ W.live(view, "mode_note", 0.27, G.C.UI.TEXT_INACTIVE) }),
     W.title("内置 agent 连接"),
-    value_row("endpoint", "endpoint", "endpoint"),
+    value_row(
+      "endpoint",
+      "endpoint",
+      "endpoint",
+      nil,
+      tip("endpoint", "填完整地址或 API 根地址 (如 .../v1), 从剪贴板粘贴.", "末尾已有 /chat/completions, /responses, /messages 时先去掉, 再按接口补路径.")
+    ),
     value_row("模型名", "model", "model"),
-    value_row("key", "key", "api_key", W.button({
-      label = "清除",
-      col = true,
-      minw = 0.8,
-      scale = SCALE,
-      enabled = function()
-        return (config().api_key or "") ~= ""
-      end,
-      on_click = function()
-        config().api_key = ""
-        save()
-        refresh_values()
-        view.action_note = "已清除 key"
-        sendInfoMessage("Builtin agent api_key cleared", LOGGER)
-      end,
-    })),
+    value_row(
+      "key",
+      "key",
+      "api_key",
+      W.button({
+        label = "清除",
+        col = true,
+        minw = 0.8,
+        scale = SCALE,
+        enabled = function()
+          return (config().api_key or "") ~= ""
+        end,
+        on_click = function()
+          config().api_key = ""
+          save()
+          refresh_values()
+          view.action_note = "已清除 key"
+          sendInfoMessage("Builtin agent api_key cleared", LOGGER)
+        end,
+      }),
+      tip(
+        "key",
+        "以明文保存在本机存档目录 config/balatrobot.jkr.",
+        love._os == "Android"
+            and "该文件权限为 0600, 靠组权限的文件管理器读不到; Android 10 及以前有存储权限的应用仍可能读到."
+          or "配置文件权限为 0600, 只允许本应用读写."
+      )
+    ),
     W.row({
-      W.col({ W.text("鉴权", SCALE) }, { minw = LABEL_W }),
+      W.col({ W.text("鉴权", SCALE) }, {
+        minw = LABEL_W,
+        tooltip = tip("鉴权", "官方 Anthropic 用 x-api-key.", "多数网关用 Bearer."),
+      }),
       W.radio(auth_options, function()
         return config().auth
       end, function(value)
@@ -347,7 +385,10 @@ local function connection_column()
       end, { minw = 1.3, scale = SCALE }),
     }),
     W.row({
-      W.col({ W.text("接口", SCALE) }, { minw = LABEL_W }),
+      W.col({ W.text("接口", SCALE) }, {
+        minw = LABEL_W,
+        tooltip = tip("接口", "只看这一项, 不从地址推断.", "换接口不用改 endpoint, 下一次请求生效."),
+      }),
       W.radio(format_options, function()
         return Fields.API_FORMATS[Fields.index_of(Fields.API_FORMATS, config().api_format)]
       end, function(value)
@@ -356,17 +397,6 @@ local function connection_column()
         view.action_note = "已切换接口, 下一次请求生效"
       end, { minw = 1.3, scale = SCALE }),
     }),
-    W.row({ W.text("endpoint 填完整地址或 API 根地址 (如 .../v1), 按接口补路径, 从剪贴板粘贴.", 0.26, G.C.UI.TEXT_INACTIVE) }),
-    W.row({ W.text("key 以明文保存在本机存档目录 (config/balatrobot.jkr).", 0.26, G.C.UI.TEXT_INACTIVE) }),
-    W.row({
-      W.text(
-        love._os == "Android"
-            and "Android: 该文件权限为 0600, 靠组权限的文件管理器读不到; Android 10 及以前有存储权限的应用仍可能读到."
-          or "配置文件权限为 0600, 只允许本应用读写.",
-        0.26,
-        G.C.UI.TEXT_INACTIVE
-      ),
-    }),
     W.title("状态"),
   }
   for _, key in ipairs({ "agent_line", "runner_line" }) do
@@ -374,6 +404,11 @@ local function connection_column()
   end
   nodes[#nodes + 1] = W.row({ W.live(view, "error_line", 0.28, G.C.RED) })
   return W.col(nodes, { minw = COL_W, padding = 0.05 })
+end
+
+--- 右列标题行: 短标签, 说明放悬停. minw 拉满, 悬停空白处也能出提示.
+local function heading(label, tooltip)
+  return W.row({ W.text(label, SCALE) }, { padding = 0.04, minw = COL_W, tooltip = tooltip })
 end
 
 --- 右列: 内置 agent 怎么打 (用量上限, 上下文, 赢后处理, 打完一局之后, 种子, 策略).
@@ -390,14 +425,15 @@ local function play_column()
   for i, v in ipairs(Fields.REASONING_EFFORTS) do
     effort_options[i] = { v, Fields.REASONING_EFFORT_LABELS[i] }
   end
-  local thinking_options = {}
-  for i, v in ipairs(Fields.THINKING_MODES) do
-    thinking_options[i] = { v, Fields.THINKING_MODE_LABELS[i] }
-  end
+  local thinking_options = {
+    { "adaptive", "自适应", tip("自适应", "模型自己决定想不想, 想多深.", "Opus / Sonnet 4.6 及以后.") },
+    { "budget", "固定预算", tip("固定预算", "给 Opus / Sonnet / Haiku 4.5.", "预算按思考强度折算, 更新的模型会 400.") },
+    { "omit", "不指定", tip("不指定", "不写 thinking, 由服务端决定.") },
+  }
 
   local nodes = {
     W.title("内置 agent 对局"),
-    W.row({ W.text("单局 token 上限", SCALE) }, { padding = 0.04 }),
+    heading("单局 token 上限", tip("单局 token 上限", "超过后自动暂停.", "0 为不限.")),
     W.row({
       W.radio(limit_options, function()
         return Fields.TOKEN_LIMITS[Fields.token_limit_index(config().token_limit)]
@@ -406,7 +442,7 @@ local function play_column()
         save()
       end, { minw = 1.05, scale = 0.28 }),
     }),
-    W.row({ W.text("最大上下文 (到 80% 时压缩较早的对话)", SCALE) }, { padding = 0.04 }),
+    heading("最大上下文", tip("最大上下文", "用量到 80% 时压缩较早的对话.")),
     W.row({
       W.radio(context_options, function()
         return Fields.CONTEXT_LIMITS[Fields.context_limit_index(config().context_limit)]
@@ -415,7 +451,16 @@ local function play_column()
         save()
       end, { minw = 0.85, scale = 0.28 }),
     }),
-    W.row({ W.text("思考强度 (默认不指定)", SCALE) }, { padding = 0.04 }),
+    heading(
+      "思考强度",
+      tip(
+        "思考强度",
+        "默认不指定, 由服务端决定.",
+        "Chat 写 reasoning_effort, Responses 写 reasoning.effort.",
+        "Anthropic 自适应时写 output_config.effort, 固定预算时折算预算.",
+        "超高 / 最高只有部分模型认, 不认时改回默认."
+      )
+    ),
     W.row({
       W.radio(effort_options, function()
         return Fields.REASONING_EFFORTS[Fields.reasoning_effort_index(config().reasoning_effort)]
@@ -424,7 +469,7 @@ local function play_column()
         save()
       end, { minw = 0.85, scale = 0.28 }),
     }),
-    W.row({ W.text("Claude 思考方式 (仅 Anthropic 接口)", SCALE) }, { padding = 0.04 }),
+    heading("思考方式", tip("思考方式", "只对 Anthropic 接口生效.", "走 Chat 接 Claude 时由网关翻译, 可能 400.")),
     W.row({
       W.radio(thinking_options, function()
         return Fields.THINKING_MODES[Fields.index_of(Fields.THINKING_MODES, config().thinking)]
@@ -433,7 +478,7 @@ local function play_column()
         save()
       end, { minw = 1.3, scale = 0.28 }),
     }),
-    W.row({ W.text("赢下一局之后", SCALE) }, { padding = 0.04 }),
+    heading("赢下一局之后", tip("赢下一局之后", "从停止状态开始时写进提示词.", "运行中改设置等下一次开始才生效.")),
     W.row({
       W.radio({ { "menu", "回主菜单" }, { "endless", "继续无尽模式" } }, function()
         return config().after_win
@@ -442,7 +487,10 @@ local function play_column()
         save()
       end, { minw = 2.2, scale = 0.28 }),
     }),
-    W.row({ W.text("打完一局之后", SCALE) }, { padding = 0.04 }),
+    heading(
+      "打完一局之后",
+      tip("打完一局之后", "停止: 回主菜单后关掉.", "继续: 保留对话, 由模型自己开下一局.")
+    ),
     W.row({
       W.radio({ { "stop", "停止" }, { "continue", "继续 (保留上下文)" } }, function()
         return config().after_run or "stop"
@@ -493,10 +541,6 @@ function M.build()
         play_column(),
       }, { align = "tm", padding = 0 }),
       display_row(),
-      -- 对局说明放整行, 避免右列比左列高出一截.
-      W.row({ W.text("种子: 最多 8 位字母和数字, 空为随机; 固定种子的局按原版规则不计解锁和统计.", 0.26, G.C.UI.TEXT_INACTIVE) }),
-      W.row({ W.text("打完一局: 停止则回主菜单后关掉; 继续则保留对话, 由模型自己开下一局.", 0.26, G.C.UI.TEXT_INACTIVE) }),
-      W.row({ W.text("策略: 自己写的打法要求, 粘贴后下一次开始时生效.", 0.26, G.C.UI.TEXT_INACTIVE) }),
       -- 粘贴, 清除, 切换模式的结果: 两列的按钮共用, 放在底部整行.
       W.row({ W.live(view, "action_note", 0.27, G.C.UI.TEXT_INACTIVE) }, { align = "cm" }),
     },
