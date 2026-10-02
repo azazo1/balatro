@@ -98,7 +98,7 @@ local function settle_manual()
   if not action or not deps.format.comparable(deps.overlay.kind()) then
     return
   end
-  local ok, state = pcall(deps.gamestate.get_gamestate)
+  local ok, state = pcall(deps.gamestate.get_gamestate, { raw = true })
   if ok and type(state) == "table" then
     action.digest = deps.format.digest(state)
   end
@@ -145,6 +145,11 @@ local function summarize(response)
   local overlay = response.overlay
   if not deps.format.comparable(overlay) then
     return nil, overlay
+  end
+  -- 回放要比真实抽到的牌, 不能用观察层裁过的响应 (背面牌 key 已被清空)
+  local ok, state = pcall(deps.gamestate.get_gamestate, { raw = true })
+  if ok and type(state) == "table" then
+    return deps.format.digest(state), overlay
   end
   return deps.format.digest(response), overlay
 end

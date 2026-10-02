@@ -6,7 +6,8 @@
 ---@field on_game_over (fun(state: GameState))?
 ---@field check_game_over fun()
 ---@field get_blinds_info fun(): table<string, Blind>
----@field get_gamestate fun(): GameState
+---@field get_gamestate fun(opts: {raw: boolean?}?): GameState
+---@field redact_hidden fun(state: table): table
 local gamestate = {}
 
 -- ==========================================================================
@@ -320,7 +321,8 @@ end
 -- Card Extractor
 -- ==========================================================================
 
----Extracts a complete Card object from a game card
+---Extracts a complete Card object from a game card.
+---背面朝上的牌仍先抽出身份, 交给 redact_hidden 再裁; 回放比对走 raw 才能发现抽错牌.
 ---@param card table The game card object
 ---@return Card card The Card object
 local function extract_card(card)
@@ -734,12 +736,62 @@ function gamestate.get_blinds_info()
 end
 
 -- ==========================================================================
+-- 观察层: 背面牌对人不可见, agent 也不该看见身份
+-- ==========================================================================
+
+-- 这些区域里 facing == back 的牌 (标记/房屋/车轮/鱼, 琥珀之实翻小丑) 只保留 "背面朝上".
+-- 花色点数, 增强蜡封, 卖价, sort_id 都会漏身份, 连被削弱也不给 (会暗示这是人头或某花色).
+local OBSERVE_AREAS = { "hand", "jokers", "consumables", "shop", "vouchers", "packs", "pack", "cards" }
+
+---@param card table gamestate 里的一张牌
+---@return table
+local function hidden_stub(card)
+  local state = { hidden = true }
+  if card.state and card.state.highlight then
+    state.highlight = true
+  end
+  return {
+    id = 0,
+    key = "",
+    set = "DEFAULT",
+    label = "",
+    value = {},
+    modifier = {},
+    state = state,
+    cost = { sell = 0, buy = 0 },
+  }
+end
+
+--- 把背面牌裁成观察层能看到的样子. 原地改 state, 也返回它方便链式调用.
+---@param state table
+---@return table
+function gamestate.redact_hidden(state)
+  if type(state) ~= "table" then
+    return state
+  end
+  for _, name in ipairs(OBSERVE_AREAS) do
+    local area = state[name]
+    local cards = area and area.cards
+    if type(cards) == "table" then
+      for i, card in ipairs(cards) do
+        if card.state and card.state.hidden then
+          cards[i] = hidden_stub(card)
+        end
+      end
+    end
+  end
+  return state
+end
+
+-- ==========================================================================
 -- Main Gamestate Extractor
 -- ==========================================================================
 
----Extracts the simplified game state according to the new specification
+---Extracts the simplified game state according to the new specification.
+---默认裁掉背面牌的身份, 和人看到的一样; opts.raw 留给回放比对.
+---@param opts {raw: boolean?}?
 ---@return GameState gamestate The complete simplified game state
-function gamestate.get_gamestate()
+function gamestate.get_gamestate(opts)
   if not G then
     return {
       state = "UNKNOWN",
@@ -838,6 +890,9 @@ function gamestate.get_gamestate()
     state_data.pack = extract_area(G.pack_cards)
   end
 
+  if not (opts and opts.raw) then
+    gamestate.redact_hidden(state_data)
+  end
   return state_data
 end
 

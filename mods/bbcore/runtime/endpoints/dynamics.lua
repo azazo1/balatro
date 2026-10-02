@@ -5,6 +5,7 @@
 -- - targets: 每回合重新抽的认牌目标 (古老小丑的花色, 偶像的花色与点数, 邮件回扣的点数, 城堡的花色,
 --   待办清单的牌型) 与盲注公牛要用的 "最常打出的牌型".
 -- - jokers / consumables: 持有卡的效果文本, 取游戏自己生成的那一份 (与 gamestate 的 Card.value.effect 同源),
+--   背面朝上的牌跳过 (人悬停也看不到效果).
 --   成长值 (拉面的当前倍率, 公交车的当前倍率, 城堡的当前筹码...) 与概率都已代入, 就是玩家悬停看到的文字.
 --   卡面本身不显示当前值的只有超新星 (看各牌型本赛局的打出次数): 那个数在 gamestate 的 hands[].played 里.
 -- - hand: 手牌里带增强, 版本或蜡封的牌的效果文本 (玻璃牌的破碎概率等).
@@ -69,13 +70,20 @@ local function entry(index, card, extra)
   return item
 end
 
+---@param card table
+---@return boolean
+local function face_down(card)
+  return card.facing == "back"
+end
+
 ---@param area table? 例如 G.jokers
 ---@param filter fun(card: table): boolean? 只收某些牌
 ---@return table[]
 local function collect(area, filter)
   local out = {}
   for i, card in ipairs(area and area.cards or {}) do
-    if not filter or filter(card) then
+    -- 背面朝上的牌人悬停也看不到效果, 不进实时文本
+    if not face_down(card) and (not filter or filter(card)) then
       out[#out + 1] = entry(i, card)
     end
   end

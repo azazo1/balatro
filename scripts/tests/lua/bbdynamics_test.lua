@@ -149,6 +149,47 @@ do -- 手牌: 只列带增强, 版本或蜡封的
   check("增强牌的效果文本", result.hand[1].effect == "X2 倍率 1/4 概率破碎", tostring(result.hand[1].effect))
 end
 
+do -- 背面牌不进实时文本, 也不走观察层的身份字段
+  G.hand.cards[2].facing = "back"
+  G.jokers.cards[1].facing = "back"
+  local result = collect()
+  check("背面玻璃牌不在 hand", #result.hand == 0, tostring(#result.hand))
+  check("背面小丑不在 jokers", #result.jokers == 1 and result.jokers[1].key == "j_todo_list", result.jokers[1] and result.jokers[1].key)
+  G.hand.cards[2].facing = nil
+  G.jokers.cards[1].facing = nil
+
+  local gs = {
+    hand = {
+      cards = {
+        {
+          id = 9,
+          key = "H_K",
+          set = "ENHANCED",
+          label = "红桃K",
+          value = { suit = "H", rank = "K", effect = "玻璃" },
+          modifier = { enhancement = "GLASS", seal = "RED" },
+          state = { hidden = true, debuff = true, highlight = true },
+          cost = { sell = 3, buy = 0 },
+        },
+        { id = 2, key = "S_A", value = { suit = "S", rank = "A" }, modifier = {}, state = {}, cost = { sell = 1, buy = 0 } },
+      },
+    },
+    jokers = {
+      cards = {
+        { id = 4, key = "j_joker", value = { effect = "+4" }, modifier = { eternal = true }, state = { hidden = true }, cost = { sell = 5, buy = 0 } },
+      },
+    },
+  }
+  BB_GAMESTATE.redact_hidden(gs)
+  local h = gs.hand.cards[1]
+  check(
+    "观察层背面牌只留 hidden 与选中",
+    h.state.hidden and h.state.highlight and not h.state.debuff and h.key == "" and h.id == 0 and h.value.suit == nil and h.modifier.enhancement == nil and h.cost.sell == 0
+  )
+  check("观察层正面牌不动", gs.hand.cards[2].key == "S_A" and gs.hand.cards[2].id == 2)
+  check("观察层翻面小丑不漏卖价", gs.jokers.cards[1].key == "" and gs.jokers.cards[1].cost.sell == 0)
+end
+
 do -- 目标缺项 (本局还没有认牌小丑那一局, 或字段被清空) 时该项不出现
   G.GAME.current_round.ancient_card = { suit = nil }
   G.GAME.current_round.idol_card = {}

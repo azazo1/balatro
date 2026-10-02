@@ -63,6 +63,9 @@ curl -s -X POST http://127.0.0.1:12346 -H 'Content-Type: application/json' \
 - 操作类方法要等游戏内的条件满足才返回. 偶尔会一直不返回 (实测 `load` 出现过一次), 这时操作通常
   已经生效. 请求要设超时, 超时后用 `gamestate` 确认当前状态再继续.
 - 所有下标都从 0 开始, 对应 `gamestate` 里各区域 `cards` 数组的顺序.
+- 背面朝上的牌 (标记, 房屋, 车轮, 鱼把扑克牌翻过去; 琥珀之实把小丑翻过去洗乱) 只给
+  `state.hidden`, 花色点数, 增强蜡封, 卖价和 `id` 都裁掉, 和人悬停看不到正面一样.
+  选中状态仍保留, 出牌下标照常用. 打出之后身份出现在 `round.last_hand`.
 - `gamestate` 返回的内容很多 (包括整副牌), 可以用 `jq` 只取需要的字段:
 
 ```shell
@@ -228,7 +231,7 @@ just agent-call dynamics '{"deck":"list","discard":"list","cards":false}' | jq '
   `key` 是认牌的牌 (`j_ancient` 等), `*_name` 是游戏语言的名字 (默认简体中文, 例如 `黑桃`, `红桃Q`).
   没有的目标不出现, 例如本局没有古老小丑时就没有 `j_ancient` 项.
 - `most_played_poker_hand` 是本局最常打出的牌型, 盲注公牛 (The Ox) 用它, 还没打过牌时不出现.
-- `jokers` / `consumables` / `hand` 每项是 `{index, key, name, effect}`. `effect` 取游戏自己生成的那一份
+- `jokers` / `consumables` / `hand` 每项是 `{index, key, name, effect}`. 背面朝上的牌不出现 (人悬停也看不到). `effect` 取游戏自己生成的那一份
   (`Card:generate_UIBox_ability_table`), 就是玩家悬停看到的文字: 成长值 (拉面的当前倍率, 城堡的当前筹码)
   与概率 (幸运牌, 玻璃牌) 都已代入. `index` 与该区域在 `gamestate` 里的下标一致, 从 0 开始.
 - `deck` / `discard` 每项是 `{count, by_suit, by_rank, cards?, truncated?}`: `count` 是张数,

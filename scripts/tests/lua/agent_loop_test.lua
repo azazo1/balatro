@@ -227,6 +227,37 @@ do -- 摘要: 下标从 0 开始, 效果只在第一次出现时附上
   check("forget 后重新介绍", s:render(hand_state()):find("+4 倍率", 1, true))
 end
 
+do -- 摘要: 背面牌不露身份 (标记/房屋/琥珀之实), 只写背面朝上
+  local s = Summary.new(function(key)
+    if key == "j_joker" then
+      return { name = "小丑", effect = "+4 倍率" }
+    end
+  end)
+  local gs = hand_state({
+    hand = {
+      cards = {
+        { key = "H_A", value = { suit = "H", rank = "A" }, modifier = {}, state = {} },
+        {
+          key = "H_K",
+          value = { suit = "H", rank = "K" },
+          modifier = { enhancement = "GLASS", seal = "RED" },
+          state = { hidden = true, debuff = true },
+        },
+      },
+    },
+    jokers = {
+      limit = 5,
+      cards = {
+        { key = "j_joker", label = "Joker", value = { effect = "+4 Mult" }, cost = { sell = 1 }, state = { hidden = true } },
+      },
+    },
+  })
+  local text = s:render(gs)
+  check("背面手牌不写花色点数", text:find("[1]背面朝上", 1, true) ~= nil and not text:find("红桃K", 1, true), text)
+  check("背面手牌不写增强蜡封", not text:find("玻璃", 1, true) and not text:find("蜡封", 1, true), text)
+  check("背面小丑不写效果和卖价", text:find("[0] 背面朝上", 1, true) ~= nil and not text:find("+4", 1, true) and not text:find("卖 $", 1, true), text)
+end
+
 do -- 摘要: 牌型行带打出次数 (超新星要看它, 卡面上没有); 没打过的牌型只写等级与数值
   local s = Summary.new()
   local gs = hand_state({

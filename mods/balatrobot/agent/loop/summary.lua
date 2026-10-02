@@ -5,6 +5,7 @@
 - 小丑, 消耗牌, 优惠券, 商店与卡包里的牌第一次出现时附上中文名与效果, 之后只写名字,
   名字与效果来自注入的 describe(key) (游戏内由手册 catalog 提供), 查不到时用 gamestate 里的 label 与 effect.
   手册文本里还剩 [ ] 占位的是会变的值 (每回合换的花色点数, 成长值), 这类牌每次都用 gamestate 里的实时文本.
+- 背面朝上的牌只写 "背面朝上", 不写花色点数, 小丑名, 增强蜡封或卖价.
 - 整副牌只给张数, 不列出; 牌型只列出等级高于 1 或本局打过的, 打过时附上本赛局与本回合的次数
   (超新星把牌型本赛局的打出次数加成倍率, 卡面本身看不到这个数).
 ]]
@@ -108,11 +109,12 @@ local function modifiers(mod, state)
     parts[#parts + 1] = "租赁"
   end
   state = state or {}
+  if state.hidden then
+    -- 身份由 playing_card / item 改写成 "背面朝上", 这里不再附修饰, 避免增强蜡封被削弱跟着漏
+    return ""
+  end
   if state.debuff then
     parts[#parts + 1] = "被削弱"
-  end
-  if state.hidden then
-    parts[#parts + 1] = "背面朝上"
   end
   if #parts == 0 then
     return ""
@@ -121,8 +123,17 @@ local function modifiers(mod, state)
 end
 
 ---@param card table
+---@return boolean
+local function is_hidden(card)
+  return card and card.state and card.state.hidden
+end
+
+---@param card table
 ---@return string
 local function playing_card(card)
+  if is_hidden(card) then
+    return "背面朝上"
+  end
   local value = card.value or {}
   if value.rank and value.suit then
     return (SUIT[value.suit] or value.suit) .. (RANK[value.rank] or value.rank)
@@ -148,6 +159,9 @@ function M.new(describe)
   ---@param price string? 例如 "$6" 或 "卖 $3"
   ---@return string
   function self:item(card, price)
+    if is_hidden(card) then
+      return "背面朝上"
+    end
     local info = self.describe(card.key or "") or {}
     local name = info.name or card.label or card.key or "?"
     local line = name .. modifiers(card.modifier, card.state)

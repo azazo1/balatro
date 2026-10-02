@@ -467,8 +467,7 @@ local function handle_result(t)
       set_phase("verify")
       return
     else
-      local digest = type(response) == "table" and response.state ~= nil and deps.format.digest(response)
-        or deps.format.digest(deps.gamestate.get_gamestate())
+      local digest = deps.format.digest(deps.gamestate.get_gamestate({ raw = true }))
       local diff = deps.format.diff(action.digest, digest)
       if diff then
         st.verify = { action = action, index = st.index, since = t, diff = diff, advance = true }
@@ -490,7 +489,7 @@ local function verify_tick(t)
       return
     end
   end
-  local diff = deps.format.diff(v.action.digest, deps.format.digest(deps.gamestate.get_gamestate()))
+  local diff = deps.format.diff(v.action.digest, deps.format.digest(deps.gamestate.get_gamestate({ raw = true })))
   if not diff then
     st.verify = nil
     if v.advance then

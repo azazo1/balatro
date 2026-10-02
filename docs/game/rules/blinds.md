@@ -133,6 +133,7 @@ base = raw - raw % unit
 - 巨蟒把补牌数量覆盖成 `min(剩余牌堆数, 3)`, 而非 `min(空余手牌槽, 3)`. 只打/弃 1 张时可能净增 2 张, 手牌可能超过名义上限.
 - 镣铐禁用时恢复 1 个上限并主动尝试抽 1 张; 成功结束该盲注时只恢复上限, 下一盲注会正常重抽.
 - 背面牌不是削弱牌. agent 没有正面观测时应保留不确定性, 不应把本地源码可访问性当作在局观测.
+  `gamestate` 默认走观察层 (`redact_hidden`): 只留 `state.hidden` 与是否选中; 回放比对用 `raw` 看真实抽到的牌.
 
 来源: [Blind:stay_flipped / drawn_to_hand](<../../../game/blind.lua#L572-L622>), [抽牌函数](<../../../game/functions/state_events.lua#L355-L377>), [成功恢复镣铐](<../../../game/blind.lua#L338-L343>), [禁用恢复](<../../../game/blind.lua#L364-L389>).
 

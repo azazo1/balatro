@@ -121,7 +121,7 @@
 
 ---@class Card.State
 ---@field debuff boolean? If true, card is debuffed and won't score
----@field hidden boolean? If true, card is face down (facing == "back")
+---@field hidden boolean? 背面朝上 (facing == "back"). 观察层会把身份字段裁空, 只留这一项和选中状态
 ---@field highlight boolean? If true, card is currently highlighted
 
 ---@class Card.Cost
