@@ -336,7 +336,7 @@ B 之前已经给本次最终牌型 `played +=1`. 所以判断不是简单比较
 - 租赁扣费/易腐计数在每张小丑 E 之后执行. 若易腐刚在 E 后失效, 后续 `calculate_dollar_bonus` 会看到 `debuff` 并不给收入, 不能仅凭回合中有效就预计它有结算收入.
 - Idol/Mail/Castle 的目标从 `G.playing_cards` 的非石头牌实体抽样. 多副相同牌会增加其点数/花色作为目标的概率; 各副同名小丑共用全局目标, 不是各自抽目标.
 - Ancient 与前三者不同: 只从上回合目标之外的 3 种花色均匀选, 不限于牌组现有花色.
-- 这些目标在正常回合结束后的流程中重选, 不在每次出牌改变; 起局也初始化. To Do List 的目标是每张小丑自己的 `to_do_poker_hand`, 不与其他副共用.
+- 这些目标在正常回合结束后的流程中重选, 不在每次出牌改变; 起局也初始化. To Do List 的目标是每张小丑自己的 `to_do_poker_hand`, 不与其他副共用, 从 `G.handlist` 的可见牌型中抽.
 
 来源: [E/贴纸结算](<../../../game/functions/state_events.lua#L99-L110>), [回合末目标重选](<../../../game/functions/state_events.lua#L273-L276>), [目标重选函数](<../../../game/functions/common_events.lua#L2271-L2324>), [To Do List](<../../../game/card.lua#L2975-L2984>).
 

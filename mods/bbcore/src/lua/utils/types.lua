@@ -106,6 +106,7 @@
 ---@field modifier Card.Modifier Modifier information (seals, editions, enhancements)
 ---@field state Card.State Current state information (debuff, hidden, highlighted)
 ---@field cost Card.Cost Cost information (buy/sell prices)
+---@field to_do string? 待办清单当前认的牌型 (`G.GAME.hands` 的 key, 例如 "Full House")
 
 ---@class Card.Value
 ---@field suit Card.Value.Suit? Suit (Hearts, Diamonds, Clubs, Spades) - only for playing cards

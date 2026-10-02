@@ -360,7 +360,7 @@ local function extract_card(card)
     end
   end
 
-  return {
+  local extracted = {
     id = card.sort_id or 0,
     key = key,
     set = set,
@@ -370,6 +370,11 @@ local function extract_card(card)
     state = extract_card_state(card),
     cost = extract_card_cost(card),
   }
+  local to_do = card.ability and card.ability.to_do_poker_hand
+  if type(to_do) == "string" and to_do ~= "" then
+    extracted.to_do = to_do
+  end
+  return extracted
 end
 
 -- ==========================================================================

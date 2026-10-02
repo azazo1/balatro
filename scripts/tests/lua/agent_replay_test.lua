@@ -38,6 +38,11 @@ do -- 摘要: 顺序和修饰都要区分, 否则下标错位或版本不同也�
   local diff = Format.diff(a, Format.digest(state({ card("S_A"), card("H_K") }, nil, 9)))
   check("diff 指出不同的项", diff == "money: 4 -> 9", tostring(diff))
   check("diff 相同时为 nil", Format.diff(a, a) == nil)
+  local todo_a = Format.digest(state({ card("S_A") }, { { key = "j_todo_list", to_do = "Full House" } }))
+  local todo_b = Format.digest(state({ card("S_A") }, { { key = "j_todo_list", to_do = "Straight" } }))
+  check("待办清单目标写入摘要", todo_a:find("todo=Full_House", 1, true) ~= nil)
+  check("待办清单目标不同摘要不同", todo_a ~= todo_b)
+  check("没有待办清单时不写 todo", not Format.digest(state({ card("S_A") })):find("todo=", 1, true))
 end
 
 do -- original 节奏: 间隔以上一次实际执行的操作为参照, 跳过的步骤不改变参照点

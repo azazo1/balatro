@@ -84,10 +84,19 @@ function M.digest(state)
     "money=" .. tostring(state.money),
     "deck=" .. tostring(state.cards and #(state.cards.cards or {}) or 0),
   }
+  local todos = {}
   for _, name in ipairs(AREAS) do
     if state[name] then
       parts[#parts + 1] = name .. "=" .. area_token(state[name])
+      for _, card in ipairs(state[name].cards or {}) do
+        if type(card.to_do) == "string" and card.to_do ~= "" then
+          todos[#todos + 1] = card.to_do:gsub("%s+", "_")
+        end
+      end
     end
+  end
+  if #todos > 0 then
+    parts[#parts + 1] = "todo=" .. table.concat(todos, ",")
   end
   return table.concat(parts, " ")
 end

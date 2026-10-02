@@ -2855,7 +2855,7 @@ function Card:quantum_set_ability(center)
     end
     if self.ability.name == 'To Do List' then
         local _poker_hands = {}
-        for k, v in pairs(G.GAME.hands) do
+        for _, k in ipairs(G.handlist) do
             if SMODS.is_poker_hand_visible(k) then _poker_hands[#_poker_hands+1] = k end
         end
         local old_hand = self.ability.to_do_poker_hand

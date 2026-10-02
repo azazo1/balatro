@@ -310,8 +310,8 @@ function Card:set_ability(center, initial, delay_sprites)
     end
     if self.ability.name == 'To Do List' then
         local _poker_hands = {}
-        for k, v in pairs(G.GAME.hands) do
-            if v.visible then _poker_hands[#_poker_hands+1] = k end
+        for _, k in ipairs(G.handlist) do
+            if G.GAME.hands[k] and G.GAME.hands[k].visible then _poker_hands[#_poker_hands+1] = k end
         end
         local old_hand = self.ability.to_do_poker_hand
         self.ability.to_do_poker_hand = nil
@@ -2974,8 +2974,8 @@ function Card:calculate_joker(context)
                 end
                 if self.ability.name == 'To Do List' and not context.blueprint then
                     local _poker_hands = {}
-                    for k, v in pairs(G.GAME.hands) do
-                        if v.visible and k ~= self.ability.to_do_poker_hand then _poker_hands[#_poker_hands+1] = k end
+                    for _, k in ipairs(G.handlist) do
+                        if G.GAME.hands[k] and G.GAME.hands[k].visible and k ~= self.ability.to_do_poker_hand then _poker_hands[#_poker_hands+1] = k end
                     end
                     self.ability.to_do_poker_hand = pseudorandom_element(_poker_hands, pseudoseed('to_do'))
                     return {
