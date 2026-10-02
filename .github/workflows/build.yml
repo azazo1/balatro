@@ -408,10 +408,15 @@ jobs:
             echo "::error::$TAG_NAME 不是 annotated tag (类型为 $type)"
             exit 1
           fi
-          git tag -l --format='%(contents)' "$TAG_NAME" > /tmp/tag-body.txt
-          if ! diff -q <(sed -e '$a\' "$notes") <(sed -e '$a\' /tmp/tag-body.txt) >/dev/null; then
+          # cat-file tag 保留原始 annotation; %(contents) 会额外附加换行, 不能用来做字节比较.
+          git cat-file tag "refs/tags/${TAG_NAME}" | sed '1,/^$/d' > /tmp/tag-body.txt
+          if ! grep -q '[^[:space:]]' /tmp/tag-body.txt; then
+            echo "::error::$TAG_NAME 的 annotation 为空"
+            exit 1
+          fi
+          if ! cmp -s "$notes" /tmp/tag-body.txt; then
             echo "::error::tag 正文与 $notes 不一致"
-            diff -u <(sed -e '$a\' "$notes") <(sed -e '$a\' /tmp/tag-body.txt) || true
+            diff -u "$notes" /tmp/tag-body.txt || true
             exit 1
           fi
 
