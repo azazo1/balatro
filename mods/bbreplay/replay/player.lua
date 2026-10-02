@@ -14,7 +14,8 @@
   讲解 (notify) 仍等阅读时长 (传 wait: true), 但 toast 改用紧凑时长, 退去更快.
   流式条把原局那段输出压进这段短等待, 按压缩后的平均字速滚.
 - fast (快进): 间隔同 tight, 讲解的阅读时长几乎为零, 弹出后随即做下一步; 框仍停留一小会儿, 新的叠在上面.
-回放期间关掉讲解门槛, 原局里操作是怎么排的就怎么排. 工具调用那条左侧始终用短时长.
+回放期间关掉讲解门槛, 原局里操作是怎么排的就怎么排. 例外是带 reason 的操作: reason 是这一步的讲解,
+原局里动作等它退去才执行, 回放时这一步临时打开门槛同样等它 (快进除外). 工具调用那条左侧始终用短时长.
 回放自己的提示 (警告, 中止方法, 结果) 不跟节奏走, 始终按正常时长显示.
 
 弹窗不会一出现就关:
@@ -536,6 +537,19 @@ local function run_action(action)
     local params = copy(action.params or {})
     params.wait = true
     dispatch(action.method, params, action.reason, false)
+    return
+  end
+  -- 带 reason 的操作: reason 就是这一步的讲解, 原局里动作等它退去才执行. 回放平时关着门槛,
+  -- 这一步临时打开, 让动作同样等自己那条 reason (dispatch 时同步取 gate_id, 随即恢复).
+  -- 快进不等: 讲解叠着放, 动作随即执行.
+  if action.reason and cfg.pacing ~= "fast" then
+    local previous = deps.toast.gate_enabled
+    deps.toast.gate_enabled = true
+    local ok, err = pcall(dispatch, action.method, action.params, action.reason, false)
+    deps.toast.gate_enabled = previous
+    if not ok then
+      error(err, 0)
+    end
     return
   end
   dispatch(action.method, action.params, action.reason, false)

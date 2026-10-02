@@ -2,7 +2,8 @@
 agent 请求的活动追踪 (BB_ACTIVITY). 包装 upstream 的 dispatch 与 BB_TRANSPORT.send_response, 不修改 upstream 文件.
 请求从哪来 (HTTP, 内置 loop 的本地调用, 回放) 都一样经过这里.
 
-- 任何请求的 params 都可以带 reason 字符串: 作为决策消息显示并写入时间线, 交给端点前去掉.
+- 任何请求的 params 都可以带 reason 字符串: 作为这一步的讲解显示并写入时间线, 交给端点前去掉.
+  message 事件在交给 dispatch 之前发, 讲解先进队, dispatcher 的门槛才能让动作等它.
 - 被动方法 (查询状态, 截图) 不算 agent 活动, 录制不会因它们而保留等待时间.
 
 事件 (M.on 订阅):

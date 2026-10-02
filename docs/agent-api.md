@@ -269,7 +269,8 @@ agent 干的事以原版成就通知的样式显示在屏幕上: 黑底灰边, �
 右侧的来源:
 
 - 任意方法的 `params` 里加 `reason` 字符串, 标题显示为操作的中文名 (出牌, 购买等), 交给方法前会去掉,
-  不影响原有参数.
+  不影响原有参数. 它和 `notify` 一样算讲解: 先进队显示, 这个请求等它退去才执行, 效果等于先 `notify`
+  再操作, 所以不必为同一步另发一条 `notify`. 只读方法与 `start` / `menu` 不等, `reason` 与动作同时出现.
 - `notify {"message", "title"?, "duration"?, "wait"?}` 单独发一条消息, 任何状态都能用. `title` 默认 `Agent`.
   `duration` 为阅读秒数, 默认按字数估算 (中文每字约 0.18 秒, 2.5~12 秒), 读完后再停留 2 秒才滑出.
   `wait` 默认 `false`: 显示交给通知自己 (见下), 请求立刻返回. 传 `true` 则等这条读完再返回.
@@ -284,8 +285,8 @@ agent 干的事以原版成就通知的样式显示在屏幕上: 黑底灰边, �
     阶段在等待期间变了的话不执行, 直接返回 `INVALID_STATE`.
 
 ```shell
-just agent-call notify '{"message":"手里 4 张红桃, 牌堆还剩 9 张红桃, 弃 3 张追同花","title":"弃牌"}'
-just agent-call discard '{"cards":[0,3,5],"reason":"弃 3 张杂牌追同花"}'
+just agent-call notify '{"message":"手里 4 张红桃, 牌堆还剩 9 张红桃, 弃牌还有 2 次","title":"观察"}'
+just agent-call discard '{"cards":[0,3,5],"reason":"弃 3 张杂牌追同花, 抽 3 张至少来 1 张红桃约 6 成"}'
 ```
 
 解说的内容与节奏见 [agent-commentary.md](agent-commentary.md).

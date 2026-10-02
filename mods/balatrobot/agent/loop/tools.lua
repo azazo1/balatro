@@ -4,7 +4,8 @@
 没有直接从 openrpc.json 生成: 那份规格缺少 pack 等本仓库用到的方法, 描述是英文且偏长.
 这里手写一份精简的中文定义, 参数与端点的 schema 一致; 端点参数有变化时要同步修改.
 
-- 动作工具都带 reason (简短理由, 作为决策消息显示), 调用时从参数里拆出来交给 dispatcher.
+- 动作工具都带 reason (这一步的解说, 动作等它显示完再生效), 调用时从参数里拆出来交给 dispatcher.
+  所以紧跟动作的解说直接写进 reason, notify 只用于不跟动作的观察, 对比与复盘.
 - 只读的查询工具分两类: M.KNOWLEDGE 查静态手册 (知识库没打包时不提供), M.QUERIES 是全部只读工具 (结果按 JSON 交给模型).
 - 不给模型的方法: gamestate (每次结果里已经带状态摘要), cash_out, continue, endless (loop 自动处理),
   menu, save, load, set, add, screenshot (与游玩无关或会破坏进度).
@@ -14,7 +15,11 @@ local M = {}
 
 local INDEX = { type = "integer", minimum = 0 }
 local INDICES = { type = "array", items = { type = "integer", minimum = 0 }, minItems = 1 }
-local REASON = { type = "string", description = "给观众看的简短理由, 30 字以内" }
+local REASON = {
+  type = "string",
+  maxLength = 200,
+  description = "这一步的解说 (30~60 字): 做什么, 为什么, 估分. 先显示给观众, 读完后动作才生效, 不要再另发 notify 重复",
+}
 
 ---@param props table
 ---@param required string[]?
@@ -121,8 +126,8 @@ local DEFS = {
   },
   {
     name = "notify",
-    description = "给观众发一条解说消息 (30~60 字), 讲观察, 对比和估分. 立刻返回; 后面的操作会等它退去再生效,"
-      .. " 不用自己等. 操作前先用它讲.",
+    description = "给观众发一条不跟动作的解说 (30~60 字): 观察局面, 逐项对比, 复盘. 立刻返回; 后面的操作会等它退去再生效,"
+      .. " 不用自己等. 紧接着要做的那一步的解说写进动作的 reason, 不要在这里先说一遍.",
     parameters = object({
       message = { type = "string", maxLength = 200 },
       title = { type = "string", maxLength = 12, description = "2~4 字的标题" },

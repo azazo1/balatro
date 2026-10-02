@@ -111,12 +111,14 @@ BB_ACTIVITY.on("call", function(method, params)
     BB_TOAST.push(note.title, note.text, nil, nil, { side = "left" })
   end
 end)
--- 请求附带 reason 时, 通知标题用操作的中文名, 观众不用看懂方法名.
+-- 请求附带 reason 时, 它就是这一步的讲解: 通知标题用操作的中文名, 观众不用看懂方法名.
+-- 和 notify 一样算讲解 (gated): activity 在请求交给 dispatcher 之前发 message, 这条先进队,
+-- dispatcher 随即拿到它的 gate_id, 动作等它退去再执行. 观众先看到这句话, 再看到动作, 不用另发一条 notify.
 -- 是否显示由 BB_TOAST.enabled 决定: balatrobot 按设置页的开关设置, 回放时 bbreplay 打开.
 BB_ACTIVITY.on("message", function(title, text, duration, source)
   -- notify 自己负责显示 (显示后立刻返回, 消息怎么停留由通知自己管); 这里只管操作参数带的 reason.
   if source == "reason" then
-    BB_TOAST.push(BB_CALL_NOTE.title(title), text, duration)
+    BB_TOAST.push(BB_CALL_NOTE.title(title), text, duration, nil, { gated = true })
   end
 end)
 

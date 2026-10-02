@@ -13,8 +13,9 @@ local socket = require("socket")
 ---@type table<integer, string>?
 local STATE_NAME_CACHE = nil
 
--- 本仓库修改: 讲解 (agent 的 notify) 还在屏幕上或队里时, 后面的请求等它退去再执行, 这样观众总是
--- 先看到文字再看到动作. 不等讲解的只有两类: 只读方法 (BB_ACTIVITY.PASSIVE: 查询状态, 查手册等),
+-- 本仓库修改: 讲解 (agent 的 notify, 以及操作参数带的 reason) 还在屏幕上或队里时, 后面的请求等它退去再执行,
+-- 这样观众总是先看到文字再看到动作. reason 在请求到达这里之前已经进队 (BB_ACTIVITY 先发 message),
+-- 所以带 reason 的请求等的是自己那条. 不等讲解的只有两类: 只读方法 (BB_ACTIVITY.PASSIVE: 查询状态, 查手册等),
 -- 以及 start 与 menu (它们会把画面整个换掉, 与当前讲解无关).
 -- notify 不是只读 (它要往屏幕上放东西), 所以它也要等前一条讲解退去, 消息一条条来.
 -- 排队与退去的判断在 runtime/toast.lua (gate_id / gate_open).

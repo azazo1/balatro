@@ -37,7 +37,7 @@
 得到张数与按花色点数的统计, 传 `list` 再加完整列表, 不传就不返回 (算同花与顺子的概率时用得上);
 `targets` 与 `cards` 传 `false` 可以省掉默认那两项.
 
-动作工具都带 `reason`, 调用时拆出来作为决策消息. 解说仍按 [agent-commentary.md](<agent-commentary.md>) 使用 `notify` 和 `reason`, 和流式条的思考流分开.
+动作工具都带 `reason`, 调用时拆出来作为这一步的解说 (先显示, 读完后动作才生效, 不再另发 `notify` 重复). 解说仍按 [agent-commentary.md](<agent-commentary.md>) 使用 `notify` 和 `reason`, 和流式条的思考流分开.
 每次调用还会在屏幕左侧记一条工具记录 (标题是工具中文名, 正文是参数含义, `bbcore/runtime/call_note.lua` 里按方法名写死,
 手册查询那几个由 balatrobot 自己登记): 等讲解退去、动作真正执行时才弹, 只反映这次调用本身, 与 loop 无关, 也不需要模型给内容.
 

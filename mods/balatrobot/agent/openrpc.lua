@@ -6,7 +6,8 @@ local M = {}
 
 local REASON = {
   name = "reason",
-  description = "Optional short decision message, shown in game and written to the recording timeline",
+  description = "Optional commentary for this step, shown in game and written to the recording timeline. "
+    .. "It is queued like a notify message and the action runs after it has been read, so do not send a separate notify saying the same thing",
   required = false,
   schema = { type = "string", maxLength = 200 },
 }

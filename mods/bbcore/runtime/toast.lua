@@ -20,8 +20,9 @@ agent 提示消息, 仿原版成就解锁通知 (functions/common_events.lua 的
   右侧按 M.pace 选时长: 回放紧凑节奏用更短的阅读与停留; 快进时阅读时长几乎为零 (等着的调用方随即放行),
   框仍停留一小会儿, 且不排队, 新来的直接叠在最上面 (见 M.set_pace).
   push 时带 fixed 的消息 (回放自己的提示) 不跟 pace 走, 始终按正常时长.
-- 讲解 (gate 为 true 的那些, 目前是 notify) 还能被后面的操作等: 见 M.gate_id / M.gate_open,
+- 讲解 (gate 为 true 的那些: notify, 以及操作参数带的 reason) 还能被后面的操作等: 见 M.gate_id / M.gate_open,
   改状态的操作要等自己那条讲解退去才执行 (dispatcher 的门槛), 观众先看到文字再看到动作.
+  带 reason 的操作等的就是它自己那条 reason.
   左侧那条不拦操作.
 - 阶段切换 (回主菜单, 开新局) 会重建 G.ROOM_ATTACH, 已有的通知与排队的消息随之清空.
 ]]
