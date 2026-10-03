@@ -186,6 +186,7 @@ function M.install(opts)
 
   local capabilities = load("agent/decision/capabilities.lua").new({
     game = function() return G end,
+    hand_options = load("agent/decision/hand_options.lua"),
     slots = assert(SMODS.load_file("src/lua/utils/slots.lua", "bbcore"))(),
     target_rules = assert(SMODS.load_file("src/lua/utils/target_rules.lua", "bbcore"))(),
   })

@@ -20,6 +20,7 @@ function M.new(deps)
   function build.snapshot(gs)
     local g = deps.game()
     local result = { actions = {}, forced = {}, unsupported = false }
+    if deps.hand_options then result.preview_hand = function(indices) return deps.hand_options.preview(gs, indices) end end
     local function add(method, params, label, extra)
       local action = extra or {}
       action.method, action.params, action.label = method, params or {}, label
@@ -68,7 +69,10 @@ function M.new(deps)
       local limit = math.min(g.hand.config.highlighted_limit or 5, hand_count)
       local target = { field = "cards", min = math.max(1, #result.forced), max = limit, indices = indices, forced = result.forced }
       if target.min <= target.max then
-        if (gs.round and gs.round.hands_left or 0) > 0 then add("play", {}, "选择 1 至 " .. limit .. " 张手牌出牌", { target = target }) end
+        if (gs.round and gs.round.hands_left or 0) > 0 then
+          add("play", {}, "选择完整手牌组合出牌", { target = target,
+            play_options = deps.hand_options and deps.hand_options.build(gs, target) or nil })
+        end
         if (gs.round and gs.round.discards_left or 0) > 0 then add("discard", {}, "选择 1 至 " .. limit .. " 张手牌弃牌", { target = target }) end
       end
     end

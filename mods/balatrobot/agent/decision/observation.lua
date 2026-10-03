@@ -2,6 +2,9 @@
 local M = {}
 local RULES = [[
 Balatro 的目标是用剩余出牌次数达到当前盲注的目标分.
+出牌可选择 1 至 5 张, 系统只打出已选牌, 不会自动补成一副牌. 单张通常只形成高牌.
+对子需要 2 张相同点数, 两对需要 4 张, 三条需要 3 张, 顺子/同花/葫芦通常需要 5 张.
+优先比较完整牌型与剩余得分需求, 别把合法最少张数当成推荐出牌张数. 小丑等特殊策略可改变优先级.
 筹码 x 倍率得分, 乘倍率与加倍率顺序有关, 小丑从左到右结算.
 出牌会移走所有选中牌, 不只有计分牌; 留牌效果与红色蜡封也会影响收益.
 弃牌消耗一次弃牌机会并补牌. 金钱有利息档, 买卖要比较本局收益与后续成长.
@@ -23,6 +26,17 @@ function M.new(deps)
       hands = {},
       recent_actions = {},
     }
+    local round = gs.round or {}
+    for _, kind in ipairs({ "small", "big", "boss" }) do
+      local blind = gs.blinds and gs.blinds[kind]
+      if blind and blind.status == "CURRENT" and type(blind.score) == "number" and type(round.chips or 0) == "number" then
+        local remaining = math.max(0, blind.score - (round.chips or 0))
+        state.scoring_goal = { target = blind.score, scored = round.chips or 0, remaining = remaining,
+          hands_left = round.hands_left, discards_left = round.discards_left,
+          needed_per_hand = type(round.hands_left) == "number" and round.hands_left > 0 and remaining / round.hands_left or nil }
+        break
+      end
+    end
     for name, hand in pairs(gs.hands or {}) do
       state.hands[name] = { chips = hand.chips, mult = hand.mult, level = hand.level,
         played = hand.played, played_this_round = hand.played_this_round }
