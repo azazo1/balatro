@@ -81,7 +81,7 @@ end
 ---@param reason string?
 ---@param cb fun(response: table)
 ---@return boolean started, string? err
-function M.call(dispatcher, method, params, reason, cb)
+function M.call(dispatcher, method, params, reason, cb, before_execute)
   if pending then
     return false, "上一个调用还没完成"
   end
@@ -98,7 +98,16 @@ function M.call(dispatcher, method, params, reason, cb)
   end
   next_id = next_id + 1
   pending = { method = method, cb = cb, abandoned = false }
-  local ok, err = pcall(dispatcher.dispatch, { jsonrpc = "2.0", method = method, params = request_params, id = next_id })
+  local call = pending
+  local ok, err = pcall(dispatcher.dispatch, {
+    jsonrpc = "2.0", method = method, params = request_params, id = next_id,
+    before_execute = function()
+      if call.abandoned or pending ~= call then return nil end
+      if before_execute and not before_execute() then return false end
+      call.executing = true
+      return true
+    end,
+  })
   if not ok then
     M.abandon()
     return false, tostring(err)
@@ -112,6 +121,13 @@ function M.abandon()
     pending.abandoned = true
   end
   pending = nil
+end
+
+-- 只取消仍在等解说的调用, 已进入游戏端点的动画由游戏完成.
+function M.cancel_waiting()
+  if not pending or pending.executing then return false end
+  M.abandon()
+  return true
 end
 
 return M

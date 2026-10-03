@@ -254,6 +254,15 @@ function BB_DISPATCHER.dispatch(request)
     end
   end
   local function execute()
+    -- 仅进程内调用可附带检查函数, 网络 JSON 无法提供函数. 等解说期间取消或局面变化则作废.
+    if type(request.before_execute) == "function" then
+      local ok, allowed = pcall(request.before_execute)
+      if ok and allowed == nil then return end -- 调用已放弃, 不把旧响应交给下一次本地调用.
+      if not ok or not allowed then
+        send_response({ message = "动作已取消或观察已过期", name = BB_ERROR_NAMES.INVALID_STATE })
+        return
+      end
+    end
     -- 本仓库修改: 等讲解的这段时间里阶段可能变了, 执行前再查一次.
     local still_ok, still_message = state_check()
     if not still_ok then

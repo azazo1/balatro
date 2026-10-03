@@ -2,6 +2,7 @@
 
 ---@type BB_LOGGER
 local BB_LOGGER = assert(SMODS.load_file("src/lua/utils/logger.lua"))()
+local target_rules = assert(SMODS.load_file("src/lua/utils/target_rules.lua"))()
 
 -- ==========================================================================
 -- Use Endpoint Params
@@ -57,7 +58,10 @@ return {
     local consumable_card = G.consumeables.cards[args.consumable + 1]
 
     -- Step 2: Determine Card Selection Requirements
-    local requires_cards = consumable_card.ability.consumeable.max_highlighted ~= nil
+    local center = consumable_card.config and consumable_card.config.center
+    local target_req, target_error = target_rules.requirements(center and center.key, consumable_card.ability.consumeable)
+    if target_error then send_response({ message = target_error, name = BB_ERROR_NAMES.NOT_ALLOWED }); return end
+    local requires_cards = target_req and target_req.min ~= nil
 
     -- Step 3: State Validation for Card-Selecting Consumables
     -- 本仓库修改: 开着发了手牌的补充包 (秘术, 幻灵) 时也能选手牌.
@@ -98,8 +102,8 @@ return {
 
     -- Step 5: Explicit Min/Max Card Count Validation
     if requires_cards then
-      local min_cards = consumable_card.ability.consumeable.min_highlighted or 1
-      local max_cards = consumable_card.ability.consumeable.max_highlighted
+      local min_cards = target_req.min
+      local max_cards = target_req.max
       local card_count = #args.cards
 
       -- Check if consumable requires exact number of cards

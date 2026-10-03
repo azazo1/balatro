@@ -60,3 +60,4 @@ Android 的 `versionCode` 由两段版本折算, 保证单调递增, 否则无�
 - mod 分三个: `bbcore` (端点, 弹窗拦截, 决策消息等公共部分), `balatrobot` (HTTP 接口与内置 agent),
   `bbreplay` (录像与回放). 后两个只依赖 bbcore, 互斥通过 `BB_CONTROL`, 见 `docs/modding.md` 的内置 mod 一节.
 - macOS 沙箱内无法正常启动游戏.
+- 主工作区追踪了大量二进制文件, 因此如果需要创建子工作区, 请使用稀疏工作区.

@@ -1,6 +1,6 @@
 # 内置 agent
 
-游戏内自带 agent loop: 在设置页填好 endpoint, key 和模型名 (接口可选 chat completions, OpenAI Responses 或 Anthropic Messages), agent 就在游戏里自动玩. 模型的思考过程以一行流式文字显示在画面顶部, 观众能看出模型正在思考, 不会把长时间静止误认为游戏卡死. 本文是需求与实现方案的总览, 已实现的接口说明见 [agent-api.md](<agent-api.md>).
+游戏内自带 agent loop, 提供 LLM, 独立 Decision 和 LLM + Decision 混合三种方式. LLM 支持 Chat, OpenAI Responses 与 Anthropic Messages; Decision 主要适配 TypeSafe 官方 System One 与 AIHubMix Jev, 自定义地址用于其他平台的兼容接入. LLM 返回的思考与正文实时显示, Decision 显示程序生成的选择状态. 操作步骤见 [Decision 接入](<decision-agent.md>), 端点说明见 [agent-api.md](<agent-api.md>).
 
 分文档:
 
@@ -55,22 +55,24 @@ loop 留在 Lua 里, 因为动作本来就在游戏的 Lua 里执行, 调用动�
 
 ## 设置页
 
-入口是 模组 → balatrobot, 即 mod 的 `config_tab`. 主菜单和局内 ESC 菜单都能进.
-字段旁的灰字说明改到悬停提示 (原版 `tooltip`): 悬停标签或选项按钮即可看到, 触摸设备按住也能出.
-这样设置页不会因为接口, 思考方式这些新选项再撑高一截.
+入口是 模组 -> balatrobot, 即 mod 的 `config_tab`. 主菜单和局内 ESC 菜单都能进.
+顶部固定 agent 模式, 内置方式与配置状态, 下方分为对局, LLM, Decision 三个子页.
+LLM 与 Decision 连接分别保存; 独立 Decision 不要求 LLM 连接, 混合方式必须同时配置两份.
+连接和对局选项在开始时冻结, 运行或暂停期间先停止才能改; 消息与节奏可即时修改.
+Decision 预设, 测试连接与完整步骤见 [decision-agent.md](<decision-agent.md>).
 
 内容:
 
 - agent 模式.
 - 内置模式的配置: endpoint, 模型名, 鉴权方式 (Bearer 或 `x-api-key`, 默认 Bearer), key, 接口协议.
-  - 接口: Chat (chat completions, 默认), Responses (OpenAI Responses), Anthropic (Messages). 切换下一次请求生效.
+  - 接口: Chat (chat completions, 默认), Responses (OpenAI Responses), Anthropic (Messages). 停止后修改, 下次开始生效.
     endpoint 填完整地址或 API 根地址都行: 末尾已有 `/chat/completions`, `/responses`, `/messages` 时先去掉,
     再按当前接口补上; Anthropic 的根地址里没有 `/v1` 这类版本段时补 `/v1`. 换接口不用重新粘贴地址.
   - 官方 Anthropic 要选 `x-api-key` 鉴权; 网关多半认 Bearer.
 - 防失控: 单局 token 上限, 默认不限; 赢下一局之后回主菜单, 还是继续无尽模式. 这个取值在每次从停止状态
   开始时拼进系统提示末尾的 "本局设置" 一节, 模型在胜利之前就知道本局要不要打无尽, 运行中改设置等下一次开始才生效.
 - 打完一局之后: 停止 (默认, 回主菜单后关掉 loop), 或继续 (保留对话历史, 由模型自己开下一局, 方便跨局学习).
-  行为在一局结束时读当前设置; 提示词同样只在从停止状态开始时重建. 继续时每一局仍单独一段录像:
+  行为与提示词都使用开始时的配置快照. 继续时每一局仍单独一段录像:
   回主菜单结束上一局, 模型 `start` 开下一局时开始新的一段.
 - 种子: 内置 agent 开局用的固定种子, 粘贴输入, 有清除按钮, 空为随机. 和原版种子输入框一样最多 8 位, 自动转大写,
   只收字母和数字. 设了以后每次 `start` 都用它开局, 覆盖模型自己给的种子, 并在结果里告诉模型; 牌组和赌注仍由模型选.
@@ -222,6 +224,9 @@ Agent 面板:
 6. Android 录像编码.
 
 进度:
+
+- Decision 接入已实现: TypeSafe / AIHubMix 预设, v4 配置迁移, 独立 Decision 和混合提案执行, 分来源统计与取消检查.
+  `just test-agent` 与 `just mods-check` 已通过, 真实 API 和游戏界面尚待实机验证, 操作见 [decision-agent.md](<decision-agent.md>).
 
 - 1~3 已实现, 有单测, 未在游戏里实际运行过 (界面外观, F9, 流式条位置, 真实模型请求都待实机验证).
 - 4 已实现: 主菜单 选项 -> 回放 (列表, 确认页, 存档写入拦截, 结束收尾) 在 bbreplay 的 `replay/library.lua`,

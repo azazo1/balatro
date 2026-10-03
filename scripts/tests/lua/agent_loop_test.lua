@@ -58,6 +58,7 @@ local function harness()
   end
   local current = nil
   local deps = {
+    lifecycle = dofile(DIR .. "lifecycle.lua"),
     tools = Tools,
     prompt = Prompt,
     history = History,
@@ -91,8 +92,8 @@ local function harness()
       end
     end,
     bar = {
-      begin_request = function(label)
-        env.label = label
+      begin_request = function(label, agent)
+        env.label, env.agent = label, agent
       end,
       push = function() end,
       reset = function() end,
@@ -105,7 +106,7 @@ local function harness()
     client = {
       start = function(cfg, messages, tools, callbacks, opts)
         -- 协议层按配置自己读思考强度, 这里记下发请求那一刻的值.
-        local snapshot = { tools = tools, label = env.label, opts = opts, effort = cfg and cfg.reasoning_effort }
+        local snapshot = { tools = tools, label = env.label, agent = env.agent, opts = opts, effort = cfg and cfg.reasoning_effort }
         for i, m in ipairs(messages) do
           snapshot[i] = m
         end
@@ -121,7 +122,27 @@ local function harness()
       end,
     },
   }
+  env.decision_requests = {}
+  deps.hybrid = dofile("mods/balatrobot/agent/decision/hybrid.lua").new({
+    planner = dofile("mods/balatrobot/agent/decision/planner.lua"), json = json,
+    capabilities = { snapshot = function()
+      return { actions = {
+        { method = "play", params = {}, label = "出牌", target = { field = "cards", min = 1, max = 2, indices = { 0, 1 } } },
+        { method = "discard", params = {}, label = "弃牌", target = { field = "cards", min = 1, max = 2, indices = { 0, 1 } } },
+      } }
+    end },
+    observation = { state = function() return {} end },
+    client = { start = function(_, _, questions, callbacks)
+      local r = { questions = questions, callbacks = callbacks, update = function() end,
+        cancel = function(self) self.cancelled = true end }
+      env.decision_requests[#env.decision_requests + 1] = r; return r
+    end },
+  })
   env.driver = Driver.new(deps)
+  function env.decision_reply(answer)
+    env.decision_requests[#env.decision_requests].callbacks.on_done({ answers = { select_action = answer } },
+      { prompt_tokens = 3, completion_tokens = 1 })
+  end
   --- 让当前请求以给定的工具调用完成.
   function env.reply(calls, usage)
     local message = { role = "assistant", content = nil, tool_calls = {} }
@@ -323,14 +344,21 @@ end
 
 do -- 正常一轮: 顺序执行多个调用, 结果按 id 写回, 下一轮不重复给状态
   local env = harness()
+  env.cfg.endpoint, env.cfg.model, env.cfg.api_key = "https://one.example/v1", "model-one", "secret"
   env.driver.start()
   env.tick()
   check("开始后发出请求", #env.requests == 1 and env.requests[1][2].role == "user")
+  local agent = env.requests[1].agent
+  check("普通请求把模型来源交给回放且不含 API key", agent and agent.endpoint == env.cfg.endpoint
+    and agent.model == "model-one" and agent.api_key == nil)
+  env.cfg.model = "model-two"
   env.reply({ { "notify", { message = "对子能过" } }, { "play", { cards = { 0 }, reason = "打 A" } } })
   env.settle()
   check("两个调用依次执行", #env.calls == 2 and env.calls[1].method == "notify" and env.calls[2].method == "play")
   check("reason 交给 dispatcher", env.calls[2].reason == "打 A" and env.calls[2].params.reason == nil)
   check("进入下一次请求", #env.requests == 2)
+  check("下一次请求记录切换后的模型且旧快照不变", env.requests[2].agent.model == "model-two"
+    and env.requests[1].agent.model == "model-one")
   local msgs = env.requests[2]
   check("结果与调用成对", paired(msgs))
   check("动作结果带状态, 不再追加用户消息", msgs[#msgs].role == "tool" and msgs[#msgs].content:find("当前状态", 1, true))
@@ -737,11 +765,14 @@ end
 
 do -- 压缩: 用量过 80% 时先发写摘要的请求 (不带工具, 带前缀), 完成后较早的部分换成摘要, 最近的原文保留
   local env = harness()
+  env.cfg.endpoint, env.cfg.model = "https://compact.example/v1", "model-compact"
   env.cfg.context_limit = 1000
   play_turns(env, 3, { prompt_tokens = 900, completion_tokens = 10 })
   local compact = env.requests[#env.requests]
   check("用量过 80% 时发写摘要的请求", is_compaction(compact), tostring(#env.requests))
   check("写摘要的请求不带工具, 流式条带压缩前缀", compact and compact.tools == nil and compact.label == "压缩中: ")
+  check("压缩请求也传递实际模型来源", compact.agent.endpoint == env.cfg.endpoint
+    and compact.agent.model == env.cfg.model)
   check("写摘要的请求带上较早的对话", compact and compact[2].content:find("阶段: 出牌", 1, true) ~= nil)
   local before = env.driver.stats.requests
   env.reply_text("红色牌组白注, 打到第 1 底注小盲注, 主打对子.")
@@ -880,6 +911,65 @@ do -- 开无尽时赢下不走 after_run, 仍进无尽
   env.tick()
   check("开无尽时胜利走 endless", env.calls[1] and env.calls[1].method == "endless", env.calls[1] and env.calls[1].method)
   check("开无尽时胜利不 finish", finished == nil and env.driver.state == "idle", env.driver.state)
+end
+
+do -- 混合闭环: 先提案, Decision 选定后才执行, 保留原工具配对.
+  local env = harness()
+  env.cfg.builtin_backend = "hybrid"; env.cfg.decision = { min_confidence = 0 }
+  env.driver.start(); env.tick()
+  env.reply({ { "propose_actions", { candidates = {
+    { method = "play", params = { cards = { 0 } }, reason = "出牌" },
+    { method = "discard", params = { cards = { 1 } }, reason = "弃牌" },
+  } } } })
+  env.tick()
+  check("混合选择前未执行", #env.calls == 0 and #env.decision_requests == 1)
+  env.decision_reply({ choice = "c2", confidence = 0.8 }); env.settle()
+  check("混合只执行选中动作", #env.calls == 1 and env.calls[1].method == "discard")
+  check("混合历史工具成对", paired(env.driver._history.messages))
+end
+
+do -- 唯一候选用 Noul, 拒绝后不执行, 交回反馈重试.
+  local env = harness()
+  env.cfg.builtin_backend = "hybrid"; env.cfg.decision = { min_confidence = 0 }
+  env.driver.start(); env.tick()
+  env.reply({ { "propose_actions", { candidates = {
+    { method = "play", params = { cards = { 0 } }, reason = "出牌" },
+    { method = "play", params = { cards = { 0 } }, reason = "重复候选" },
+  } } } }); env.tick()
+  check("重复候选去重后用 Noul", env.decision_requests[1].questions.select_action.type == "noul")
+  env.decision_reply({ noul = 0.3 }); env.settle()
+  check("Noul 拒绝不执行且工具成对", #env.calls == 0 and paired(env.driver._history.messages))
+end
+
+do -- 混合取消与迟到回复, 不会执行.
+  local env = harness()
+  env.cfg.builtin_backend = "hybrid"; env.cfg.decision = { min_confidence = 0 }
+  env.driver.start(); env.tick()
+  env.reply({ { "propose_actions", { candidates = {
+    { method = "play", params = { cards = { 0 } }, reason = "出牌" },
+  } } } }); env.tick()
+  env.driver.pause(); env.decision_reply({ noul = 0.9 }); env.tick()
+  check("混合暂停取消 Decision 请求", env.decision_requests[1].cancelled and #env.calls == 0)
+  check("混合暂停历史配对", paired(env.driver._history.messages))
+end
+
+do -- 混合 LLM 不能绕过提案直接动作.
+  local env = harness()
+  env.cfg.builtin_backend = "hybrid"; env.cfg.decision = { min_confidence = 0 }
+  env.driver.start(); env.tick(); env.reply({ { "play", { cards = { 0 } } } }); env.settle()
+  check("混合拒绝直接动作", #env.calls == 0 and paired(env.driver._history.messages))
+end
+
+do -- 连续无有效提案达到上限, 不会绕过 Decision.
+  local env = harness()
+  env.cfg.builtin_backend = "hybrid"; env.cfg.decision = { min_confidence = 0 }
+  env.driver.start(); env.tick()
+  for _ = 1, 3 do
+    env.reply({ { "propose_actions", { candidates = { { method = "set", params = {}, reason = "非法方法" } } } } })
+    env.tick(); env.settle()
+  end
+  check("连续无效提案暂停且无网络动作", env.driver.state == "halted" and #env.calls == 0 and #env.decision_requests == 0)
+  check("连续无效提案历史配对", paired(env.driver._history.messages))
 end
 
 if failures > 0 then

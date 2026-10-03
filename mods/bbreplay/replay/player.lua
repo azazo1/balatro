@@ -184,6 +184,7 @@ end
 --- 停留 hold 秒后结束回放: 命令行按退出码结束进程, 游戏内把结果交回界面, 由它收尾.
 local function finish_later(code, hold)
   M.paused = false
+  deps.toast.frozen = false
   st.freeze_at = nil
   st.exit_code = code
   st.quit_at = now() + hold
@@ -232,6 +233,8 @@ function M.pause()
   end
   M.paused = true
   st.freeze_at = now()
+  -- 屏幕上的讲解一起停住, 继续时接着计时.
+  deps.toast.frozen = true
   if deps.stream then
     deps.stream.show_status("回放已暂停", 2)
   end
@@ -250,6 +253,7 @@ function M.resume()
   end
   M.paused = false
   st.freeze_at = nil
+  deps.toast.frozen = false
   if deps.stream then
     deps.stream.show_status("回放已继续", 1.2)
   end
@@ -312,6 +316,7 @@ function M.abort()
   st.aborting = true
   M.paused = false
   st.freeze_at = nil
+  deps.toast.frozen = false
   sendWarnMessage("Replay aborted by user", LOGGER)
   toast("回放中止", "用户中止了回放", 3)
   deps.recorder.annotate("replay", {
@@ -386,6 +391,7 @@ local function finish_ingame()
   local warnings = deps.session.finish()
   M.active = false
   M.paused = false
+  deps.toast.frozen = false
   M.status = "off"
   st.phase = "off"
   -- 先释放再回调: 界面收尾时 agent 已经按当前模式恢复.
@@ -947,6 +953,7 @@ function M.start(options)
   }
   M.active = true
   M.paused = false
+  deps.toast.frozen = false
   set_replay_toast(true)
   st.warn_until = now() + show_warnings(result, 4)
   deps.input_lock.install()

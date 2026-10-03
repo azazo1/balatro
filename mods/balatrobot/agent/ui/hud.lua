@@ -35,7 +35,13 @@ end
 local function status_spec()
   return {
     label = function()
-      return status_info().label
+      local label = status_info().label
+      if deps.runner.backend == "decision" then return "Decision " .. label end
+      if deps.runner.backend == "hybrid" then
+        local source = deps.runner.request_source == "decision" and "Decision" or "LLM"
+        return source .. " " .. label
+      end
+      return label
     end,
     pulse = function()
       return status_info().pulse == true
@@ -110,7 +116,7 @@ local function spec()
     local lock = deps.lock
     return {
       status = status_spec(),
-      meter = meter_spec(),
+      meter = runner.backend ~= "decision" and meter_spec() or nil,
       buttons = {
         -- 按钮文字是当前状态, 不是点下去要做的事; 点一下切换.
         {

@@ -88,6 +88,16 @@ function M.system(cfg)
       .. strategy
       .. "\n"
   end
+  if cfg.builtin_backend == "hybrid" then
+    out[#out + 1] = [[
+
+## 混合决策方式
+通过 propose_actions 提出 1 至 4 个互斥候选, 每项含 method, params, reason.
+每项仅是一个动作, 多个有依赖的连续动作必须逐轮提案. 查询与 notify 工具仍可直接调用.
+Decision 对候选选择或批准后才执行. 唯一候选也会接受判断, 被拒绝时请依据反馈修改提案.
+工具结果会给出实际执行的选择与新状态. 不要声称没选中的候选已执行.
+]]
+  end
   return table.concat(out)
 end
 

@@ -264,6 +264,8 @@ function M.headers(cfg, stream)
   if key ~= "" then
     if cfg.auth == "x-api-key" then
       headers["x-api-key"] = key
+    elseif cfg.auth == "raw" then
+      headers["Authorization"] = key
     else
       headers["Authorization"] = "Bearer " .. key
     end

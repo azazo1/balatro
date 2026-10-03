@@ -12,6 +12,7 @@ local W
 
 local LOGGER = "BB.AGENT.MENU"
 
+local Configuration = assert(SMODS.load_file("agent/configuration.lua", "balatrobot"))()
 local M = {}
 
 ---@class BBAgentMenuDeps
@@ -35,8 +36,13 @@ local view = {
 local function refresh()
   local runner = deps.runner
   local s = runner.stats
-  view.state = "状态: " .. runner.label()
+  local backend = runner.is_busy() and runner.backend or deps.mod.config.builtin_backend
+  view.state = "方式: " .. (Configuration.LABELS[backend] or "LLM") .. ", 状态: " .. runner.label()
   view.notice = runner.notice or ""
+  if not runner.is_busy() and not deps.mod.config.demo_stream then
+    local ok, reason = Configuration.validate(deps.mod.config)
+    if not ok then view.notice = reason end
+  end
   view.stats = string.format(
     "本局: 请求 %d 次, 重试 %d 次, token %d (输入 %d, 输出 %d)",
     s.requests,
@@ -45,6 +51,15 @@ local function refresh()
     s.prompt_tokens,
     s.completion_tokens
   )
+  local breakdown = {}
+  for _, source in ipairs({ "llm", "decision" }) do
+    local usage = (s.sources or {})[source]
+    if usage then breakdown[#breakdown + 1] = string.format("%s: 请求 %d, token %d", source == "llm" and "LLM" or "Decision",
+      usage.requests, usage.prompt_tokens + usage.completion_tokens) end
+  end
+  view.sources = table.concat(breakdown, " / ")
+  local decision = s.decision
+  view.decision = decision and W.fit_text("Decision: " .. tostring(decision.choice) .. ", confidence " .. tostring(decision.confidence), 8, 0.28) or ""
   view.error = s.last_error ~= "" and ("最近错误: " .. s.last_error) or "最近错误: 无"
 end
 
@@ -77,7 +92,7 @@ local function panel_definition()
       scale = 0.4,
       colour = G.C.GREEN,
       enabled = function()
-        return not runner.is_busy()
+        return not runner.is_busy() and (deps.mod.config.demo_stream or Configuration.validate(deps.mod.config))
       end,
       on_click = function()
         if runner.start() then
@@ -144,6 +159,8 @@ local function panel_definition()
     W.row({ W.live(view, "state", 0.4) }, { align = "cm" }),
     W.row({ W.live(view, "notice", 0.3, G.C.UI.TEXT_INACTIVE) }, { align = "cm" }),
     W.row({ W.live(view, "stats", 0.32) }, { align = "cm" }),
+    W.row({ W.live(view, "sources", 0.28) }, { align = "cm" }),
+    W.row({ W.live(view, "decision", 0.28) }, { align = "cm" }),
     W.row({ W.live(view, "error", 0.32, G.C.RED) }, { align = "cm" }),
     W.row({ W.col(buttons, { align = "cm" }) }, { align = "cm", padding = 0.1 }),
   }

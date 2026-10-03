@@ -314,12 +314,28 @@ function M.set_phase(phase)
   end
 end
 
-function M.note_request()
-  M.stats.requests = M.stats.requests + 1
+local function source_stats(source)
+  source = source or "llm"
+  M.stats.sources = M.stats.sources or {}
+  if not M.stats.sources[source] then
+    M.stats.sources[source] = { requests = 0, retries = 0, prompt_tokens = 0, completion_tokens = 0 }
+  end
+  return M.stats.sources[source]
 end
 
-function M.note_retry()
+function M.note_request(source)
+  M.stats.requests = M.stats.requests + 1
+  local stats = source_stats(source); stats.requests = stats.requests + 1
+  M.request_source = source or "llm"
+end
+
+function M.note_retry(source)
   M.stats.retries = M.stats.retries + 1
+  local stats = source_stats(source); stats.retries = stats.retries + 1
+end
+
+function M.note_choice(choice, confidence)
+  M.stats.decision = { choice = choice, confidence = confidence }
 end
 
 --- 当前上下文占用与上限 (token). driver 没给或还没开始时视为 0.
@@ -337,9 +353,12 @@ end
 --- 累计 token 用量. 超过单局上限时自动暂停.
 ---@param prompt number?
 ---@param completion number?
-function M.add_usage(prompt, completion)
+function M.add_usage(prompt, completion, source)
   prompt = tonumber(prompt) or 0
   completion = tonumber(completion) or 0
+  local stats = source_stats(source)
+  stats.prompt_tokens = stats.prompt_tokens + prompt
+  stats.completion_tokens = stats.completion_tokens + completion
   M.stats.prompt_tokens = M.stats.prompt_tokens + prompt
   M.stats.completion_tokens = M.stats.completion_tokens + completion
   M.stats.run_tokens = M.stats.run_tokens + prompt + completion
@@ -356,6 +375,8 @@ function M.new_run()
   M.stats.prompt_tokens = 0
   M.stats.completion_tokens = 0
   M.stats.run_tokens = 0
+  M.stats.sources = {}
+  M.stats.decision = nil
 end
 
 --- 每帧调用. dt 为墙钟间隔.

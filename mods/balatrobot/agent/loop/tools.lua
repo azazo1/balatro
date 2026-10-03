@@ -233,17 +233,43 @@ end
 
 ---@param opts {knowledge: boolean?}? knowledge=false 时不提供手册工具 (dynamics 与手册无关, 照常提供)
 ---@return table[] chat completions 的 tools 数组
+function M.proposal_definition()
+  local variants = {}
+  for _, def in ipairs(DEFS) do
+    if M.ACTIONS[def.name] then
+      local props = {}
+      for key, value in pairs(def.parameters.properties or {}) do if key ~= "reason" then props[key] = value end end
+      local required = {}
+      for _, key in ipairs(def.parameters.required or {}) do if key ~= "reason" then required[#required + 1] = key end end
+      local params = object(props, required)
+      params.additionalProperties = false
+      local schema = object({
+        method = { type = "string", enum = { def.name }, description = def.description },
+        params = params, reason = REASON,
+      }, { "method", "params", "reason" })
+      schema.additionalProperties = false
+      variants[#variants + 1] = schema
+    end
+  end
+  return { type = "function", ["function"] = {
+    name = "propose_actions",
+    description = "提出 1 至 4 个互斥候选动作, 每项只做一步. Decision 选择或批准后才执行, 查询工具仍可直接调用.",
+    parameters = object({ candidates = { type = "array", minItems = 1, maxItems = 4, items = { anyOf = variants } } }, { "candidates" }),
+  } }
+end
+
 function M.definitions(opts)
   opts = opts or {}
   local out = {}
   for _, def in ipairs(DEFS) do
-    if opts.knowledge ~= false or not M.KNOWLEDGE[def.name] then
+    if (not opts.hybrid or not M.ACTIONS[def.name]) and (opts.knowledge ~= false or not M.KNOWLEDGE[def.name]) then
       out[#out + 1] = {
         type = "function",
         ["function"] = { name = def.name, description = def.description, parameters = def.parameters },
       }
     end
   end
+  if opts.hybrid then out[#out + 1] = M.proposal_definition() end
   return out
 end
 
