@@ -121,6 +121,31 @@ function M.usable_digest(digest)
   return type(digest) == "string" and digest ~= "state=UNKNOWN" and digest:sub(1, 14) ~= "state=UNKNOWN "
 end
 
+-- 商店里的卡包把每一种贴图都做成独立原型 (p_arcana_normal_1 ... p_arcana_normal_4), 尾号只决定贴图.
+-- 本局首包的保底小丑包与标签送的包用不种子化的 math.random 抽贴图, 回放时可能落在另一个编号上,
+-- 玩法与包内内容都不受影响. 比对摘要时对 packs 字段忽略这个编号, 记录与显示仍用原值,
+-- 旧回放文件因此不需要迁移.
+---@param value string
+---@return string
+local function without_booster_art(value)
+  return (value:gsub("(p_[%a%d_]+)_%d+", "%1"))
+end
+
+--- 两个摘要字段是否相同. packs 里的卡包图案编号不算差异.
+---@param key string
+---@param a string?
+---@param b string?
+---@return boolean
+local function same_field(key, a, b)
+  if a == b then
+    return true
+  end
+  if key ~= "packs" or type(a) ~= "string" or type(b) ~= "string" then
+    return false
+  end
+  return without_booster_art(a) == without_booster_art(b)
+end
+
 --- 两个摘要不同的项, 例如 "money: 12 -> 9; hand: ... -> ...". 相同时返回 nil.
 ---@param expected string
 ---@param actual string
@@ -142,13 +167,16 @@ function M.diff(expected, actual)
   table.sort(keys)
   local out = {}
   for _, key in ipairs(keys) do
-    if a[key] ~= b[key] then
+    if not same_field(key, a[key], b[key]) then
       local function short(v)
         v = v or "(none)"
         return #v > 80 and (v:sub(1, 77) .. "...") or v
       end
       out[#out + 1] = key .. ": " .. short(a[key]) .. " -> " .. short(b[key])
     end
+  end
+  if #out == 0 then
+    return nil
   end
   return table.concat(out, "; ")
 end
