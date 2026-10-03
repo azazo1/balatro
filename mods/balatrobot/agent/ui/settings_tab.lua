@@ -506,36 +506,38 @@ local function play_column()
   return W.col(nodes, { minw = COL_W, padding = 0.05 })
 end
 
---- 显示开关与消息节奏: 横排放在两列下方. 竖排在右列里会让右列比左列高出一截, 撑高整个页面.
+--- 显示开关: 横排一整行放在两列下方. 竖排在右列里会让右列比左列高出一截, 撑高整个页面.
+--- 不要把两行包进 W.col 再和上面的 W.row 并列: C 会把后面的兄弟顶出面板.
 local function display_row()
-  return W.col({
-    W.row({
-      W.col({ W.text("显示", 0.4, G.C.FILTER) }, { padding = 0.05 }),
-      toggle("显示 agent 消息", "show_messages", function(value)
-        deps.toast.enabled = value
-        if not value then
-          deps.toast.clear("right")
-        end
-      end),
-      toggle("显示工具调用", "show_calls", function(value)
-        deps.toast.calls_enabled = value
-        if not value then
-          deps.toast.clear("left")
-        end
-      end),
-      toggle("演示流式条 (开发用)", "demo_stream"),
-    }, { padding = 0 }),
-    W.row({
-      W.col({ W.text("节奏", 0.4, G.C.FILTER) }, { padding = 0.05 }),
-      W.radio({
-        { "normal", "阅读", tip("阅读", "讲解按阅读时长显示, 后面的操作等它退去.") },
-        { "fast", "快速", tip("快速", "讲解几乎不等, 不拦后面的操作.", "框仍停留约 1.5 秒, 新的叠在上面.") },
-      }, function()
-        return deps.pace.current()
-      end, function(value)
-        deps.pace.set(value)
-      end, { minw = 1.2, scale = 0.28 }),
-    }, { padding = 0 }),
+  return W.row({
+    W.col({ W.text("显示", 0.4, G.C.FILTER) }, { padding = 0.05 }),
+    toggle("显示 agent 消息", "show_messages", function(value)
+      deps.toast.enabled = value
+      if not value then
+        deps.toast.clear("right")
+      end
+    end),
+    toggle("显示工具调用", "show_calls", function(value)
+      deps.toast.calls_enabled = value
+      if not value then
+        deps.toast.clear("left")
+      end
+    end),
+    toggle("演示流式条 (开发用)", "demo_stream"),
+  }, { padding = 0 })
+end
+
+local function pace_row()
+  return W.row({
+    W.col({ W.text("节奏", 0.4, G.C.FILTER) }, { padding = 0.05 }),
+    W.radio({
+      { "normal", "阅读", tip("阅读", "讲解按阅读时长显示, 后面的操作等它退去.") },
+      { "fast", "快速", tip("快速", "讲解几乎不等, 不拦后面的操作.", "框仍停留约 1.5 秒, 新的叠在上面.") },
+    }, function()
+      return deps.pace.current()
+    end, function(value)
+      deps.pace.set(value)
+    end, { minw = 1.2, scale = 0.28 }),
   }, { padding = 0 })
 end
 
@@ -555,6 +557,7 @@ function M.build()
         play_column(),
       }, { align = "tm", padding = 0 }),
       display_row(),
+      pace_row(),
       -- 粘贴, 清除, 切换模式的结果: 两列的按钮共用, 放在底部整行.
       W.row({ W.live(view, "action_note", 0.27, G.C.UI.TEXT_INACTIVE) }, { align = "cm" }),
     },
