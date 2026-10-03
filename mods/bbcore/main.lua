@@ -8,6 +8,8 @@ BB Core 入口: balatrobot 与 bbreplay 共用的运行时, 由本仓库从 Bala
   BB_DISPATCHER.load_endpoints(files, mod_id) 追加自己的端点.
 - BB_TRANSPORT: 端点结果的公共出口 (runtime/transport.lua), HTTP 服务与本地调用在这里取结果.
 - BB_GAMESTATE, BB_ERROR_NAMES / BB_ERROR_CODES: 状态序列化与错误码.
+- BB_BOSS_REROLL: 导演剪辑版 / 重构能不能重掷 Boss (src/lua/utils/boss_reroll.lua), 同时挂在
+  BB_GAMESTATE.boss_reroll 上供状态提取取价格.
 - BB_OVERLAY: 弹窗拦截, kind / win_settled / animating (runtime/overlay.lua).
 - BB_ACTIVITY: 请求与响应事件 (runtime/activity.lua).
 - BB_CALL_NOTE: 工具调用的左侧弹窗文案 (runtime/call_note.lua), 别的 mod 用 register 补自己端点的.
@@ -73,7 +75,9 @@ end
 
 BB_TRANSPORT = assert(SMODS.load_file("runtime/transport.lua"))()
 assert(SMODS.load_file("src/lua/core/dispatcher.lua"))() -- define BB_DISPATCHER
+BB_BOSS_REROLL = assert(SMODS.load_file("src/lua/utils/boss_reroll.lua"))()
 BB_GAMESTATE = assert(SMODS.load_file("src/lua/utils/gamestate.lua"))()
+BB_GAMESTATE.boss_reroll = BB_BOSS_REROLL -- gamestate 的 round.boss_reroll_cost 从这里取
 assert(SMODS.load_file("src/lua/utils/errors.lua"))()
 -- 一次出牌的计分过程 (写进 gamestate 的 round.last_hand), 装钩子要在游戏函数定义之后.
 BB_SCORING = assert(SMODS.load_file("runtime/scoring.lua"))()

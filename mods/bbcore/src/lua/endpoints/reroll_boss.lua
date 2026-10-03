@@ -1,6 +1,6 @@
 -- src/lua/endpoints/reroll_boss.lua
 
-local boss_reroll = assert(SMODS.load_file("src/lua/utils/boss_reroll.lua"))()
+local boss_reroll = assert(BB_BOSS_REROLL, "BB_BOSS_REROLL not loaded")
 local pack_wait = assert(SMODS.load_file("src/lua/utils/pack_wait.lua"))()
 
 -- ==========================================================================

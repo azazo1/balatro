@@ -8,8 +8,8 @@
 ---@field get_blinds_info fun(): table<string, Blind>
 ---@field get_gamestate fun(opts: {raw: boolean?}?): GameState
 ---@field redact_hidden fun(state: table): table
+---@field boss_reroll table? 导演剪辑版 / 重构的纯逻辑, 由 main.lua 装配时注入
 local gamestate = {}
-local boss_reroll = assert(SMODS.load_file("src/lua/utils/boss_reroll.lua"))()
 
 -- ==========================================================================
 -- State Name Mapping
@@ -472,8 +472,11 @@ local function extract_round_info()
   end
 
   -- 选盲注时, 有导演剪辑版 / 重构且本底注还能掷才写出价格, 模型据此决定要不要 reroll_boss.
+  -- boss_reroll 由 main.lua 注入, 单测直接 dofile 本文件时没有它, 那就只是不写价格.
+  local boss_reroll = gamestate.boss_reroll
   if
-    G.STATES
+    boss_reroll
+    and G.STATES
     and G.STATE == G.STATES.BLIND_SELECT
     and boss_reroll.available({
       used_vouchers = G.GAME.used_vouchers,
