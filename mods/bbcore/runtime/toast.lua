@@ -41,6 +41,9 @@ local M = {
   pace = "normal",
   -- 非回放时的档位. 回放结束用 M.apply_home 恢复; 快进时 apply_home 会关掉门槛.
   home_pace = "normal",
+  -- 冻结计时 (回放暂停时打开): 屏幕上的消息停在原处不退场, 排队的也不放出来.
+  -- 回放自己的提示 (fixed), 正在滑入或退场的那些照常走完.
+  frozen = false,
 }
 
 local MAX_ITEMS = 3
@@ -555,7 +558,12 @@ local function advance_lane(lane, dt)
     local box = item.box
     local alive = box and not box.REMOVED and item.attach == G.ROOM_ATTACH
     if alive then
-      item.age = item.age + dt
+      local step = dt
+      if M.frozen and not item.fixed and not item.leave_at then
+        -- 冻结时只让还没滑入的那截走完, 免得框一直藏在屏幕外.
+        step = math.max(0, math.min(dt, ENTER_DELAY - item.age))
+      end
+      item.age = item.age + step
       if item.on_read and item.age >= item.read + ENTER_DELAY then
         fire_read(item)
       end
@@ -598,7 +606,7 @@ function M.update(dt)
   for _, lane in pairs(lanes) do
     -- 一条一条来: 这条车道上没有还在显示的消息 (前一条已开始退场) 时, 把队首放出来.
     -- 叠放时 (快进) 不等前一条退场, 每帧放一条.
-    if #lane.pending > 0 and (stacking() or not lane_showing(lane)) then
+    if #lane.pending > 0 and not M.frozen and (stacking() or not lane_showing(lane)) then
       show(table.remove(lane.pending, 1))
       trim(lane)
     end
