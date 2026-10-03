@@ -22,7 +22,10 @@ love = {
   filesystem = { getSaveDirectory = function() return "/tmp/bb-record-test" end },
   timer = { getTime = function() return os.clock() end },
 }
-Game = {}
+Game = {
+  start_run = function() end,
+  main_menu = function() end,
+}
 BB_SETTINGS = { headless = false, render_on_api = false }
 
 local logs = { info = {}, warn = {}, error = {}, debug = {} }
@@ -78,6 +81,13 @@ check("每次加载都带本 mod 的 id", #loads > 0 and #wrong == 0, table.conc
 local before = #loads
 Recorder.set_enabled(false, "settings")
 check("关闭", Recorder.enabled == false)
+-- 钩子还在: 游戏内回放选 "不录" 就是这条路径, 开局不能再写出视频.
+local run_ok, run_err = pcall(Game.start_run, Game, {})
+check(
+  "关闭后开局不录像",
+  run_ok == true and Recorder.current() == nil and Recorder.enabled == false,
+  tostring(run_err)
+)
 Recorder.set_enabled(true, "settings again")
 check("再次打开复用模块", #loads == before and Recorder.enabled == true, tostring(#loads - before))
 

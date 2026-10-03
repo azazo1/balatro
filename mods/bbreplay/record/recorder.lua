@@ -545,6 +545,11 @@ end
 ---@param resumed boolean 读档开局
 ---@param reason string? run_start 事件的 reason, 局中重新开始录制时给出
 local function start_session(resumed, reason)
+  -- Game.start_run 的钩子在第一次打开录像时装上, 之后关不掉. 游戏内回放选 "不录"
+  -- 时只把 enabled 设为 false, 这里必须再挡一次, 否则仍会写出 replay-* 视频.
+  if not M.enabled then
+    return
+  end
   local game = G.GAME or {}
   local seed = game.pseudorandom and game.pseudorandom.seed or "noseed"
   local stem = cfg.prefix .. os.date("%Y%m%d-%H%M%S") .. "-" .. tostring(seed):gsub("[^%w%-_]", "")
