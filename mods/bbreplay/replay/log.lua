@@ -8,6 +8,7 @@
   人手动的操作 (出牌, 购买, 拖动排序, 弹窗上选无尽或回主菜单等, 见 replay/manual.lua)
   换算成同样的步骤, 标 manual = true. 手动步骤没有 "完成" 的时刻, 它的状态摘要在下一步开始时取:
   人点下一步时画面已经停下, 与回放时这一步的接口返回时的状态对应.
+- agents: 本局内置 agent 请求使用的 endpoint 与模型名, 按首次出现排序, 不含鉴权信息.
 - streams: 内置 agent 的模型输出 (思维链和正文), 带第一个字和结束的时间. 回放时按平均字速滚流式条.
 
 旧版本的文件只记了手动操作的次数 (manual_inputs), 没有具体操作, 回放时据此提示结果可能不同.
@@ -146,10 +147,38 @@ local function take_stream()
   add_stream(rec)
 end
 
---- 内置 agent 一次请求开始. 流式条 begin_request 时调用.
+--- 只保留来源信息. 查询串, fragment 和 URL 用户凭据可能含密钥, 不能随回放分享.
+---@param agent table?
+local function record_agent(agent)
+  if not log or type(agent) ~= "table" then
+    return
+  end
+  local function trimmed(value)
+    return type(value) == "string" and value:match("^%s*(.-)%s*$") or ""
+  end
+  local endpoint = trimmed(agent.endpoint):gsub("[?#].*$", ""):gsub("^([%a][%w+.-]*://)[^/]*@", "%1")
+  local model = trimmed(agent.model)
+  if endpoint == "" and model == "" then
+    return
+  end
+  for _, saved in ipairs(log.data.agents) do
+    if (saved.endpoint or "") == endpoint and (saved.model or "") == model then
+      return
+    end
+  end
+  log.data.agents[#log.data.agents + 1] = {
+    endpoint = endpoint ~= "" and endpoint or nil,
+    model = model ~= "" and model or nil,
+  }
+  log.dirty = true
+end
+
+--- 内置 agent 一次请求开始. 即使没有收到正文, 也记录这次使用的模型.
 ---@param label string?
-function M.stream_begin(label)
+---@param agent {endpoint: string?, model: string?}?
+function M.stream_begin(label, agent)
   take_stream()
+  record_agent(agent)
   if not log then
     stream_acc:drop()
     return
@@ -286,6 +315,7 @@ local function begin(resumed_save, snap, tutorial)
       },
       snapshot = snap,
       actions = {},
+      agents = {},
       streams = {},
     },
   }

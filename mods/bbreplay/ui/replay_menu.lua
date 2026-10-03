@@ -474,6 +474,16 @@ local function confirm_lines(entry)
     lines[#lines + 1] =
       string.format("步数 %d, 原局时长 %s", entry.steps or 0, deps.library.duration_text(entry.duration))
   end
+  local agents = entry.agents or {}
+  if #agents == 0 then
+    lines[#lines + 1] = "模型 / endpoint: 未记录 (旧回放, 手动或外部 agent)"
+  else
+    for i, agent in ipairs(agents) do
+      local prefix = #agents > 1 and string.format("Agent %d ", i) or ""
+      lines[#lines + 1] = prefix .. "模型: " .. (agent.model or "未记录")
+      lines[#lines + 1] = prefix .. "endpoint: " .. (agent.endpoint or "未记录")
+    end
+  end
   if entry.ok and (entry.manual_inputs or 0) > 0 then
     lines[#lines + 1] = string.format("原局里有 %d 次手动操作, 结果可能与原局不同", entry.manual_inputs)
   end

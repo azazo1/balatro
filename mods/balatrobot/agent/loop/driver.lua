@@ -36,8 +36,8 @@ deps:
   after_win 与 after_run 的实际分支在一局结束时读当前配置.
   配置整个交给 client.start, 协议 (api_format) 与思考相关的字段由协议层自己读, 每次请求 (含写摘要) 都按当前值.
 - json {encode, decode}; now() -> 秒
-- bar: begin_request(label?), push(kind, text), reset(), finish(), show_error(text 或 fun(): string, hold), show_status(text, hold)
-  label 是固定显示在行首的前缀 (压缩时为 "压缩中: ").
+- bar: begin_request(label?, agent?), push(kind, text), reset(), finish(), show_error(text 或 fun(): string, hold), show_status(text, hold)
+  label 是固定显示在行首的前缀 (压缩时为 "压缩中: "), agent 只含 endpoint 和 model, 用于回放记录.
 - describe(key) -> {name, effect}? (给摘要用)
 - on_state(state, detail): 可选, 子状态变化 (idle, requesting, acting, retry_wait, waiting, paused, halted, stopped)
 - report(event, ...): 可选, 向运行控制 (agent/runner.lua) 汇报, 由它负责单局 token 上限, 暂停与停止:
@@ -216,7 +216,7 @@ function M.new(deps)
     local cfg = deps.config()
     self.stats.requests = self.stats.requests + 1
     report("request")
-    deps.bar.begin_request()
+    deps.bar.begin_request(nil, { endpoint = cfg.endpoint, model = cfg.model })
     set_state("requesting")
     transcript({ type = "request", messages = #history.messages })
     local started = deps.now()
@@ -388,13 +388,13 @@ function M.new(deps)
     compacting = { cut = cut, messages = cut - 2 }
     self.stats.requests = self.stats.requests + 1
     report("request")
-    deps.bar.begin_request(COMPACT_LABEL)
+    local cfg = deps.config()
+    deps.bar.begin_request(COMPACT_LABEL, { endpoint = cfg.endpoint, model = cfg.model })
     set_state("requesting", "compact")
     log("info", string.format("Compacting agent history: summarizing %d older messages", cut - 2))
     transcript({ type = "compact_start", messages = cut - 2 })
     compact_callbacks.started = deps.now()
     -- 不带工具: 模型只写摘要, 不会在这次请求里操作游戏.
-    local cfg = deps.config()
     req = deps.client.start(cfg, messages, nil, compact_callbacks)
     return true
   end

@@ -91,8 +91,8 @@ local function harness()
       end
     end,
     bar = {
-      begin_request = function(label)
-        env.label = label
+      begin_request = function(label, agent)
+        env.label, env.agent = label, agent
       end,
       push = function() end,
       reset = function() end,
@@ -105,7 +105,7 @@ local function harness()
     client = {
       start = function(cfg, messages, tools, callbacks, opts)
         -- 协议层按配置自己读思考强度, 这里记下发请求那一刻的值.
-        local snapshot = { tools = tools, label = env.label, opts = opts, effort = cfg and cfg.reasoning_effort }
+        local snapshot = { tools = tools, label = env.label, agent = env.agent, opts = opts, effort = cfg and cfg.reasoning_effort }
         for i, m in ipairs(messages) do
           snapshot[i] = m
         end
@@ -323,14 +323,21 @@ end
 
 do -- 正常一轮: 顺序执行多个调用, 结果按 id 写回, 下一轮不重复给状态
   local env = harness()
+  env.cfg.endpoint, env.cfg.model, env.cfg.api_key = "https://one.example/v1", "model-one", "secret"
   env.driver.start()
   env.tick()
   check("开始后发出请求", #env.requests == 1 and env.requests[1][2].role == "user")
+  local agent = env.requests[1].agent
+  check("普通请求把模型来源交给回放且不含 API key", agent and agent.endpoint == env.cfg.endpoint
+    and agent.model == "model-one" and agent.api_key == nil)
+  env.cfg.model = "model-two"
   env.reply({ { "notify", { message = "对子能过" } }, { "play", { cards = { 0 }, reason = "打 A" } } })
   env.settle()
   check("两个调用依次执行", #env.calls == 2 and env.calls[1].method == "notify" and env.calls[2].method == "play")
   check("reason 交给 dispatcher", env.calls[2].reason == "打 A" and env.calls[2].params.reason == nil)
   check("进入下一次请求", #env.requests == 2)
+  check("下一次请求记录切换后的模型且旧快照不变", env.requests[2].agent.model == "model-two"
+    and env.requests[1].agent.model == "model-one")
   local msgs = env.requests[2]
   check("结果与调用成对", paired(msgs))
   check("动作结果带状态, 不再追加用户消息", msgs[#msgs].role == "tool" and msgs[#msgs].content:find("当前状态", 1, true))
@@ -737,11 +744,14 @@ end
 
 do -- 压缩: 用量过 80% 时先发写摘要的请求 (不带工具, 带前缀), 完成后较早的部分换成摘要, 最近的原文保留
   local env = harness()
+  env.cfg.endpoint, env.cfg.model = "https://compact.example/v1", "model-compact"
   env.cfg.context_limit = 1000
   play_turns(env, 3, { prompt_tokens = 900, completion_tokens = 10 })
   local compact = env.requests[#env.requests]
   check("用量过 80% 时发写摘要的请求", is_compaction(compact), tostring(#env.requests))
   check("写摘要的请求不带工具, 流式条带压缩前缀", compact and compact.tools == nil and compact.label == "压缩中: ")
+  check("压缩请求也传递实际模型来源", compact.agent.endpoint == env.cfg.endpoint
+    and compact.agent.model == env.cfg.model)
   check("写摘要的请求带上较早的对话", compact and compact[2].content:find("阶段: 出牌", 1, true) ~= nil)
   local before = env.driver.stats.requests
   env.reply_text("红色牌组白注, 打到第 1 底注小盲注, 主打对子.")

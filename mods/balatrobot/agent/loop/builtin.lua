@@ -93,10 +93,10 @@ local function tap_stream(stream)
   end
   local wrapped = {}
   setmetatable(wrapped, { __index = stream })
-  function wrapped.begin_request(label)
+  function wrapped.begin_request(label, agent)
     local log = rec()
     if log and log.stream_begin then
-      log.stream_begin(label)
+      log.stream_begin(label, agent)
     end
     return stream.begin_request(label)
   end

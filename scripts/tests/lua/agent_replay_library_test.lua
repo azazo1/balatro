@@ -59,6 +59,21 @@ do
   check("解析: 读档开局可回放", Library.describe(data, Format.VERSION).ok == true)
 end
 
+do -- 模型来源是可选元数据, 不影响回放有效性, 不保留无关字段.
+  local data = replay_data()
+  data.agents = {
+    { endpoint = "https://one.example/v1", model = "model-one", api_key = "不能进入列表" },
+    { endpoint = "https://two.example/v1", model = "model-two" },
+    false,
+    { model = {} },
+  }
+  local entry = Library.describe(data, Format.VERSION)
+  check("提取多个模型来源且不保留敏感字段", entry.ok and #entry.agents == 2
+    and entry.agents[1].endpoint == data.agents[1].endpoint and entry.agents[2].model == "model-two"
+    and entry.agents[1].api_key == nil)
+  check("旧回放没有模型元数据仍可回放", #Library.describe(replay_data(), Format.VERSION).agents == 0)
+end
+
 do
   local cases = {
     { name = "版本不支持", patch = function(d) d.version = 99 end },
@@ -224,7 +239,9 @@ do -- 回放菜单的布局: 竖直列表里不能出现"C 型节点后面还有
     FUNCS = {},
     SETTINGS = {},
   }
-  local fake_replay = json.encode(replay_data())
+  local fake_data = replay_data()
+  fake_data.agents = { { endpoint = "https://one.example/v1", model = "model-one" } }
+  local fake_replay = json.encode(fake_data)
   -- 录像目录: 一个新布局 (每局一个文件夹) 与一个旧版平铺的回放文件. 按 kind 返回目录或文件.
   -- BROKEN 那个在文件夹里, 用来验证损坏的行也点得进确认页.
   SMODS = {
@@ -339,6 +356,22 @@ do -- 回放菜单的布局: 竖直列表里不能出现"C 型节点后面还有
     end
   end
   check("确认页生成且没有 C 后面带 R 的布局", clicked ~= nil and captured ~= list_def and #confirm_found == 0, table.concat(confirm_found, "; "))
+  local rendered = {}
+  local function collect_text(node)
+    if type(node) ~= "table" then
+      return
+    end
+    if node.config and type(node.config.text) == "string" then
+      rendered[#rendered + 1] = node.config.text
+    end
+    for _, child in ipairs(node.n and (node.nodes or {}) or node) do
+      collect_text(child)
+    end
+  end
+  collect_text(captured.args.contents)
+  local text = table.concat(rendered, "\n")
+  check("确认页显示原局记录而非当前配置", text:find(fake_data.agents[1].model, 1, true)
+    and text:find(fake_data.agents[1].endpoint, 1, true))
 
   -- 不能回放的行 (这里是损坏的文件) 仍能点进确认页, 才能删除它.
   --- 按顺序收集所有按钮的引用表.

@@ -32,6 +32,7 @@ local M = {}
 ---@field ante integer? 最后的底注
 ---@field manual_inputs integer? 原局里手动操作的次数
 ---@field resumed boolean? 是否读档开局
+---@field agents {endpoint: string?, model: string?}[] 本局内置 agent 使用的模型, 旧文件或手动局为空
 
 local STAKES_CN = {
   WHITE = "白注",
@@ -177,7 +178,17 @@ function M.describe(data, supported_version)
     stake = STAKES_CN[run.stake] or run.stake or "?",
     seed = run.seed or "随机",
     resumed = run.resumed == true,
+    agents = {},
   }
+  for _, agent in ipairs(type(data.agents) == "table" and data.agents or {}) do
+    if type(agent) == "table" then
+      local endpoint = type(agent.endpoint) == "string" and agent.endpoint ~= "" and agent.endpoint or nil
+      local model = type(agent.model) == "string" and agent.model ~= "" and agent.model or nil
+      if endpoint or model then
+        entry.agents[#entry.agents + 1] = { endpoint = endpoint, model = model }
+      end
+    end
+  end
   if data.result then
     entry.result = data.result.won == true and "胜利" or "未胜利"
   else
