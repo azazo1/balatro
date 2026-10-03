@@ -217,8 +217,11 @@ do -- runner: 没有 driver 时不启动; 停止与出错各通知一次录像; 
   limit = 100
   Runner.set_driver({})
   Runner.start()
-  Runner.add_usage(80, 30)
-  check("超过 token 上限自动暂停", Runner.state == "paused" and Runner.stats.last_error ~= "")
+  Runner.new_run()
+  Runner.add_usage(80, 0, "llm")
+  check("LLM 用量未超过上限", Runner.state == "running")
+  Runner.add_usage(0, 30, "decision")
+  check("两个来源合计超过 token 上限自动暂停", Runner.state == "paused" and Runner.stats.last_error ~= "")
 end
 
 do -- 文字裁断: 行文字必须收进固定宽度, 否则会撑开面板; 裁断不能把多字节字符切一半

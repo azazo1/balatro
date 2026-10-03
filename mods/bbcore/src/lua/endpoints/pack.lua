@@ -4,6 +4,7 @@
 local BB_LOGGER = assert(SMODS.load_file("src/lua/utils/logger.lua"))()
 local pack_wait = assert(SMODS.load_file("src/lua/utils/pack_wait.lua"))()
 local slots = assert(SMODS.load_file("src/lua/utils/slots.lua"))()
+local target_rules = assert(SMODS.load_file("src/lua/utils/target_rules.lua"))()
 
 -- ==========================================================================
 -- Pack Select Endpoint Params
@@ -22,32 +23,8 @@ local slots = assert(SMODS.load_file("src/lua/utils/slots.lua"))()
 --- @param card_key string Card key (e.g., "c_magician")
 --- @return table|nil { min = number, max = number } or { requires_joker = boolean } or nil if no requirements
 local function get_consumable_target_requirements(card_key)
-  -- Special cases that don't follow the standard max_highlighted pattern
-  if card_key == "c_aura" then
-    -- Aura has empty config but uses exactly 1 highlighted card
-    return { min = 1, max = 1 }
-  end
-
-  if card_key == "c_ankh" then
-    -- Ankh requires at least 1 joker instead of hand card targets
-    return { requires_joker = true }
-  end
-
-  -- Look up configuration from G.P_CENTERS
   local center = G.P_CENTERS[card_key]
-  if not center or not center.config then
-    return nil
-  end
-
-  local config = center.config
-  if config.max_highlighted then
-    return {
-      min = config.min_highlighted or 1, -- Default min to 1 if not specified
-      max = config.max_highlighted,
-    }
-  end
-
-  return nil
+  return target_rules.requirements(card_key, center and center.config)
 end
 
 --- 选完或跳过后等包稳定: 还能再选就留在包里, 否则等回到打开前的界面
@@ -187,7 +164,8 @@ return {
 
       -- Validate consumable target requirements
       if card_key then
-        local req = get_consumable_target_requirements(card_key)
+        local req, target_error = get_consumable_target_requirements(card_key)
+        if target_error then send_response({ message = target_error, name = BB_ERROR_NAMES.NOT_ALLOWED }); return true end
         if req then
           -- Check joker requirement for cards like Ankh
           if req.requires_joker then

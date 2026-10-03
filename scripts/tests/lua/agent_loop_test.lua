@@ -58,6 +58,7 @@ local function harness()
   end
   local current = nil
   local deps = {
+    lifecycle = dofile(DIR .. "lifecycle.lua"),
     tools = Tools,
     prompt = Prompt,
     history = History,
@@ -121,7 +122,27 @@ local function harness()
       end,
     },
   }
+  env.decision_requests = {}
+  deps.hybrid = dofile("mods/balatrobot/agent/decision/hybrid.lua").new({
+    planner = dofile("mods/balatrobot/agent/decision/planner.lua"), json = json,
+    capabilities = { snapshot = function()
+      return { actions = {
+        { method = "play", params = {}, label = "出牌", target = { field = "cards", min = 1, max = 2, indices = { 0, 1 } } },
+        { method = "discard", params = {}, label = "弃牌", target = { field = "cards", min = 1, max = 2, indices = { 0, 1 } } },
+      } }
+    end },
+    observation = { state = function() return {} end },
+    client = { start = function(_, _, questions, callbacks)
+      local r = { questions = questions, callbacks = callbacks, update = function() end,
+        cancel = function(self) self.cancelled = true end }
+      env.decision_requests[#env.decision_requests + 1] = r; return r
+    end },
+  })
   env.driver = Driver.new(deps)
+  function env.decision_reply(answer)
+    env.decision_requests[#env.decision_requests].callbacks.on_done({ answers = { select_action = answer } },
+      { prompt_tokens = 3, completion_tokens = 1 })
+  end
   --- 让当前请求以给定的工具调用完成.
   function env.reply(calls, usage)
     local message = { role = "assistant", content = nil, tool_calls = {} }
@@ -890,6 +911,65 @@ do -- 开无尽时赢下不走 after_run, 仍进无尽
   env.tick()
   check("开无尽时胜利走 endless", env.calls[1] and env.calls[1].method == "endless", env.calls[1] and env.calls[1].method)
   check("开无尽时胜利不 finish", finished == nil and env.driver.state == "idle", env.driver.state)
+end
+
+do -- 混合闭环: 先提案, Decision 选定后才执行, 保留原工具配对.
+  local env = harness()
+  env.cfg.builtin_backend = "hybrid"; env.cfg.decision = { min_confidence = 0 }
+  env.driver.start(); env.tick()
+  env.reply({ { "propose_actions", { candidates = {
+    { method = "play", params = { cards = { 0 } }, reason = "出牌" },
+    { method = "discard", params = { cards = { 1 } }, reason = "弃牌" },
+  } } } })
+  env.tick()
+  check("混合选择前未执行", #env.calls == 0 and #env.decision_requests == 1)
+  env.decision_reply({ choice = "c2", confidence = 0.8 }); env.settle()
+  check("混合只执行选中动作", #env.calls == 1 and env.calls[1].method == "discard")
+  check("混合历史工具成对", paired(env.driver._history.messages))
+end
+
+do -- 唯一候选用 Noul, 拒绝后不执行, 交回反馈重试.
+  local env = harness()
+  env.cfg.builtin_backend = "hybrid"; env.cfg.decision = { min_confidence = 0 }
+  env.driver.start(); env.tick()
+  env.reply({ { "propose_actions", { candidates = {
+    { method = "play", params = { cards = { 0 } }, reason = "出牌" },
+    { method = "play", params = { cards = { 0 } }, reason = "重复候选" },
+  } } } }); env.tick()
+  check("重复候选去重后用 Noul", env.decision_requests[1].questions.select_action.type == "noul")
+  env.decision_reply({ noul = 0.3 }); env.settle()
+  check("Noul 拒绝不执行且工具成对", #env.calls == 0 and paired(env.driver._history.messages))
+end
+
+do -- 混合取消与迟到回复, 不会执行.
+  local env = harness()
+  env.cfg.builtin_backend = "hybrid"; env.cfg.decision = { min_confidence = 0 }
+  env.driver.start(); env.tick()
+  env.reply({ { "propose_actions", { candidates = {
+    { method = "play", params = { cards = { 0 } }, reason = "出牌" },
+  } } } }); env.tick()
+  env.driver.pause(); env.decision_reply({ noul = 0.9 }); env.tick()
+  check("混合暂停取消 Decision 请求", env.decision_requests[1].cancelled and #env.calls == 0)
+  check("混合暂停历史配对", paired(env.driver._history.messages))
+end
+
+do -- 混合 LLM 不能绕过提案直接动作.
+  local env = harness()
+  env.cfg.builtin_backend = "hybrid"; env.cfg.decision = { min_confidence = 0 }
+  env.driver.start(); env.tick(); env.reply({ { "play", { cards = { 0 } } } }); env.settle()
+  check("混合拒绝直接动作", #env.calls == 0 and paired(env.driver._history.messages))
+end
+
+do -- 连续无有效提案达到上限, 不会绕过 Decision.
+  local env = harness()
+  env.cfg.builtin_backend = "hybrid"; env.cfg.decision = { min_confidence = 0 }
+  env.driver.start(); env.tick()
+  for _ = 1, 3 do
+    env.reply({ { "propose_actions", { candidates = { { method = "set", params = {}, reason = "非法方法" } } } } })
+    env.tick(); env.settle()
+  end
+  check("连续无效提案暂停且无网络动作", env.driver.state == "halted" and #env.calls == 0 and #env.decision_requests == 0)
+  check("连续无效提案历史配对", paired(env.driver._history.messages))
 end
 
 if failures > 0 then

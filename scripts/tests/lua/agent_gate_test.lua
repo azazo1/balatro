@@ -185,6 +185,31 @@ do -- 门槛关掉时 (回放禁用) 不等
   check("门槛关掉时立刻执行", #executed == 1 and executed[1] == "play", table.concat(executed, ","))
 end
 
+do -- 同阶段等待期间作废, 仍拒绝执行.
+  reset()
+  BB_TOAST.gate_id = function() return toast.id end
+  toast.id = 7
+  local valid = true
+  BB_DISPATCHER.dispatch({ jsonrpc = "2.0", method = "play", params = {}, id = 1,
+    before_execute = function() return valid end })
+  valid = false; toast.id = nil; BB_DISPATCHER.update()
+  check("等待讲解期间观察作废不执行", #executed == 0 and #responses == 1 and responses[1].name == "INVALID_STATE")
+end
+
+do -- 等解说时停止, 旧调用既不能执行也不能把错误交给新调用.
+  reset()
+  BB_TOAST.gate_id = function() return toast.id end
+  local LocalCall = dofile("mods/balatrobot/agent/loop/local_call.lua")
+  LocalCall.install(BB_DISPATCHER.Server)
+  toast.id = 8
+  local old_result, new_result
+  LocalCall.call(BB_DISPATCHER, "play", {}, nil, function(value) old_result = value end)
+  check("等待解说可立即取消", LocalCall.cancel_waiting())
+  LocalCall.call(BB_DISPATCHER, "discard", {}, nil, function(value) new_result = value end)
+  toast.id = nil; BB_DISPATCHER.update()
+  check("旧等待动作不执行也不污染新响应", #executed == 1 and executed[1] == "discard" and old_result == nil and new_result.success)
+end
+
 if failures > 0 then
   print(string.format("%d 项失败", failures))
   os.exit(1)

@@ -8,7 +8,8 @@
 ]]
 
 local LOGGER = "BB.AGENT.MIGRATE"
-local CONFIG_VERSION = 3
+local CONFIG_VERSION = 4
+local Configuration = assert(SMODS.load_file("agent/configuration.lua", "balatrobot"))()
 
 local M = {}
 
@@ -58,6 +59,8 @@ local function migrate_config(mod)
     config.mode = config.enabled == true and "external" or "off"
     config.enabled = nil
   end
+  -- 3 -> 4: 连接拆为 llm / decision, 迁移旧 LLM 配置, 保留公共对局选项.
+  Configuration.migrate(config, version)
   config.version = CONFIG_VERSION
   SMODS.save_mod_config(mod)
   sendInfoMessage("Mod config migrated from version " .. version .. " to " .. CONFIG_VERSION, LOGGER)

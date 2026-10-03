@@ -168,6 +168,8 @@ end
 --- server: 端点结果的出口 (bbcore 的 BB_TRANSPORT), 本地调用在这里取结果.
 function M.install(opts)
   local mod, runner, stream = opts.mod, opts.runner, opts.stream
+  local Configuration = load("agent/configuration.lua")
+  local snapshot
   local LocalCall = load("agent/loop/local_call.lua")
   local Driver = load("agent/loop/driver.lua")
   local Client = load("agent/llm/client.lua")
@@ -177,9 +179,32 @@ function M.install(opts)
 
   LocalCall.install(opts.server)
   local json = require("json")
+  M.decision_client = load("agent/decision/client.lua").new({
+    protocol = load("agent/decision/protocol.lua").new(Client.Chat),
+    chat = Client.Chat, net = Client.Bbnet, json = json, now = love.timer.getTime, log = log,
+  })
 
+  local capabilities = load("agent/decision/capabilities.lua").new({
+    game = function() return G end,
+    slots = assert(SMODS.load_file("src/lua/utils/slots.lua", "bbcore"))(),
+    target_rules = assert(SMODS.load_file("src/lua/utils/target_rules.lua", "bbcore"))(),
+  })
+  local planner = load("agent/decision/planner.lua")
+  local describe = describer()
+  local function version()
+    local gs = opts.gamestate.get_gamestate()
+    gs.cards = nil
+    -- 只用于本地校验: hidden 卡也以对象身份区分, 不发给模型或转录.
+    local identities = {}
+    for _, area in ipairs({ "hand", "jokers", "consumeables", "shop_jokers", "shop_vouchers", "shop_booster", "pack_cards" }) do
+      identities[area] = {}
+      for i, card in ipairs(G[area] and G[area].cards or {}) do identities[area][i] = tostring(card) end
+    end
+    return Client.Chat.encode(gs) .. Client.Chat.encode(identities) .. tostring(BB_OVERLAY.kind())
+  end
   local driver
-  driver = Driver.new({
+  local driver_deps = {
+    lifecycle = load("agent/loop/lifecycle.lua"),
     tools = load("agent/loop/tools.lua"),
     prompt = load("agent/loop/prompt.lua"),
     history = load("agent/loop/history.lua"),
@@ -190,12 +215,19 @@ function M.install(opts)
     now = love.timer.getTime,
     overlay_hold = OVERLAY_HOLD,
     config = function()
-      return mod.config
+      return snapshot or Configuration.runtime(mod.config)
     end,
     call = function(method, params, reason, cb)
-      return LocalCall.call(opts.dispatcher, method, params, reason, cb)
+      local expected = version()
+      return LocalCall.call(opts.dispatcher, method, params, reason, cb, function()
+        return expected == version()
+      end)
     end,
+    version = version,
+    planner = planner,
+    capabilities = capabilities,
     abandon = LocalCall.abandon,
+    cancel_waiting = LocalCall.cancel_waiting,
     gamestate = function()
       local gs = opts.gamestate.get_gamestate()
       gs.overlay = BB_OVERLAY.kind()
@@ -211,7 +243,7 @@ function M.install(opts)
       end
       return BB_OVERLAY.animating() and true or false
     end,
-    describe = describer(),
+    describe = describe,
     bar = tap_stream(stream),
     log = log,
     transcript = transcript_writer(Client.Chat.encode),
@@ -223,13 +255,15 @@ function M.install(opts)
         runner.set_phase("running")
       end
     end,
-    report = function(event, a, b)
+    report = function(event, a, b, source)
       if event == "request" then
-        runner.note_request()
+        runner.note_request(a or "llm")
       elseif event == "retry" then
-        runner.note_retry()
+        runner.note_retry(a or "llm")
       elseif event == "usage" then
-        runner.add_usage(a, b)
+        runner.add_usage(a, b, source)
+      elseif event == "choice" then
+        runner.note_choice(a, b)
       elseif event == "new_run" then
         runner.new_run()
       elseif event == "halt" then
@@ -240,11 +274,40 @@ function M.install(opts)
         stream.show_status(a == "win" and "赢下本局, 内置 agent 已停止" or "本局结束, 内置 agent 已停止", 4)
       end
     end,
+  }
+  local observation = load("agent/decision/observation.lua").new({
+    summary = driver_deps.summary, describe = describe, json = driver_deps.json,
+    dynamics = function()
+      local endpoint = opts.dispatcher.endpoints.dynamics
+      if not endpoint then return nil end
+      local result
+      endpoint.execute({ deck = "stats", discard = "stats" }, function(value) result = value end)
+      return result
+    end,
   })
+  driver_deps.observation = observation
+  driver_deps.decision_client = M.decision_client
+  driver_deps.hybrid = load("agent/decision/hybrid.lua").new({
+    client = M.decision_client, capabilities = capabilities, planner = planner,
+    observation = observation, json = driver_deps.json,
+  })
+  local DecisionDriver = load("agent/decision/driver.lua")
+  driver = Driver.new(driver_deps)
   M.driver = driver
 
   runner.set_driver({
     start = function()
+      snapshot = Configuration.runtime(mod.config)
+      if snapshot.builtin_backend == "decision" then
+        local decision_deps = {}
+        for key, value in pairs(driver_deps) do decision_deps[key] = value end
+        decision_deps.client = M.decision_client
+        driver = DecisionDriver.new(decision_deps)
+      else
+        driver = Driver.new(driver_deps)
+      end
+      M.driver = driver
+      runner.backend = snapshot.builtin_backend
       driver.start()
     end,
     stop = function()

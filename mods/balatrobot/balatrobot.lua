@@ -24,6 +24,7 @@ if not (BB_CORE and BB_CORE.ready) then
 end
 
 -- 修复早期版本写坏的存档设置, 迁移 mod 配置. 两种开启方式都执行.
+local CONFIGURATION = assert(SMODS.load_file("agent/configuration.lua"))()
 assert(SMODS.load_file("agent/migrate.lua"))().run(MOD)
 
 local env_enabled = os.getenv("BALATROBOT_ENABLE") == "1"
@@ -159,7 +160,8 @@ BB_RUNNER.init({
     if owner then
       return false, owner .. "进行中"
     end
-    return true
+    if MOD.config.demo_stream then return true end
+    return CONFIGURATION.validate(MOD.config)
   end,
   demo_enabled = function()
     return MOD.config.demo_stream == true
@@ -196,16 +198,18 @@ do
 end
 
 -- 未监听时 BB_SERVER.update 直接返回, 关闭状态下几乎没有开销.
+local SETTINGS_TAB
 local love_update = love.update
 love.update = function(dt) ---@diagnostic disable-line: duplicate-set-field
   love_update(dt)
   BB_SERVER.update(BB_DISPATCHER)
   -- 内置 loop 在游戏 update 之后推进; 菜单打开 (游戏暂停) 时也调用, 由 driver 自己看 overlay 决定是否执行动作.
   BB_RUNNER.update(love.timer.getDelta())
+  if SETTINGS_TAB then SETTINGS_TAB.update() end
 end
 
 -- 设置页, 选项菜单的 Agent 按钮与面板, F9.
-local SETTINGS_TAB = assert(SMODS.load_file("agent/ui/settings_tab.lua"))()
+SETTINGS_TAB = assert(SMODS.load_file("agent/ui/settings_tab.lua"))()
 SETTINGS_TAB.init({
   mod = MOD,
   modes = MODE,
@@ -215,6 +219,7 @@ SETTINGS_TAB.init({
   agent = BB_AGENT,
   widgets = BB_WIDGETS,
   pace = PACE,
+  decision_client = BB_BUILTIN and BB_BUILTIN.decision_client,
 })
 MOD.config_tab = SETTINGS_TAB.build
 BB_AGENT_MENU = assert(SMODS.load_file("agent/ui/agent_menu.lua"))()

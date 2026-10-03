@@ -3,6 +3,15 @@
 内置模式下游戏自己运行的主循环, 以及它用来请求模型的原生网络库 bbnet. 模式, 设置页, 运行控制与流式条见
 [builtin-agent.md](<builtin-agent.md>).
 
+## 三种内置方式
+
+LLM, 独立 Decision, LLM + Decision 混合方式的操作与接口说明见 [decision-agent.md](<decision-agent.md>).
+[Decision 模块](<../mods/balatrobot/agent/decision/>) 负责普通 JSON 客户端, 自包含观察, 动作约束, 分层参数选择和独立循环.
+混合方式沿用 LLM 历史与协议转换, 仅把直接动作替换为 `propose_actions`, 由 Decision 选择后交给同一 dispatcher.
+自动结算和弹窗处理共用 [lifecycle.lua](<../mods/balatrobot/agent/loop/lifecycle.lua>).
+连接与对局选项在开始时冻结, 运行和暂停期间不会随设置变化; 旧版 LLM 连接自动迁移到嵌套的 `llm` 配置.
+以下主循环和上下文说明主要描述 LLM 侧.
+
 ## 主循环
 
 代码在 `agent/loop/`: `driver.lua` 是主循环, 依赖全部注入, 有单测; `summary.lua`, `tools.lua`, `prompt.lua`,
@@ -49,7 +58,7 @@
 - 本局设置 (`prompt.system`): 设置页的 "赢下一局之后" (`after_win`) 决定通关后进无尽还是回主菜单.
   开无尽时告诉模型第 8 底注不是结束, 要按 "一直打下去" 规划; 回主菜单时说明不用为底注 9 以后留余量.
   "打完一局之后" (`after_run`) 决定回到主菜单后 loop 停止还是保留对话, 由模型自己 `start` 开下一局.
-  提示词和策略一样只在从停止状态开始时重建; `after_win` / `after_run` 的实际分支在一局结束时读当前配置.
+  提示词, 策略和实际分支都使用开始时的配置快照, 停止后才能修改连接与对局选项.
 - 状态摘要 (`summary.lua`): 把 gamestate 转成中文精简文本, 每行开头写下标. 背面朝上的牌只写
   `背面朝上`, 不写花色点数, 小丑名或卖价 (与人看到的牌背一致). 小丑, 消耗牌, 优惠券, 商店与卡包里的牌
   第一次出现时, 从 catalog 取中文名和一句效果附上, 之后只写名字. 手册文本里还剩 `[ ]` 占位的是会变的值

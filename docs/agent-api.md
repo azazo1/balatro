@@ -2,7 +2,8 @@
 
 带 mod 的版本内置 [balatrobot](https://github.com/coder/balatrobot) v1.5.2. 它在游戏里开一个
 JSON-RPC 2.0 over HTTP 接口, 外部程序 (agent, 脚本) 可以读取完整游戏状态并操作游戏.
-接口默认关闭.
+接口默认关闭. 内置 agent 的 LLM, Decision 与混合方式见 [Decision 接入](<decision-agent.md>),
+`propose_actions` 只用于内置模型对话, 不注册为外部 JSON-RPC 方法.
 
 ## 开启
 

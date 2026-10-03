@@ -50,13 +50,6 @@ deps:
 
 local M = {}
 
-local STABLE = {
-  MENU = true,
-  BLIND_SELECT = true,
-  SELECTING_HAND = true,
-  SHOP = true,
-  SMODS_BOOSTER_OPENED = true,
-}
 local MAX_NUDGES = 3 -- 连续不调用工具的次数上限
 local MAX_REPEAT_FAILS = 3 -- 同一个调用连续失败的次数上限
 local QUERY_RESULT_MAX = 6000 -- 手册查询结果交给模型的最大字节数
@@ -70,6 +63,7 @@ local MANUAL_NOTE = "(user 刚才手动操作了游戏, 之前的计划已作废
 ---@param deps table
 ---@return table
 function M.new(deps)
+  local lifecycle = assert(deps.lifecycle, "需要注入共用 lifecycle").new(deps)
   local tools = deps.tools or assert(deps.load("tools"))
   local prompt = deps.prompt or assert(deps.load("prompt"))
   local history_mod = deps.history or assert(deps.load("history"))
@@ -93,10 +87,16 @@ function M.new(deps)
   local req = nil -- 进行中的模型请求
   local queue = nil -- {calls, index}
   local calling = false -- 端点调用进行中
+  local pending_call = nil -- 已提交但仍在等端点结果的原始工具调用
   local fresh = false -- 模型是否已经拿到最新的状态摘要 (动作结果或用户消息里)
   local note = nil -- 下一轮附在状态前的说明
   local nudges = 0
   local fail_key, fail_count = nil, 0
+  local proposals_failed = 0
+  local rearranges = 0
+  local proposal_active = false
+  local request_version, decision_version
+  local decision_generation = 0
   local pause_requested = false
   local manual_requested = false -- 人在动作执行中手动操作了, 这个动作做完后作废剩下的计划
   local manual_at = nil -- 最近一次手动操作的时刻, 人停手 MANUAL_QUIET 秒后才重新请求
@@ -219,12 +219,13 @@ function M.new(deps)
     deps.bar.begin_request(nil, { endpoint = cfg.endpoint, model = cfg.model })
     set_state("requesting")
     transcript({ type = "request", messages = #history.messages })
+    request_version = deps.version and deps.version() or nil
     local started = deps.now()
     callbacks.started = started
     req = deps.client.start(
       cfg,
       history.messages,
-      tools.definitions({ knowledge = deps.knowledge ~= false }),
+      tools.definitions({ knowledge = deps.knowledge ~= false, hybrid = cfg.builtin_backend == "hybrid" }),
       callbacks
     )
   end
@@ -317,7 +318,7 @@ function M.new(deps)
       set_state("idle")
     else
       nudges = 0
-      queue = { calls = calls, index = 1 }
+      queue = { calls = calls, index = 1, version = request_version }
       set_state("acting")
     end
     -- 放在最后: 超过单局上限时运行控制会同步回调 pause, 此时队列已经就位, 能正确回 "未执行".
@@ -465,6 +466,13 @@ function M.new(deps)
     queue = nil
   end
 
+  local function cancel_waiting(why)
+    if not calling or not deps.cancel_waiting or not deps.cancel_waiting() then return false end
+    calling = false
+    if pending_call then tool_result(pending_call, "未执行: " .. why); pending_call = nil end
+    return true
+  end
+
   --- 出牌那一步的计分过程: 谁加了多少, 从基础涨到多少 (bbcore 的 runtime/scoring.lua 记的).
   --- 明细只在这次结果里给一次, 摘要里只有一行结果, 免得每一轮都重发十几行.
   ---@param method string
@@ -495,22 +503,99 @@ function M.new(deps)
     return body
   end
 
+  local function reject_proposal(call, why)
+    tool_result(call, "未执行: " .. why)
+    skip_rest("需要重新提案")
+    proposals_failed = proposals_failed + 1
+    fresh = false
+    if proposals_failed >= 3 then halt("混合模式连续 3 次无可执行提案") else set_state("idle") end
+  end
+
   --- 执行队列里的下一个工具调用.
   local function run_next()
+    if queue.version and deps.version and queue.version ~= deps.version() then
+      skip_rest("观察已变化, 重新决策")
+      fresh = false
+      return
+    end
     local call = queue.calls[queue.index]
     queue.index = queue.index + 1
-    local fn = call["function"] or {}
+    local selected = queue.selected
+    queue.selected = nil
+    local fn = selected and { name = selected.method, arguments = deps.json.encode(selected.params) } or call["function"] or {}
     local name = fn.name
     local args = {}
     if fn.arguments and fn.arguments ~= "" then
       local ok, decoded = pcall(deps.json.decode, fn.arguments)
       if not ok or type(decoded) ~= "table" then
-        tool_result(call, "失败: arguments 不是合法的 JSON 对象")
+        if name == "propose_actions" and deps.config().builtin_backend == "hybrid" then
+          reject_proposal(call, "arguments 不是合法的 JSON 对象")
+        else tool_result(call, "失败: arguments 不是合法的 JSON 对象") end
         return
       end
       args = decoded
     end
+    if name == "propose_actions" and (deps.config() or {}).builtin_backend == "hybrid" and not selected then
+      queue.index = queue.index - 1
+      decision_generation = decision_generation + 1
+      local token, proposal_queue = decision_generation, queue
+      proposal_active = true
+      decision_version = deps.version and deps.version() or nil
+      local decision_started = deps.now()
+      set_state("requesting", "decision")
+      transcript({ type = "decision_proposal", candidates = args.candidates })
+      req = deps.hybrid.start(args, deps.gamestate(), deps.config(), {
+        on_request = function(observation, questions)
+          report("request", "decision")
+          deps.bar.begin_request("Decision 选择中: ", { endpoint = deps.config().decision.endpoint, model = deps.config().decision.model })
+          transcript({ type = "decision_request", state = observation, questions = questions })
+        end,
+        on_retry = function(attempt, max, reason, wait)
+          if token ~= decision_generation then return end
+          report("retry", "decision"); set_state("retry_wait", reason)
+          deps.bar.show_error(reason .. ", " .. wait .. " 秒后重试 (" .. attempt .. "/" .. max .. ")", wait + 1)
+        end,
+        on_error = function(reason, detail, usage, decision)
+          if token ~= decision_generation then return end
+          req = nil; proposal_active = false; deps.bar.finish()
+          if usage then report("usage", usage.prompt_tokens or 0, usage.completion_tokens or 0, "decision") end
+          if token ~= decision_generation then return end
+          transcript({ type = "decision_response", detail = decision, error = reason })
+          skip_rest("Decision 失败, 未执行")
+          halt(reason .. (detail and (": " .. detail) or ""))
+        end,
+        on_done = function(choice, feedback, usage, decision)
+          if token ~= decision_generation or queue ~= proposal_queue then return end
+          req = nil; proposal_active = false; deps.bar.finish()
+          usage = usage or {}
+          transcript({ type = "decision_response", selected = choice, feedback = feedback, detail = decision, usage = usage,
+            seconds = deps.now() - decision_started })
+          report("usage", usage.prompt_tokens or 0, usage.completion_tokens or 0, "decision")
+          if token ~= decision_generation or queue ~= proposal_queue then return end
+          if decision then report("choice", choice and choice.method or "拒绝", decision.confidence) end
+          if choice then
+            proposals_failed = 0
+            queue.selected = choice
+            queue.decision = decision
+            set_state("acting")
+          else
+            queue.index = queue.index + 1
+            tool_result(call, "未执行: " .. tostring(feedback))
+            proposals_failed = proposals_failed + 1
+            skip_rest("需要重新提案")
+            fresh = false
+            if proposals_failed >= 3 then halt("混合模式连续 3 次无可执行提案") else set_state("idle") end
+          end
+        end,
+      })
+      return
+    end
+    if not selected and (deps.config() or {}).builtin_backend == "hybrid" and tools.ACTIONS[name] then
+      reject_proposal(call, "混合模式必须通过 propose_actions 提案")
+      return
+    end
     local method, params, reason = tools.to_request(name, args)
+    if selected then reason = selected.reason end
     if not method then
       tool_result(call, "失败: " .. tostring(reason))
       return
@@ -524,15 +609,43 @@ function M.new(deps)
         params.seed = seed
       end
     end
+    if selected and deps.planner and not deps.planner.validate(deps.capabilities.snapshot(deps.gamestate()), method, params) then
+      tool_result(call, "未执行: 选中动作已不合法")
+      skip_rest("重新观察后提案"); fresh = false
+      return
+    end
     local key = name .. " " .. tostring(fn.arguments)
 
     calling = true
+    pending_call = call
     transcript({ type = "call", method = method, params = params, reason = reason })
     local ok, err = deps.call(method, params, reason, function(response)
       calling = false
+      pending_call = nil
       local failed = response.message ~= nil
+      if queue and deps.version then queue.version = deps.version() end
+      if selected then
+        local details = "Decision 已选择: " .. method .. " " .. deps.json.encode(params)
+        if queue and queue.decision then details = details .. ", confidence=" .. tostring(queue.decision.confidence) end
+        local result_content = scoring_block(method, response) .. "完成. 当前状态:\n" .. summarizer:render(response)
+        if failed then result_content = "失败: " .. tostring(response.message) end
+        tool_result(call, details .. "\n" .. result_content)
+        if not failed then
+          self.stats.actions = self.stats.actions + 1
+          if method == "start" then summarizer:forget(); report("new_run") end
+          fail_key, fail_count = nil, 0
+          fresh = true
+          history:note(method .. " " .. deps.json.encode(params) .. " (Decision 选择)")
+          -- 后续提案必须基于新状态, 同一轮剩余工具结果补齐后重新请求.
+          skip_rest("一个提案动作已完成, 请根据新状态继续")
+          rearranges = method == "rearrange" and (rearranges + 1) or 0
+          if rearranges >= 3 then halt("混合模式连续 3 次只重排, 已暂停") end
+          return
+        end
+        -- 失败计数走下方共用路径, 但避免给同一个 tool_call 两条结果.
+      end
       if failed then
-        tool_result(call, "失败: " .. tostring(response.message))
+        if not selected then tool_result(call, "失败: " .. tostring(response.message)) end
         history:note(string.format("%s 失败: %s", method, tostring(response.message)))
         if key == fail_key then
           fail_count = fail_count + 1
@@ -568,70 +681,25 @@ function M.new(deps)
     end)
     if not ok then
       calling = false
+      pending_call = nil
       tool_result(call, "失败: " .. tostring(err))
       skip_rest("前一个操作失败")
     end
   end
 
-  local overlay_seen, overlay_since = nil, 0
-
-  --- 解锁通知和胜利界面先停留一会儿再自动处理, 让观众看清.
-  ---@param overlay string?
-  ---@return boolean ready
-  local function overlay_ready(overlay)
-    if overlay ~= overlay_seen then
-      overlay_seen, overlay_since = overlay, deps.now()
-    end
-    return deps.now() - overlay_since >= (deps.overlay_hold or 0)
-  end
-
   --- idle 时决定下一步.
   local function step_idle()
-    if deps.busy() then
-      return
-    end
-    -- 人刚手动操作过: 等他停手再看状态, 否则每点一下就重发一次请求.
-    if manual_at and deps.now() - manual_at < MANUAL_QUIET then
-      return
-    end
+    if manual_at and deps.now() - manual_at < MANUAL_QUIET then return end
     manual_at = nil
-    local cfg = deps.config()
-    local overlay = deps.overlay()
-    if (overlay == "unlock" or overlay == "win") and not overlay_ready(overlay) then
-      set_state("waiting", overlay)
+    local next_step = lifecycle.next()
+    if next_step.kind == "wait" then set_state("waiting", next_step.detail); return end
+    if next_step.kind == "auto" then
+      auto(next_step.method, nil, next_step.note, next_step.result and function()
+        finish_run(next_step.result)
+      end or nil)
       return
     end
-    overlay_ready(overlay)
-    if overlay == "unlock" then
-      auto("continue", nil, "关掉了解锁通知")
-      return
-    elseif overlay == "win" then
-      if cfg.after_win == "endless" then
-        auto("endless", nil, "赢下本局, 进入无尽模式")
-      else
-        auto("menu", nil, "赢下本局, 回主菜单", function()
-          finish_run("win")
-        end)
-      end
-      return
-    elseif overlay then
-      set_state("waiting", overlay)
-      return
-    end
-
-    local gs = deps.gamestate()
-    if gs.state == "GAME_OVER" then
-      auto("menu", nil, "本局失败, 回主菜单", function()
-        finish_run("lose")
-      end)
-      return
-    elseif gs.state == "ROUND_EVAL" then
-      auto("cash_out", nil, string.format("第 %s 回合结算, 进入商店", tostring(gs.round_num)))
-      return
-    elseif not STABLE[gs.state] then
-      set_state("waiting", gs.state)
-      return
-    end
+    local gs = next_step.gamestate
 
     -- 上下文到了压缩点 (或服务端报了超长) 时先压缩, 只在一轮完整结束的边界上做.
     -- 写摘要是一次单独的请求, 完成后回到 idle, 下一次进来再发正常的请求.
@@ -667,6 +735,7 @@ function M.new(deps)
       end
     end
     nudges, fail_key, fail_count = 0, nil, 0
+    proposals_failed, rearranges = 0, 0
     fresh, note, pause_requested = false, nil, false
     manual_requested, manual_at = false, nil
     compacting, force_compact, just_compacted = nil, false, false
@@ -682,6 +751,8 @@ function M.new(deps)
     if self.state == "stopped" or self.state == "paused" then
       return
     end
+    decision_generation = decision_generation + 1
+    proposal_active = false
     if req then
       req:cancel()
       finish_request()
@@ -691,7 +762,7 @@ function M.new(deps)
     compacting = nil
     -- 暂停后继续本来就重新给状态, 手动操作的作废与等停手都不用再做.
     manual_requested, manual_at = false, nil
-    if calling then
+    if calling and not cancel_waiting("已暂停") then
       pause_requested = true
       return
     end
@@ -719,11 +790,13 @@ function M.new(deps)
     if compacting then
       return
     end
-    if calling then
+    if calling and not cancel_waiting("user 手动操作了游戏") then
       -- 动作正在执行: 做完 (它的结果写进历史) 后在 update 里作废剩下的.
       manual_requested = true
       return
     end
+    decision_generation = decision_generation + 1
+    proposal_active = false
     if req then
       req:cancel()
       finish_request()
@@ -750,6 +823,8 @@ function M.new(deps)
 
   ---@param why string?
   function self.stop(why)
+    decision_generation = decision_generation + 1
+    proposal_active = false
     if req then
       req:cancel()
       finish_request()
@@ -758,7 +833,7 @@ function M.new(deps)
       calling = false
       deps.abandon()
     end
-    queue = nil
+    queue, pending_call = nil, nil
     pause_requested = false
     manual_requested, manual_at = false, nil
     compacting, force_compact, context_used, just_compacted = nil, false, nil, false
@@ -768,6 +843,10 @@ function M.new(deps)
   end
 
   function self.update()
+    if proposal_active and deps.version and decision_version ~= deps.version() then
+      self.manual()
+      return
+    end
     if req then
       req:update()
       if retry and req and self.state == "retry_wait" and deps.now() >= retry.at then
