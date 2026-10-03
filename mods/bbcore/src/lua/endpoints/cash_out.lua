@@ -25,7 +25,35 @@ return {
   ---@param send_response fun(response: Response.Endpoint)
   execute = function(_, send_response)
     sendDebugMessage("Init cash_out()", "BB.ENDPOINTS")
-    G.FUNCS.cash_out({ config = {} })
+
+    -- 结算界面是逐行弹出的, `add_round_eval_row` 每写一行就覆盖一次
+    -- `G.GAME.current_round.dollars` (common_events.lua), 只有最后一行 `bottom` 写的才是合计.
+    -- `G.FUNCS.cash_out` 一进去就 `ease_dollars(current_round.dollars)`, 所以要等结算栏写完
+    -- 才能领, 否则领到的是中间某一行的值 (实测大盲注会少领 `$5`).
+    -- `cash_out_button` 出现就代表最后一行已经写完, 与 play 端点用的是同一个信号.
+    local settled = function()
+      if not G.round_eval then
+        return false
+      end
+      for _, box in ipairs(G.I.UIBOX) do
+        if box:get_UIE_by_ID("cash_out_button") then
+          return true
+        end
+      end
+      return false
+    end
+
+    G.E_MANAGER:add_event(Event({
+      trigger = "condition",
+      blocking = false,
+      func = function()
+        if not settled() then
+          return false
+        end
+        G.FUNCS.cash_out({ config = {} })
+        return true
+      end,
+    }))
 
     local num_items = function(area)
       local count = 0
