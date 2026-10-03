@@ -1,5 +1,6 @@
 # macOS 平台的打包入口.
 python := if os_family() == "windows" { "python" } else { "python3" }
+python_shebang := if os_family() == "windows" { "python" } else { "/usr/bin/env python3" }
 
 [private]
 default:
@@ -24,26 +25,13 @@ run-modded: dist-modded
 
 # just macos run-agent [on|off] [fast]
 # 打包带 mod 的应用并开启 agent 接口运行, 使用独立存档 Balatro-Agent, 默认正常速度, 按局录制视频到 recordings/.
-run-agent record="on" fast="0": dist-modded
-    #!/usr/bin/env bash
-    set -euo pipefail
-    case {{ quote(record) }} in
-        on|off) ;;
-        *) echo "record 只能是 on 或 off, 收到: {{ record }}" >&2; exit 2 ;;
-    esac
-    case {{ quote(fast) }} in
-        0|1) ;;
-        *) echo "fast 只能是 0 或 1, 收到: {{ fast }}" >&2; exit 2 ;;
-    esac
-    mkdir -p recordings
-    export BALATROBOT_ENABLE=1 BALATROBOT_FAST={{ quote(fast) }} BALATRO_SAVE_IDENTITY=Balatro-Agent
-    if [ {{ quote(record) }} != off ]; then
-        export BALATROBOT_RECORD={{ quote(record) }} BALATROBOT_RECORD_DIR="$PWD/recordings"
-    fi
-    # 游戏日志同时写进 recordings/, 崩溃后可以查.
-    log="recordings/$(date +%Y%m%d-%H%M%S)-game.log"
-    echo "游戏日志: $log"
-    dist/macos/Balatro-Modded.app/Contents/MacOS/love 2>&1 | tee "$log"
+[positional-arguments]
+run-agent record="on" fast="0":
+    #!{{ python_shebang }}
+    import sys
+    sys.path.insert(0, "scripts")
+    from run_agent import main
+    sys.exit(main(["macos", *sys.argv[1:]]))
 
 # just macos replay recordings/<stem> [tight|original|fast]
 # 按回放文件重玩一局并录制到 recordings/, 使用临时存档 Balatro-Replay, 期间锁定输入, 按住 Esc 1 秒中止.

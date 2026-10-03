@@ -36,7 +36,8 @@ Android 的 `versionCode` 由两段版本折算, 保证单调递增, 否则无�
 
 被要求玩游戏时, 启动和调用一律用 just, 接口说明见 `docs/agent-api.md`:
 
-1. 后台运行 `just macos run-agent` 启动游戏. 默认正常速度, 并按局录像到 `recordings/`, 游戏日志也在那里.
+1. 后台运行 `just windows run-agent` (Windows) 或 `just macos run-agent` (macOS) 启动游戏.
+   默认正常速度, 并按局录像到 `recordings/`, 游戏日志也在那里.
 2. `just agent-wait` 等开场动画播完进入主菜单.
 3. 每一步操作用 `just agent-call <方法> '<参数 JSON>'`.
 4. 边玩边解说: 这一步的解说写进操作参数的 `reason` (先显示, 读完后操作才生效), 不要再另发 `notify` 重复;

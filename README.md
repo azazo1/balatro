@@ -45,6 +45,8 @@ just windows dist    # 打包 Windows 免安装版
 产物都在 `dist/` 下按平台分目录. 每个平台另有 `dist-modded`, 打包内置 `mods/` 中 mod 的版本,
 它与原版可同时安装, 存档互不影响, 详见 [docs/modding.md](docs/modding.md). mod 版内置供 agent
 游玩的 HTTP 接口 (默认关闭), 支持在游戏内显示决策消息和按局录制, 见 [docs/agent-api.md](docs/agent-api.md).
+用 `just windows run-agent` 或 `just macos run-agent` 打包并启动外部 agent, 默认正常速度并录像,
+使用独立存档; 在另一个终端中用 `just agent-wait` 等待主菜单, 然后用 `just agent-call` 操作.
 游戏内直接连接大模型的内置 agent 正在开发, 设计见 [docs/builtin-agent.md](docs/builtin-agent.md),
 它的流式网络库 `native/bbnet` 用 Rust 编写, 需要先编译 (`just native build macos`, `just native build android`). 其它 recipe:
 

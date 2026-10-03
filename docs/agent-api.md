@@ -8,8 +8,13 @@ JSON-RPC 2.0 over HTTP 接口, 外部程序 (agent, 脚本) 可以读取完整�
 
 | 方式 | 做法 | 存档 | 游戏设置 |
 | --- | --- | --- | --- |
-| 终端启动 | `just macos run-agent`, 默认正常速度并录像, 见下方 "录制" | 独立的 `Balatro-Agent` 目录 | 跳过教程, 其余沿用存档 |
+| 终端启动 | `just windows run-agent` 或 `just macos run-agent`, 默认正常速度并录像, 见下方 "录制" | 独立的 `Balatro-Agent` 目录 | 跳过教程, 其余沿用存档 |
 | 游戏内切换 | 模组 > BalatroBot > 配置, agent 模式选 "外部" | 当前存档 | 不改 |
+
+启动入口共用 [Python 脚本](<../scripts/run_agent.py>), 会先打包带 mod 的版本再启动, 不需要 Bash 或 tee.
+Windows 需要 Rust 与 MSVC 链接器来构建 bbnet, 启动控制台版 exe, 将游戏输出同时写入终端和日志.
+`agent-call` 与 `agent-wait` 在两个平台上通用, JSON 参数由 just 直接传给 Python, 不经过 shell 二次解析.
+Windows 命令示例建议在 PowerShell 7.3+ 中使用, 以原样传递 JSON 引号.
 
 - agent 模式三选一: 关闭, 外部 (本文的 HTTP 接口), 内置 (游戏内直接连接大模型, 见 [builtin-agent.md](<builtin-agent.md>)).
   外部与内置互斥, 两者之间要经过关闭; 内置 agent 运行中不能切换.
@@ -299,12 +304,14 @@ Show Agent Messages (右侧) 与 Show Tool Calls (左侧), 见 [builtin-agent.md
 
 ## 录制
 
-`just macos run-agent` 默认就按局录制, 每局输出一份带声音的视频和一份时间线 JSON, 不需要另外设置:
+`run-agent` 在 Windows 与 macOS 上默认都按局录制, 每局输出一份带声音的视频和一份时间线 JSON,
+不需要另外设置. 两个平台的参数相同:
 
 ```shell
-just macos run-agent          # 录制, 正常速度
-just macos run-agent off      # 不录制
-just macos run-agent on 1     # 10 倍速, 仅在需要时使用
+just windows run-agent         # 录制, 正常速度
+just windows run-agent off     # 不录制
+just windows run-agent on 1    # 10 倍速, 仅在需要时使用
+just macos run-agent           # macOS 使用同样的参数
 ```
 
 一局的产物都放在 `recordings/<开始时间>-<种子>/` 里, 文件名仍带这一局的前缀:
@@ -323,7 +330,8 @@ just macos run-agent on 1     # 10 倍速, 仅在需要时使用
 - 录制中只写中间文件: `.video.mp4` (约 2 秒一个分片, 写完即落盘), `.pcm` (每秒落盘) 和合成脚本 `.post.sh`
   (Windows 上是 `.post.cmd`).
   脚本开局时就写出, 局末换成最终版并运行, 成功后删除中间文件.
-- 游戏崩溃时画面最多丢约 2 秒, 声音约 1 秒. `just macos recordings-recover` 列出残留的局, 加 `--run` 补做合成,
+- 游戏崩溃时画面最多丢约 2 秒, 声音约 1 秒. `just windows recordings-recover` 或
+  `just macos recordings-recover` 列出残留的局, 加 `--run` 补做合成,
   再加 `--clean` 在成功后删除中间文件.
   游戏在运行时, 中间文件 30 秒内还在变化的局会跳过. 局末合成失败时同样保留中间文件, 用同一条命令或
   `sh <文件名>.post.sh` (Windows 上直接运行 `<文件名>.post.cmd`) 重跑.

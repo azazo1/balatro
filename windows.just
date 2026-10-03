@@ -1,5 +1,6 @@
 # Windows 平台的打包入口.
 python := if os_family() == "windows" { "python" } else { "python3" }
+python_shebang := if os_family() == "windows" { "python" } else { "/usr/bin/env python3" }
 
 [private]
 default:
@@ -17,6 +18,16 @@ console:
 # 打包带 mod 的免安装版, 同时产出带控制台的 exe 便于看日志.
 dist-modded mods="mods":
     {{ python }} scripts/package_windows.py --mods {{ mods }} --console
+
+# just windows run-agent [on|off] [fast]
+# 打包并启动外部 agent, 使用独立存档 Balatro-Agent, 默认正常速度, 录像与日志写入 recordings/.
+[positional-arguments]
+run-agent record="on" fast="0":
+    #!{{ python_shebang }}
+    import sys
+    sys.path.insert(0, "scripts")
+    from run_agent import main
+    sys.exit(main(["windows", *sys.argv[1:]]))
 
 # just windows fix-acl [产物目录]
 # 把目录里产物的完整性级别修回 Medium, 去掉打包环境留下的 Low 标志 (目录自身不动).

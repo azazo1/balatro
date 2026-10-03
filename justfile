@@ -1,5 +1,6 @@
 # 跨平台的 python 调用方式: Windows 上是 python, 其余平台是 python3
 python := if os_family() == "windows" { "python" } else { "python3" }
+python_shebang := if os_family() == "windows" { "python" } else { "/usr/bin/env python3" }
 
 [private]
 default:
@@ -84,14 +85,27 @@ mods-tree mods="mods":
     {{ python }} scripts/patch_mods.py --mods {{ mods }}
 
 # just agent-call play '{"cards":[0,1]}' [端口]
+# 参数由 just 直接传给 Python, 避免 Windows shell 改写 JSON 的引号与反斜杠.
 # 调用 mod 版内置的 agent 接口 (需先开启), 输出 JSON-RPC 响应, 见 docs/agent-api.md.
+[positional-arguments]
 agent-call method params="{}" port="12346":
-    {{ python }} scripts/agent_rpc.py call {{ method }} {{ quote(params) }} {{ port }}
+    #!{{ python_shebang }}
+    import sys
+    sys.path.insert(0, "scripts")
+    from agent_rpc import main
+    sys.argv = ["agent_rpc.py", "call", *sys.argv[1:]]
+    main()
 
 # just agent-wait [状态] [超时秒数] [端口]
 # 轮询 agent 接口直到游戏进入指定状态 (默认 MENU), 用于等开场动画播完; 超时返回非 0.
+[positional-arguments]
 agent-wait state="MENU" timeout="60" port="12346":
-    {{ python }} scripts/agent_rpc.py wait {{ state }} {{ timeout }} {{ port }}
+    #!{{ python_shebang }}
+    import sys
+    sys.path.insert(0, "scripts")
+    from agent_rpc import main
+    sys.argv = ["agent_rpc.py", "wait", *sys.argv[1:]]
+    main()
 
 # 从游戏源码生成静态卡牌目录, 不运行游戏或访问存档.
 game-docs:
