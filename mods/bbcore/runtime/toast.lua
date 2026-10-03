@@ -18,7 +18,7 @@ agent 提示消息, 仿原版成就解锁通知 (functions/common_events.lua 的
 - 每条通知有阅读时长 (按字数估算) 和额外停留: 阅读时长过后 on_read 回调触发.
   左侧那条的正文短, 始终用更短的阅读上限和停留, 不跟右侧走.
   右侧按 M.pace 选时长: 回放紧凑节奏用更短的阅读与停留; 快进时阅读时长几乎为零 (等着的调用方随即放行),
-  框仍停留一小会儿, 且不排队, 新来的直接叠在最上面 (见 M.set_pace).
+  框仍停留一小会儿, 且不排队, 新来的直接叠在最上面 (见 M.set_pace). 快进时左侧同样不排队.
   push 时带 fixed 的消息 (回放自己的提示) 不跟 pace 走, 始终按正常时长.
 - 讲解 (gate 为 true 的那些: notify, 以及操作参数带的 reason) 还能被后面的操作等: 见 M.gate_id / M.gate_open,
   改状态的操作要等自己那条讲解退去才执行 (dispatcher 的门槛), 观众先看到文字再看到动作.
@@ -36,8 +36,8 @@ local M = {
   -- 回放照原样重做, 不该再被拦一次 (回放自身用 notify 的 wait 复现原来的节奏).
   -- agent 快进时也关掉, 讲解仍弹出, 不拦后面的操作.
   gate_enabled = true,
-  -- 右侧的时长档位: normal / compact (紧凑) / fast (快进, 几乎不等).
-  -- 左侧工具调用始终用短时长, 不看这个档位. agent 设置页 / HUD 与回放中途切换都用 M.set_pace.
+  -- 时长与排队的档位: normal / compact (紧凑) / fast (快进, 几乎不等). 左侧工具调用的时长不看这个档位.
+  -- agent 设置页 / HUD 与回放中途切换都用 M.set_pace.
   pace = "normal",
   -- 非回放时的档位. 回放结束用 M.apply_home 恢复; 快进时 apply_home 会关掉门槛.
   home_pace = "normal",
@@ -422,11 +422,10 @@ local function show(entry)
   table.insert(lane.items, 1, entry)
 end
 
---- 这条车道是否不排队, 新来的直接叠在最上面: 右侧快进时. 排队会让文字一条条落后于画面.
----@param lane BB.Toast.Lane
+--- 是否不排队, 新来的直接叠在最上面: 快进时. 排队会让文字一条条落后于画面.
 ---@return boolean
-local function stacking(lane)
-  return lane.side == "right" and M.pace == "fast"
+local function stacking()
+  return M.pace == "fast"
 end
 
 --- 超出数量时这条车道上最旧的那些立即滑出.
@@ -472,7 +471,7 @@ function M.push(title, text, duration, on_read, opts)
     gated_inflight[entry.id] = true
   end
   -- 切到快进前排的队还没放完时仍排在后面, 保持顺序; update 里每帧放一条.
-  if #lane.pending > 0 or (#lane.items > 0 and not stacking(lane)) then
+  if #lane.pending > 0 or (#lane.items > 0 and not stacking()) then
     lane.pending[#lane.pending + 1] = entry
   else
     show(entry)
@@ -599,7 +598,7 @@ function M.update(dt)
   for _, lane in pairs(lanes) do
     -- 一条一条来: 这条车道上没有还在显示的消息 (前一条已开始退场) 时, 把队首放出来.
     -- 叠放时 (快进) 不等前一条退场, 每帧放一条.
-    if #lane.pending > 0 and (stacking(lane) or not lane_showing(lane)) then
+    if #lane.pending > 0 and (stacking() or not lane_showing(lane)) then
       show(table.remove(lane.pending, 1))
       trim(lane)
     end
@@ -609,7 +608,7 @@ function M.update(dt)
   end
 end
 
---- 切换右侧的时长档位 (agent 改节奏, 以及回放开始 / 结束 / 中途切换时用).
+--- 切换档位 (agent 改节奏, 以及回放开始 / 结束 / 中途切换时用): 快进的叠放与右侧的时长.
 --- 屏幕上还没退场的那些按新档位重算, 已经停留够的随即退场; 排队的显示时自然按新档位算.
 ---@param pace "normal"|"compact"|"fast"
 function M.set_pace(pace)

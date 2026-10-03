@@ -365,6 +365,14 @@ do -- 两条车道: 左侧的工具调用记录与右侧的决策消息各自排
   end
   check("快进时回调很快放行", fast_read)
   check("快进时框仍停留够滑入的时间", not boxes[first_i].REMOVED)
+  -- 左侧的工具调用记录同样不排队.
+  Toast.clear()
+  local left_first_i = #boxes + 1
+  Toast.push("左侧", "手牌下标 0", nil, nil, { side = "left" })
+  Toast.update(0.2)
+  local left_second_i = #boxes + 1
+  Toast.push("左侧", "手牌下标 1", nil, nil, { side = "left" })
+  check("快进时左侧第二条也直接叠上来", boxes[left_second_i] ~= nil and not boxes[left_first_i].REMOVED)
   Toast.set_pace("normal")
   Toast.clear()
   -- agent 的 home 档位: 快速关掉门槛, 阅读打开.
