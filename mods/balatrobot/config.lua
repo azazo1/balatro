@@ -11,6 +11,8 @@ return {
   show_messages = true,
   -- 是否显示工具调用记录 (左侧: 工具中文名与本次参数的含义).
   show_calls = true,
+  -- 右侧消息节奏: "normal" 阅读 (等讲解读完), "fast" 快速 (不拦操作).
+  message_pace = "normal",
 
   -- 内置 agent: 请求地址 (完整地址或 API 根地址), 模型名, 鉴权方式 ("bearer" 或 "x-api-key"), key.
   -- key 以明文保存在本机, 不写进日志.

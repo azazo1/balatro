@@ -8,7 +8,7 @@
 ]]
 
 local LOGGER = "BB.AGENT.MIGRATE"
-local CONFIG_VERSION = 2
+local CONFIG_VERSION = 3
 
 local M = {}
 
@@ -53,6 +53,7 @@ local function migrate_config(mod)
   -- 版本号不放进 config.lua 的默认值, 否则旧配置合并后也带上版本号, 无法识别.
   -- 0 -> 1: 新增 show_messages, 只记录版本.
   -- 1 -> 2: 布尔开关 enabled 改为三选一的 mode (off / external / builtin), 新增内置 agent 与录像的配置.
+  -- 2 -> 3: 新增 message_pace (阅读 / 快速), 新字段由 smods 合并默认值.
   if version < 2 then
     config.mode = config.enabled == true and "external" or "off"
     config.enabled = nil

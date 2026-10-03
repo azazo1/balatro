@@ -60,6 +60,21 @@ end)
 -- 右侧: 决策消息与解说; 左侧: 工具调用记录. 两个开关各自控制 (设置页的 "显示 agent 消息" / "显示工具调用").
 BB_TOAST.enabled = MOD.config.show_messages ~= false
 BB_TOAST.calls_enabled = MOD.config.show_calls ~= false
+-- 消息节奏: 阅读 / 快速. 回放进行时不覆盖回放自己的节奏.
+local PACE = assert(SMODS.load_file("agent/pace.lua"))()
+PACE.init({
+  config = function()
+    return MOD.config
+  end,
+  save = function()
+    SMODS.save_mod_config(MOD)
+  end,
+  toast = BB_TOAST,
+  replaying = function()
+    return BB_CONTROL.owner() ~= nil
+  end,
+})
+PACE.apply(MOD.config.message_pace)
 
 BB_AGENT = {
   address = string.format("http://%s:%d", BB_SERVER.host, BB_SERVER.port),
@@ -199,6 +214,7 @@ SETTINGS_TAB.init({
   toast = BB_TOAST,
   agent = BB_AGENT,
   widgets = BB_WIDGETS,
+  pace = PACE,
 })
 MOD.config_tab = SETTINGS_TAB.build
 BB_AGENT_MENU = assert(SMODS.load_file("agent/ui/agent_menu.lua"))()
@@ -225,6 +241,11 @@ assert(SMODS.load_file("agent/ui/hud.lua"))().init({
   runner = BB_RUNNER,
   hud = BB_HUD,
   lock = AGENT_INPUT,
+  pace = PACE,
+  mode = BB_MODE,
+  replaying = function()
+    return BB_CONTROL.owner() ~= nil
+  end,
 })
 
 -- 按模式启停 HTTP 服务. 推迟到所有 mod 加载完: 命令行回放由 bbreplay 判断 (它加载得更晚),

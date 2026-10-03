@@ -367,6 +367,15 @@ do -- 两条车道: 左侧的工具调用记录与右侧的决策消息各自排
   check("快进时框仍停留够滑入的时间", not boxes[first_i].REMOVED)
   Toast.set_pace("normal")
   Toast.clear()
+  -- agent 的 home 档位: 快速关掉门槛, 阅读打开.
+  Toast.home_pace = "fast"
+  Toast.gate_enabled = true
+  Toast.apply_home()
+  check("home 快速关掉门槛", Toast.pace == "fast" and Toast.gate_enabled == false)
+  Toast.home_pace = "normal"
+  Toast.apply_home()
+  check("home 阅读打开门槛", Toast.pace == "normal" and Toast.gate_enabled == true)
+  Toast.clear()
 
   -- 左侧的换行宽度比右侧窄: 同样一段文字, 左侧折出的行更短 (弹窗水平方向不会拉长)
   local function longest_line(definition)

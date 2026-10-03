@@ -110,11 +110,15 @@ local function valid_pacing(value)
 end
 
 --- 回放期间关掉 "等讲解退去" 的门槛: 原局里操作是在讲解停留期间执行的, 回放照原样重做.
---- 同时按节奏设右侧消息的时长档位. 结束或开始失败时都要恢复.
+--- 同时按节奏设右侧消息的时长档位. 结束或开始失败时恢复 agent 自己的档位 (home).
 ---@param active boolean
 local function set_replay_toast(active)
-  deps.toast.gate_enabled = not active
-  deps.toast.set_pace(active and TOAST_PACE[cfg.pacing] or "normal")
+  if active then
+    deps.toast.gate_enabled = false
+    deps.toast.set_pace(TOAST_PACE[cfg.pacing])
+  else
+    deps.toast.apply_home()
+  end
 end
 
 local REPLAY_SUFFIX = ".replay.json"

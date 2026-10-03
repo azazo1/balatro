@@ -1,10 +1,10 @@
 --[[
 内置 agent 运行时的右上角: 最上方是状态文字 (请求中, 执行中, 暂停),
-下面一条上下文占用条 (不可点), 再下面是暂停与锁操作两个开关.
-按钮文字显示当前状态 (运行中/已暂停, 已锁定/可操作), 点一下切换到另一种.
+下面一条上下文占用条 (不可点), 再下面是暂停, 锁操作, 消息节奏三个开关.
+按钮文字显示当前状态 (运行中/已暂停, 已锁定/可操作, 阅读/快速), 点一下切换到另一种.
 
-- 只在 runner 运行或暂停时显示 (BB_HUD 的 agent 源); 一停就拆掉.
-- 锁操作的状态与挡哪些输入在 agent/input.lua. 锁着时仍能点这两颗按钮 (HUD 不受锁影响).
+- 内置 runner 运行或暂停时显示完整一组; 外部模式 (just agent-call) 只显示节奏按钮.
+- 锁操作的状态与挡哪些输入在 agent/input.lua. 锁着时仍能点这些按钮 (HUD 不受锁影响).
 - 运行中也能解锁: 人操作后 agent 作废当前计划, 等人停手再按新状态决定. 下次开始时重新锁上.
 ]]
 
@@ -14,6 +14,9 @@ local M = {}
 ---@field runner table
 ---@field hud table bbcore 的 ui/hud.lua
 ---@field lock table agent/input.lua
+---@field pace table agent/pace.lua
+---@field mode table agent/mode.lua 的实例
+---@field replaying fun(): boolean
 local deps
 
 local STATUS = {
@@ -82,44 +85,66 @@ local function meter_spec()
   }
 end
 
+---@return table
+local function pace_button()
+  local pace = deps.pace
+  return {
+    -- 显示当前节奏, 点一下在阅读 / 快速之间切换.
+    label = "阅读",
+    label_fn = function()
+      return pace.label(pace.current())
+    end,
+    colour = function()
+      return pace.current() == "fast" and G.C.BLUE or G.C.GREY
+    end,
+    on_click = function()
+      pace.cycle()
+    end,
+  }
+end
+
 ---@return table?
 local function spec()
   local runner = deps.runner
-  if not runner.is_busy() then
-    return nil
+  if runner.is_busy() then
+    local lock = deps.lock
+    return {
+      status = status_spec(),
+      meter = meter_spec(),
+      buttons = {
+        -- 按钮文字是当前状态, 不是点下去要做的事; 点一下切换.
+        {
+          label = "运行中",
+          label_fn = function()
+            return runner.state == "paused" and "已暂停" or "运行中"
+          end,
+          colour = function()
+            return runner.state == "paused" and G.C.GOLD or G.C.GREEN
+          end,
+          on_click = function()
+            runner.toggle_pause()
+          end,
+        },
+        {
+          label = "已锁定",
+          label_fn = function()
+            return lock.locked() and "已锁定" or "可操作"
+          end,
+          colour = function()
+            return lock.locked() and G.C.ORANGE or G.C.L_BLACK
+          end,
+          on_click = function()
+            lock.toggle()
+          end,
+        },
+        pace_button(),
+      },
+    }
   end
-  local lock = deps.lock
-  return {
-    status = status_spec(),
-    meter = meter_spec(),
-    buttons = {
-      -- 按钮文字是当前状态, 不是点下去要做的事; 点一下切换.
-      {
-        label = "运行中",
-        label_fn = function()
-          return runner.state == "paused" and "已暂停" or "运行中"
-        end,
-        colour = function()
-          return runner.state == "paused" and G.C.GOLD or G.C.GREEN
-        end,
-        on_click = function()
-          runner.toggle_pause()
-        end,
-      },
-      {
-        label = "已锁定",
-        label_fn = function()
-          return lock.locked() and "已锁定" or "可操作"
-        end,
-        colour = function()
-          return lock.locked() and G.C.ORANGE or G.C.L_BLACK
-        end,
-        on_click = function()
-          lock.toggle()
-        end,
-      },
-    },
-  }
+  if deps.mode.current == "external" and not deps.replaying() then
+    return { buttons = { pace_button() } }
+  end
+  return nil
 end
 
 ---@param options BBAgentHudDeps

@@ -253,6 +253,38 @@ do -- 回放入口只在主菜单显示. 回归: 曾用不存在的 G.STAGES.MEN
   check("取不到阶段时不显示", not ReplayMenu.menu_visible(nil, stages) and not ReplayMenu.menu_visible(1, nil))
 end
 
+do -- agent 消息节奏: 阅读 / 快速, 回放中只记 home
+  local Pace = dofile("mods/balatrobot/agent/pace.lua")
+  local cfg = { message_pace = "normal" }
+  local toast = { home_pace = "normal", pace = "normal", gate_enabled = true }
+  function toast.set_pace(pace)
+    toast.pace = pace
+  end
+  function toast.apply_home()
+    toast.pace = toast.home_pace
+    toast.gate_enabled = toast.home_pace ~= "fast"
+  end
+  local replaying = false
+  Pace.init({
+    config = function()
+      return cfg
+    end,
+    save = function() end,
+    toast = toast,
+    replaying = function()
+      return replaying
+    end,
+  })
+  check("默认阅读", Pace.current() == "normal")
+  Pace.cycle()
+  check("阅读切快速不拦操作", Pace.current() == "fast" and toast.pace == "fast" and toast.gate_enabled == false)
+  Pace.cycle()
+  check("快速切回阅读", Pace.current() == "normal" and toast.gate_enabled)
+  replaying = true
+  Pace.set("fast")
+  check("回放中只记 home", toast.home_pace == "fast" and toast.pace == "normal" and toast.gate_enabled)
+end
+
 if failures > 0 then
   print(failures .. " 项失败")
   os.exit(1)

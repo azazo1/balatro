@@ -34,10 +34,13 @@ local M = {
   calls_enabled = true,
   -- 讲解是否拦后面的操作 (dispatcher 的门槛). 回放时关掉: 原局里操作是在讲解停留期间就执行的,
   -- 回放照原样重做, 不该再被拦一次 (回放自身用 notify 的 wait 复现原来的节奏).
+  -- agent 快进时也关掉, 讲解仍弹出, 不拦后面的操作.
   gate_enabled = true,
-  -- 右侧的时长档位: normal / compact (回放紧凑节奏) / fast (回放快进, 几乎不等).
-  -- 左侧工具调用始终用短时长, 不看这个档位. 回放中途切换用 M.set_pace.
+  -- 右侧的时长档位: normal / compact (紧凑) / fast (快进, 几乎不等).
+  -- 左侧工具调用始终用短时长, 不看这个档位. agent 设置页 / HUD 与回放中途切换都用 M.set_pace.
   pace = "normal",
+  -- 非回放时的档位. 回放结束用 M.apply_home 恢复; 快进时 apply_home 会关掉门槛.
+  home_pace = "normal",
 }
 
 local MAX_ITEMS = 3
@@ -606,7 +609,7 @@ function M.update(dt)
   end
 end
 
---- 切换右侧的时长档位 (回放开始, 结束, 或回放中途切换节奏时用).
+--- 切换右侧的时长档位 (agent 改节奏, 以及回放开始 / 结束 / 中途切换时用).
 --- 屏幕上还没退场的那些按新档位重算, 已经停留够的随即退场; 排队的显示时自然按新档位算.
 ---@param pace "normal"|"compact"|"fast"
 function M.set_pace(pace)
@@ -622,6 +625,18 @@ function M.set_pace(pace)
       retime(item)
     end
   end
+end
+
+--- 套上非回放时的档位: 时长与门槛. 回放结束, 以及 agent 设置页 / HUD 改节奏时用.
+--- 快进关掉门槛, 讲解仍弹出并停留约 1.5 秒, 新的叠在上面.
+function M.apply_home()
+  local pace = M.home_pace
+  if pace ~= "compact" and pace ~= "fast" then
+    pace = "normal"
+  end
+  M.home_pace = pace
+  M.set_pace(pace)
+  M.gate_enabled = pace ~= "fast"
 end
 
 --- 立即移除通知, 排队里的也一起丢掉 (它们的 on_read 会触发, 等着的调用方不会一直等).

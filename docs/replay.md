@@ -179,3 +179,4 @@
   tight 与 fast 把这段压进两步之间的短等待.
 - 节奏对应 bbcore toast 的右侧时长档位 (`toast.set_pace`): original -> normal, tight -> compact,
   fast -> fast. fast 档连 notify 显式给的 `duration` 也不等; push 时带 `fixed` 的消息不跟档位走. 只有内置 agent 会写入; 外部 agent 没有流式条.
+  回放结束用 `toast.apply_home` 恢复 agent 设置页里的消息节奏 (阅读 / 快速; 快速时关掉门槛).

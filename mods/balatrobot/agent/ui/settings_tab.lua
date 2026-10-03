@@ -3,7 +3,7 @@ mod 设置页 (模组 -> BalatroBot -> 配置), 即 MOD.config_tab.
 
 左列: agent 模式, 内置 agent 的连接 (endpoint, 模型名, key, 鉴权方式, 接口协议) 与状态行.
 右列: 内置 agent 的对局设置 (单局 token 上限, 最大上下文, 思考强度, 思考方式, 赢后处理, 打完一局之后, 种子, 策略).
-底部整行: 显示开关 (横排), 以及粘贴, 清除等操作的结果. 字段说明放在悬停提示里, 避免把页面撑高.
+底部整行: 显示开关与消息节奏 (横排), 以及粘贴, 清除等操作的结果. 字段说明放在悬停提示里, 避免把页面撑高.
 录像与回放的设置在 bbreplay 自己的设置页.
 
 - 原版文本框的字符表没有 '/', 还会把 '0' 改成 'o', 所以 endpoint, 模型名, key, 策略都用 "从剪贴板粘贴" 输入.
@@ -36,6 +36,7 @@ local SCALE = 0.3
 ---@field toast table bbcore 的 runtime/toast.lua
 ---@field agent table BB_AGENT
 ---@field widgets table bbcore 的 ui/widgets.lua (已 init)
+---@field pace table agent/pace.lua
 local deps
 
 -- 界面上显示的文字, 由 refresh 与 refresh_values 更新.
@@ -505,23 +506,36 @@ local function play_column()
   return W.col(nodes, { minw = COL_W, padding = 0.05 })
 end
 
---- 显示开关: 横排一整行放在两列下方. 竖排在右列里会让右列比左列高出一截, 撑高整个页面.
+--- 显示开关与消息节奏: 横排放在两列下方. 竖排在右列里会让右列比左列高出一截, 撑高整个页面.
 local function display_row()
-  return W.row({
-    W.col({ W.text("显示", 0.4, G.C.FILTER) }, { padding = 0.05 }),
-    toggle("显示 agent 消息", "show_messages", function(value)
-      deps.toast.enabled = value
-      if not value then
-        deps.toast.clear("right")
-      end
-    end),
-    toggle("显示工具调用", "show_calls", function(value)
-      deps.toast.calls_enabled = value
-      if not value then
-        deps.toast.clear("left")
-      end
-    end),
-    toggle("演示流式条 (开发用)", "demo_stream"),
+  return W.col({
+    W.row({
+      W.col({ W.text("显示", 0.4, G.C.FILTER) }, { padding = 0.05 }),
+      toggle("显示 agent 消息", "show_messages", function(value)
+        deps.toast.enabled = value
+        if not value then
+          deps.toast.clear("right")
+        end
+      end),
+      toggle("显示工具调用", "show_calls", function(value)
+        deps.toast.calls_enabled = value
+        if not value then
+          deps.toast.clear("left")
+        end
+      end),
+      toggle("演示流式条 (开发用)", "demo_stream"),
+    }, { padding = 0 }),
+    W.row({
+      W.col({ W.text("节奏", 0.4, G.C.FILTER) }, { padding = 0.05 }),
+      W.radio({
+        { "normal", "阅读", tip("阅读", "讲解按阅读时长显示, 后面的操作等它退去.") },
+        { "fast", "快速", tip("快速", "讲解几乎不等, 不拦后面的操作.", "框仍停留约 1.5 秒, 新的叠在上面.") },
+      }, function()
+        return deps.pace.current()
+      end, function(value)
+        deps.pace.set(value)
+      end, { minw = 1.2, scale = 0.28 }),
+    }, { padding = 0 }),
   }, { padding = 0 })
 end
 
