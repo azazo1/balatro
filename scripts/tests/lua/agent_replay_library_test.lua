@@ -1,5 +1,5 @@
 -- 游戏内回放列表的单元测试, 用 luajit 在仓库根目录运行: just test-agent
--- 覆盖可不可回放的判断, 扫描与缓存, 分页, 以及回放菜单的布局结构.
+-- 覆盖可不可回放的判断, 扫描与缓存, 开始时间的时区换算, 分页, 以及回放菜单的布局结构.
 
 package.path = "mods/Steamodded/libs/json/?.lua;" .. package.path
 local json = require("json")
@@ -135,6 +135,23 @@ do
   files["a.replay.json"].size, files["a.replay.json"].mtime = 99, 5
   Library.list(fs_for(files), { supported_version = Format.VERSION, decode = counting_decode, cache = cache })
   check("缓存: 文件变了要重新解析", hits == 1, tostring(hits))
+end
+
+do -- 开始时间按本机时区显示: 把本地时刻写成 UTC 的 ISO 串, 再换回来应当还是那一刻
+  local cases = {
+    { year = 2026, month = 1, day = 15, hour = 12, min = 0 }, -- 冬令时一侧
+    { year = 2026, month = 7, day = 15, hour = 12, min = 0 }, -- 夏令时一侧
+  }
+  for _, fields in ipairs(cases) do
+    fields.sec = 0
+    local epoch = os.time(fields)
+    local iso = os.date("!%Y-%m-%dT%H:%M:%SZ", epoch)
+    local want = os.date("%Y-%m-%d %H:%M", epoch)
+    check(string.format("时间: 按本地时区换算 (%s)", iso), Library.time_text(iso) == want, Library.time_text(iso) .. " ~= " .. want)
+  end
+  check("时间: 没有行内的 UTC 标记", not Library.time_text("2024-05-01T12:34:56Z"):find("UTC"))
+  check("时间: 少了秒也认", Library.time_text("2024-05-01T12:34Z") == Library.time_text("2024-05-01T12:34:00Z"))
+  check("时间: 缺字段时说不认识", Library.time_text(nil) == "未知时间" and Library.time_text("随便") == "随便")
 end
 
 do

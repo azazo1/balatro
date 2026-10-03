@@ -75,18 +75,42 @@ function M.duration_text(seconds)
   return string.format("%d 分 %d 秒", minutes, seconds % 60)
 end
 
---- recorded_at (log.lua 按 UTC 写的 2024-05-01T12:00:00Z) 转显示用的时间, 不换算时区.
+--- 公历日期转 1970-01-01 起的天数 (Howard Hinnant 的算法). 只做日历算术, 不碰时区.
+---@param year integer
+---@param month integer
+---@param day integer
+---@return integer
+local function days_from_civil(year, month, day)
+  year = month <= 2 and year - 1 or year
+  local era = math.floor(year / 400)
+  local yoe = year - era * 400
+  local doy = math.floor((153 * (month + (month > 2 and -3 or 9)) + 2) / 5) + day - 1
+  local doe = yoe * 365 + math.floor(yoe / 4) - math.floor(yoe / 100) + doy
+  return era * 146097 + doe - 719468
+end
+
+--- recorded_at (log.lua 按 UTC 写的 2024-05-01T12:00:00Z) 转本地时区的显示文字 "2024-05-01 20:00".
+---
+--- 时刻按日历算术直接算出来, 再用 os.date 交给本机时区显示. 不走 os.time: 它把表当本地时间,
+--- 要先把 UTC 字段猜成一个本地时刻再改回去; 夏令时前跳的那一小时里本地时刻根本不存在,
+--- os.time 只能猜, 猜出来差一小时.
 ---@param iso string?
 ---@return string
-local function time_text(iso)
+function M.time_text(iso)
   if type(iso) ~= "string" then
     return "未知时间"
   end
-  local y, m, d, hh, mm = iso:match("^(%d%d%d%d)-(%d%d)-(%d%d)T(%d%d):(%d%d)")
+  local y, m, d, hh, mm, ss = iso:match("^(%d%d%d%d)-(%d%d)-(%d%d)T(%d%d):(%d%d):?(%d*)")
   if not y then
     return iso
   end
-  return string.format("%s-%s-%s %s:%s UTC", y, m, d, hh, mm)
+  y, m, d, hh, mm, ss = tonumber(y), tonumber(m), tonumber(d), tonumber(hh), tonumber(mm), tonumber(ss) or 0
+  -- 字段范围不对 (例如月份写了 13) 时按原样的字段显示, 至少有得看.
+  if m < 1 or m > 12 or d < 1 or d > 31 or hh > 23 or mm > 59 or ss > 59 then
+    return string.format("%04d-%02d-%02d %02d:%02d", y, m, d, hh, mm)
+  end
+  local epoch = days_from_civil(y, m, d) * 86400 + hh * 3600 + mm * 60 + ss
+  return os.date("%Y-%m-%d %H:%M", epoch)
 end
 
 --- 从最后一步的状态摘要里取底注. 摘要是 "state=... ante=3 round=2 ..." 这种格式.
@@ -314,7 +338,7 @@ function M.line_text(entry)
   local ante = entry.ante and string.format(", 底注 %d", entry.ante) or ""
   return string.format(
     "%s | %s | %s | 种子 %s | %s%s | %d 步 | %s",
-    time_text(entry.started),
+    M.time_text(entry.started),
     entry.deck,
     entry.stake,
     entry.seed,
