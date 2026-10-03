@@ -103,5 +103,5 @@ check-game-docs:
 
 # 删除打包产物 dist/.
 clean:
-    {{ python }} -c "import shutil; shutil.rmtree('dist', ignore_errors=True)"
+    {{ python }} scripts/clean.py
 

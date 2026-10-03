@@ -18,6 +18,12 @@ console:
 dist-modded mods="mods":
     {{ python }} scripts/package_windows.py --mods {{ mods }} --console
 
+# just windows fix-acl [产物目录]
+# 把目录里产物的完整性级别修回 Medium, 去掉打包环境留下的 Low 标志 (目录自身不动).
+# 沙箱内的进程抬不动这个标志, 需要在沙箱外的终端里执行.
+fix-acl path="dist/windows":
+    {{ python }} scripts/fix_acl.py --inside {{ path }}
+
 # just windows recordings-recover [--run] [--clean] [录像目录]
 # 扫描录像目录里崩溃后残留的中间文件并补做合成, 默认只列出,
 # --run 执行, --clean 成功后删中间文件.

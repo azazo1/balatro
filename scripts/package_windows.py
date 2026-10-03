@@ -9,6 +9,9 @@ Windows 版的做法是把 .love 追加到 love.exe 末尾: LÖVE 内部用 Phys
 
 原版包可以在任何平台打. 带 mod 的包要编译 bbnet.dll, 只能在 Windows 上打; 在别的系统上加 --no-native.
 
+打包收尾会把产物的 Windows 完整性级别重置回 Medium, 去掉沙箱留下的 Low 标志,
+见 lib/win_acl.py 与 scripts/fix_acl.py.
+
 用法:
     python3 scripts/package_windows.py
     python3 scripts/package_windows.py --console   # 同时产出带控制台的版本, 便于看日志
@@ -22,7 +25,8 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from lib import archive, gamezip, layout, log, modding, runtime, version as versionlib, win_icon
+from lib import (archive, gamezip, layout, log, modding, runtime, version as versionlib, win_acl,
+                 win_icon)
 import build_native  # noqa: E402  打包带 mod 的版本时顺带编译 bbnet
 
 log.set_prefix("windows")
@@ -43,6 +47,32 @@ def parse_args():
     return parser.parse_args()
 
 
+def remove_old(path, what):
+    """删掉上次的产物.
+
+    修过完整性级别的产物是普通文件 (Medium), 沙箱内的进程删不掉它们, 所以这里失败时
+    给出可操作的提示, 而不是抛出一串回溯.
+    """
+    if not os.path.exists(path):
+        return
+    try:
+        if os.path.isdir(path):
+            shutil.rmtree(path)
+        else:
+            os.remove(path)
+    except OSError as exc:
+        log.die("删除上次的%s失败: %s (%s)\n旧产物若是修过完整性级别的普通文件, 沙箱内的进程"
+                "删不掉, 请在沙箱外的终端里删掉它再重跑, 或提权执行本命令." % (what, path, exc))
+
+
+def fix_integrity(paths):
+    """把本次产物的完整性级别修回 Medium (沙箱里打出来的产物会带 Low 标志)."""
+    if not win_acl.reset_all(paths):
+        return
+    log.warn("产物仍带 Low 完整性标志: 打包进程自身是低完整性级别, 抬不上去.")
+    log.warn("请在沙箱外的终端里执行 just windows fix-acl, 或提权重跑打包.")
+
+
 def main():
     args = parse_args()
     flavor = modding.flavor(args)
@@ -56,6 +86,9 @@ def main():
     bundle_name = "%s-%s-win64" % (flavor.file_stem, version)
     bundle_dir = os.path.join(out_dir, bundle_name)
     zip_out = os.path.join(out_dir, "%s.zip" % bundle_name)
+    # 旧产物先清掉: 沙箱里删不掉修过完整性级别的那种, 与其打包到一半才失败, 不如现在就说清楚.
+    remove_old(bundle_dir, "产物目录")
+    remove_old(zip_out, "压缩包")
 
     work_dir = tempfile.mkdtemp(prefix=".windows-", dir=out_dir)
     try:
@@ -66,8 +99,6 @@ def main():
         src_dir = next((p for p in roots if os.path.isdir(p)), work_dir)
         log.info("解出 %d 个条目" % count)
 
-        if os.path.exists(bundle_dir):
-            shutil.rmtree(bundle_dir)
         os.makedirs(bundle_dir)
 
         love_payload = os.path.join(work_dir, "%s.love" % layout.APP_NAME)
@@ -103,6 +134,9 @@ def main():
 
         log.info("打包 %s" % os.path.basename(zip_out))
         archive.zip_dir(bundle_dir, zip_out)
+
+        # 产物要拿去分发, 收尾时把沙箱留下的 Low 标志去掉.
+        fix_integrity([bundle_dir, zip_out])
     finally:
         if args.keep_work:
             log.info("保留工作目录: %s" % work_dir)
