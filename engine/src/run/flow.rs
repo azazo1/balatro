@@ -1691,6 +1691,8 @@ impl RunState {
                 steps: Vec::new(),
                 melted: Vec::new(),
                 dollars: 0.0,
+                // 这一手是被封禁的, 不是"算出来零分" —— 明细靠这个标志说明原因.
+                blocked: true,
             }
         } else {
             // 手里**没打出去**的那些牌也要交进去: 钢铁牌 (`h_x_mult`) 与男爵 / 射月 / 致胜之拳

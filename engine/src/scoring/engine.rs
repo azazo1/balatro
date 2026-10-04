@@ -15,7 +15,7 @@
 
 use super::hand_levels::HandTable;
 use super::poker_hand::{EvalEnv, HandCard, PokerHand, evaluate_poker_hand};
-use crate::cards::Edition;
+use crate::cards::{Edition, PlayingCard};
 use crate::jokers::{Joker, TriggerContext};
 
 /// 牌背对最终数值的处理.
@@ -30,10 +30,47 @@ pub enum BackEffect {
 /// 计分过程中的一步, 用于复现卡面上的飘字顺序.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ScoreStep {
-    /// 序号, 与 `scoring_cards` 对应; 牌背那一步是 `None`.
-    pub card: Option<usize>,
+    /// 这一步是**谁**改的.
+    pub source: ScoreSource,
+    /// 改的是筹码还是倍率, 还是"把对子整体改了".
+    pub kind: ScoreKind,
+    /// 变动量. 加减类是有符号的增量, 乘类是要乘的倍数, `Reshape` 没有增量 (给 0).
+    pub amount: f64,
+    /// 这一步**做完之后**的筹码与倍率.
     pub chips: f64,
     pub mult: f64,
+}
+
+/// 一步的来源.
+///
+/// 与 `mods/bbcore/runtime/scoring.lua` 记的 `by` 是同一个东西 —— 那边记的是卡牌键, 这里带上
+/// 牌本身, 够渲染出中文名, 也能对回是哪一张.
+#[derive(Clone, PartialEq, Debug)]
+pub enum ScoreSource {
+    /// 打出的牌里的某一张. `index` 与 `scoring_cards` 的取值同一个口径.
+    Card { index: usize, card: PlayingCard },
+    /// 留在手里没打出的某张牌 (钢铁牌这类).
+    Held { card: PlayingCard },
+    /// 某张小丑. 存键 (`j_jolly`), 蓝图这类记的是**真正生效**的那张.
+    Joker { key: String },
+    /// 不是某张牌给的, 而是某一趟的整体效果 (燧石, 等离子, 天文台).
+    Stage { name: &'static str },
+}
+
+/// 一步改的是什么.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum ScoreKind {
+    /// 加筹码.
+    Chips,
+    /// 加倍率.
+    Mult,
+    /// 乘倍率.
+    XMult,
+    /// 给钱 (不影响筹码与倍率, 记下来是因为它也是这一手的收获).
+    Dollars,
+    /// 不是加减乘, 而是把当前这一对筹码与倍率整体改掉 (燧石减半, 等离子拉平),
+    /// 所以没有"增量"可言 —— 看这一步之后的 `chips` / `mult` 就是结果.
+    Reshape,
 }
 
 /// 一次出牌的结果.
@@ -60,6 +97,86 @@ pub struct ScoreResult {
     pub dollars: f64,
     /// 本次计分顺手造出来的消耗牌 (按顺序), 由运行层负责入槽.
     pub consumables: Vec<String>,
+    /// 这一手被盲注封禁 (眼 / 嘴那两个"整手不计分"的 Boss), 所以分数是零.
+    ///
+    /// 单独立一个字段而不是让调用方从"全零"去猜: 零分的成因不止这一种可能, 而
+    /// "报出的明细解释不了总分" 正是这一层最该避免的事 —— 明细里得有一行说清为什么是零.
+    pub blocked: bool,
+}
+
+/// 计分的账本: 持有当前的筹码与倍率, 每一次变动都记成一步.
+///
+/// 让**改动与记录走同一个入口**, 是为了让"算出来的数"和"报出来的数"不可能分叉 —— 两边分开写的话
+/// 迟早会有一处改了计算忘了改记录, 而对拍时要的正是这两者一致.
+///
+/// 零变动不记 (加 0, 乘 1): 那些是"这张小丑这一手没生效", 记下来只会把明细淹掉.
+struct Ledger {
+    chips: f64,
+    mult: f64,
+    steps: Vec<ScoreStep>,
+}
+
+impl Ledger {
+    fn new(chips: f64, mult: f64, capacity: usize) -> Self {
+        Ledger {
+            chips,
+            mult,
+            steps: Vec::with_capacity(capacity),
+        }
+    }
+
+    /// 记一步. `kind` 与 `amount` 由调用方给, 之后的筹码与倍率取账本**此刻**的值.
+    fn step(&mut self, source: &ScoreSource, kind: ScoreKind, amount: f64) {
+        self.steps.push(ScoreStep {
+            source: source.clone(),
+            kind,
+            amount,
+            chips: self.chips,
+            mult: self.mult,
+        });
+    }
+
+    /// 加筹码. 零变动不记.
+    fn add_chips(&mut self, source: &ScoreSource, amount: f64) {
+        if amount == 0.0 {
+            return;
+        }
+        self.chips += amount;
+        self.step(source, ScoreKind::Chips, amount);
+    }
+
+    /// 加倍率 (可以给负数). 零变动不记.
+    fn add_mult(&mut self, source: &ScoreSource, amount: f64) {
+        if amount == 0.0 {
+            return;
+        }
+        self.mult += amount;
+        self.step(source, ScoreKind::Mult, amount);
+    }
+
+    /// 乘倍率. 乘 1 不记.
+    fn times_mult(&mut self, source: &ScoreSource, factor: f64) {
+        if factor == 1.0 {
+            return;
+        }
+        self.mult *= factor;
+        self.step(source, ScoreKind::XMult, factor);
+    }
+
+    /// 记一笔钱. 筹码与倍率不动, 记的是当下的值.
+    fn add_dollars(&mut self, source: &ScoreSource, amount: f64) {
+        if amount == 0.0 {
+            return;
+        }
+        self.step(source, ScoreKind::Dollars, amount);
+    }
+
+    /// 把这一对整体换掉 (燧石减半, 等离子拉平).
+    fn reshape(&mut self, source: &ScoreSource, chips: f64, mult: f64) {
+        self.chips = chips;
+        self.mult = mult;
+        self.step(source, ScoreKind::Reshape, 0.0);
+    }
 }
 
 /// 沿着"复制链"找到真正生效的那张小丑.
@@ -213,14 +330,20 @@ fn score_play_inner(
     let level = table.get(hand);
     let base_chips = level.chips(hand);
     let base_mult = level.mult(hand);
-    let mut chips = base_chips;
-    let mut mult = base_mult;
+    let mut ledger = Ledger::new(
+        base_chips,
+        base_mult,
+        scoring_cards.len() + jokers.len() + 1,
+    );
 
     // 燧石 (The Flint): 把**牌型的基础**筹码与倍率各砍一半, 而且是在逐卡计分**之前** ——
     // 所以它砍的是基础值, 后面牌的加成照常算. 两个下限分别是 0 与 1 (倍率不会低于 1).
     if env.flint {
-        chips = (chips * 0.5 + 0.5).floor().max(0.0);
-        mult = (mult * 0.5 + 0.5).floor().max(1.0);
+        ledger.reshape(
+            &ScoreSource::Stage { name: "燧石" },
+            (ledger.chips * 0.5 + 0.5).floor().max(0.0),
+            (ledger.mult * 0.5 + 0.5).floor().max(1.0),
+        );
     }
 
     let mut dollars = 0.0;
@@ -265,7 +388,6 @@ fn score_play_inner(
         table,
     };
 
-    let mut steps = Vec::with_capacity(scoring_cards.len() + jokers.len() + 1);
     for &index in &scoring_cards {
         // 这张牌要算几遍: 它自己那份 (红封给一次) 加上各小丑给的重触发
         // (袜子与巴斯金 / 烂脱口秀演员 / 黄昏 / 挂账 / 汽水).
@@ -280,16 +402,25 @@ fn score_play_inner(
             // 游戏把它记在牌自己身上 (`Card.lucky_trigger`), 并在这一遍的逐卡小丑跑完之后清掉,
             // 所以它的作用范围正好是"这一遍", 而且每多算一遍就多一次机会.
             let mut lucky_trigger = false;
+            // 这一趟所有变动都算在**这张牌**头上 (它自己的筹码/强化, 以及逐卡小丑给它的),
+            // 与游戏里屏幕上的飘字一致.
+            let me = ScoreSource::Card {
+                index,
+                card: cards[index].card,
+            };
             // 金封: 这张牌被打出时直接给三块 (`Card:get_p_dollars`).
             if cards[index].gold_seal {
+                ledger.add_dollars(&me, 3.0);
                 dollars += 3.0;
             }
-            chips += cards[index].chip_bonus();
+            ledger.add_chips(&me, cards[index].chip_bonus());
             // 强化牌在计分时各给一份: 倍率牌加倍率, 玻璃牌乘倍率.
-            mult += cards[index].mult_bonus();
+            ledger.add_mult(&me, cards[index].mult_bonus());
+            // 注意这个 `> 0.0` 的门: 没有乘倍率时 `x_mult()` 给的是 **0**, 少了这一判就会把
+            // 倍率乘成零.
             let x_mult = cards[index].x_mult();
             if x_mult > 0.0 {
-                mult *= x_mult;
+                ledger.times_mult(&me, x_mult);
             }
             // 幸运牌的两份都靠掷骰 (1/5 给 +20 倍率, 1/15 给 20 块), 顺序是**倍率在前, 钱在后**
             // (`eval_card` 里 `get_chip_mult` 排在 `get_p_dollars` 前面).
@@ -304,10 +435,11 @@ fn score_play_inner(
             // 分子是 `G.GAME.probabilities.normal` (七上八下把它乘二), 不是写死的 1.
             if cards[index].lucky && !cards[index].debuffed {
                 if rng.pseudorandom("lucky_mult") < (1.0 + env.probability_extra) / 5.0 {
-                    mult += 20.0;
+                    ledger.add_mult(&me, 20.0);
                     lucky_trigger = true;
                 }
                 if rng.pseudorandom("lucky_money") < (1.0 + env.probability_extra) / 15.0 {
+                    ledger.add_dollars(&me, 20.0);
                     dollars += 20.0;
                     lucky_trigger = true;
                 }
@@ -324,8 +456,14 @@ fn score_play_inner(
                     joker.grow_on_lucky_trigger();
                 }
                 if let Some(effect) = joker.individual(&cards[index], &ctx, rng) {
-                    mult += effect.mult_mod;
-                    chips += effect.chip_mod;
+                    // 逐卡小丑给的分算在**这张牌**头上 (游戏里飘字挂在牌上), 但来源要说清是
+                    // 哪张小丑 —— 所以这里另给一个来源, 记成"哪张小丑给这张牌加了多少".
+                    let by = ScoreSource::Joker {
+                        key: joker.key.clone(),
+                    };
+                    ledger.add_mult(&by, effect.mult_mod);
+                    ledger.add_chips(&by, effect.chip_mod);
+                    ledger.add_dollars(&by, effect.dollars);
                     dollars += effect.dollars;
                     if let Some((kind, append)) = effect.create_consumable
                         && let Some(creation) = creation.as_deref_mut()
@@ -334,7 +472,7 @@ fn score_play_inner(
                         created.push(key);
                     }
                     if effect.xmult_mod != 0.0 {
-                        mult *= effect.xmult_mod;
+                        ledger.times_mult(&by, effect.xmult_mod);
                     }
                 }
             }
@@ -342,32 +480,31 @@ fn score_play_inner(
             // 版本是**这一条里的最后一步** (`state_events` 里排在自身的筹码与倍率之后):
             // 闪箔加筹码, 镭射加倍率, 多彩乘倍率. 负片没有计分效果.
             if let Some((chip, mult_mod, x_mult)) = edition_mods(cards[index].edition) {
-                chips += chip;
-                mult += mult_mod;
+                ledger.add_chips(&me, chip);
+                ledger.add_mult(&me, mult_mod);
                 if x_mult != 1.0 {
-                    mult *= x_mult;
+                    ledger.times_mult(&me, x_mult);
                 }
             }
-
-            steps.push(ScoreStep {
-                card: Some(index),
-                chips,
-                mult,
-            });
         }
     }
 
     // 手牌阶段: 留在手里没打出去的牌各给自己的乘倍率 (钢铁牌), 以及看手牌的小丑
     // (男爵, 射月, 致胜之拳). 它排在逐卡计分之后, 小丑主效果之前.
     for card in held {
+        let mine = ScoreSource::Held { card: card.card };
         let x = card.h_x_mult();
         if x > 0.0 {
-            mult *= x;
+            ledger.times_mult(&mine, x);
         }
         for joker in jokers.iter() {
             if let Some(effect) = joker.held(card, held, &ctx, rng) {
-                mult += effect.mult_mod;
-                chips += effect.chip_mod;
+                let by = ScoreSource::Joker {
+                    key: joker.key.clone(),
+                };
+                ledger.add_mult(&by, effect.mult_mod);
+                ledger.add_chips(&by, effect.chip_mod);
+                ledger.add_dollars(&by, effect.dollars);
                 dollars += effect.dollars;
                 if let Some((kind, append)) = effect.create_consumable
                     && let Some(creation) = creation.as_deref_mut()
@@ -376,17 +513,10 @@ fn score_play_inner(
                     created.push(key);
                 }
                 if effect.xmult_mod != 0.0 {
-                    mult *= effect.xmult_mod;
+                    ledger.times_mult(&by, effect.xmult_mod);
                 }
             }
         }
-    }
-    if !held.is_empty() {
-        steps.push(ScoreStep {
-            card: None,
-            chips,
-            mult,
-        });
     }
 
     // 小丑的两个阶段, 顺序不能换:
@@ -403,11 +533,15 @@ fn score_play_inner(
             }
             let effect = jokers[index].other_joker(&jokers[other_index]);
             if let Some(effect) = effect {
-                mult += effect.mult_mod;
-                chips += effect.chip_mod;
+                let by = ScoreSource::Joker {
+                    key: jokers[index].key.clone(),
+                };
+                ledger.add_mult(&by, effect.mult_mod);
+                ledger.add_chips(&by, effect.chip_mod);
+                ledger.add_dollars(&by, effect.dollars);
                 dollars += effect.dollars;
                 if effect.xmult_mod != 0.0 {
-                    mult *= effect.xmult_mod;
+                    ledger.times_mult(&by, effect.xmult_mod);
                 }
             }
         }
@@ -419,13 +553,20 @@ fn score_play_inner(
     for index in 0..jokers.len() {
         let effect =
             resolve_copy_target(jokers, index).and_then(|actual| actual.joker_main(&ctx, rng));
-        let mut applied = false;
+        // 来源取**真正生效**的那张 (蓝图复制了谁就记谁), 与游戏里挂在哪张牌上一致.
+        let by = ScoreSource::Joker {
+            key: resolve_copy_target(jokers, index)
+                .unwrap_or(&jokers[index])
+                .key
+                .clone(),
+        };
         if let Some(effect) = effect {
-            mult += effect.mult_mod;
-            chips += effect.chip_mod;
+            ledger.add_mult(&by, effect.mult_mod);
+            ledger.add_chips(&by, effect.chip_mod);
+            ledger.add_dollars(&by, effect.dollars);
             dollars += effect.dollars;
             if effect.xmult_mod != 0.0 {
-                mult *= effect.xmult_mod;
+                ledger.times_mult(&by, effect.xmult_mod);
             }
             // 这一趟也会有"顺手造一张消耗牌"的小丑 (叠加态那类), 收集方式与逐卡那一趟一致.
             if let Some((kind, append)) = effect.create_consumable
@@ -434,48 +575,34 @@ fn score_play_inner(
                 let key = crate::run::shop::create_consumable(creation, rng, kind, append, true);
                 created.push(key);
             }
-            applied = true;
         }
         // 版本在这个格子的效果**之后**生效, 而且属于**格子里的那张牌** ——
         // 游戏里版本是单独一趟 (`context.edition`), 走的是卡自己, 蓝图复制的是别人的效果但不复制版本.
+        // 所以来源取**格子本身**那一个下标, 不是复制目标.
+        let slot = ScoreSource::Joker {
+            key: jokers[index].key.clone(),
+        };
         if let Some((chip, mult_mod, x_mult)) = edition_mods(jokers[index].edition) {
-            chips += chip;
-            mult += mult_mod;
+            ledger.add_chips(&slot, chip);
+            ledger.add_mult(&slot, mult_mod);
             if x_mult != 1.0 {
-                mult *= x_mult;
+                ledger.times_mult(&slot, x_mult);
             }
-            applied = true;
-        }
-        if applied {
-            steps.push(ScoreStep {
-                card: None,
-                chips,
-                mult,
-            });
         }
     }
 
     if back == BackEffect::Plasma {
-        let half = ((chips + mult) / 2.0).floor();
-        chips = half;
-        mult = half;
+        let half = ((ledger.chips + ledger.mult) / 2.0).floor();
+        ledger.reshape(&ScoreSource::Stage { name: "等离子" }, half, half);
     }
-    steps.push(ScoreStep {
-        card: None,
-        chips,
-        mult,
-    });
 
     // 天文台: 消耗区里对应本手牌型的行星牌, 每张给一次 ×1.5.
     // 位置在**所有小丑的主效果之后** —— 游戏那边是小丑先遍历、消耗品后遍历 (同一个循环里).
     if env.observatory_planets > 0 {
         let factor = 1.5f64.powi(env.observatory_planets as i32);
-        mult = (mult * factor).floor();
-        steps.push(ScoreStep {
-            card: None,
-            chips,
-            mult,
-        });
+        // 天文台的落点是"先乘再向下取整", 不是纯粹的乘法, 所以先算好再交给账本.
+        let mult = (ledger.mult * factor).floor();
+        ledger.reshape(&ScoreSource::Stage { name: "天文台" }, ledger.chips, mult);
     }
 
     // 计分结束之后才跑 `after`: 它只改下一轮要用的值 (冰淇淋融化), 所以放在牌背处理之后
@@ -492,12 +619,13 @@ fn score_play_inner(
         scoring_cards,
         base_chips,
         base_mult,
-        chips,
-        mult,
-        total: (chips * mult).floor(),
-        steps,
+        chips: ledger.chips,
+        mult: ledger.mult,
+        total: (ledger.chips * ledger.mult).floor(),
+        steps: ledger.steps,
         melted,
         dollars,
         consumables: created,
+        blocked: false,
     })
 }

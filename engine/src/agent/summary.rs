@@ -11,7 +11,7 @@ use crate::data::knowledge;
 use crate::jokers::Joker;
 use crate::run::shop::PackCard;
 use crate::run::{BlindKind, Phase, RunState, ShopCard, blind, make_blind};
-use crate::scoring::PokerHand;
+use crate::scoring::{PokerHand, ScoreKind, ScoreResult, ScoreSource, ScoreStep};
 
 /// 摘要之外要带进来的东西 —— 引擎的运行状态里没有, 得由调用方给.
 #[derive(Default)]
@@ -440,8 +440,16 @@ pub fn render(run: &RunState, extras: &Extras) -> String {
         }
     }
 
-    if let Some(line) = extras.last_hand {
-        out.push(format!("上一手: {line}"));
+    if let Some(report) = extras.last_hand {
+        // 这份明细是多行的 (首行是总分, 后面逐来源). 续行要缩进, 否则它们看起来像是摘要的
+        // 顶层字段, 而不是"上一手"的一部分.
+        let mut lines = report.lines();
+        if let Some(first) = lines.next() {
+            out.push(format!("上一手: {first}"));
+        }
+        for line in lines {
+            out.push(format!("  {line}"));
+        }
     }
 
     if !run.hand.is_empty() {
@@ -604,18 +612,115 @@ pub fn render(run: &RunState, extras: &Extras) -> String {
     out.join("\n")
 }
 
-/// 上一手的计分明细, 从一次出牌的结果渲染成几行.
+/// 上一手的计分明细, 对照内置 agent 拿到的 `round.last_hand.text`.
 ///
-/// 对应内置 agent 拿到的 `round.last_hand.text` —— 那一手每个来源各加了多少.
-/// 没有它, agent 只能看到一个总分, 无法知道"为什么是这个分", 也就无法从错误中调整.
-pub fn scoring_breakdown(hand: PokerHand, base_chips: f64, base_mult: f64, chips: f64, mult: f64, total: f64) -> String {
-    format!(
-        "{} 基础 {}x{} = {}x{} = {} 分",
-        hand_zh(hand),
-        number(base_chips),
-        number(base_mult),
-        number(chips),
-        number(mult),
-        number(total)
-    )
+/// 格式与 `mods/bbcore/runtime/scoring.lua` 的 `M.text` 一致, 每行是
+/// `来源 | 改了什么 | 改完之后的 筹码x倍率`, 最后一行是总分:
+///
+/// ```text
+/// 同花 Lv2 = 296
+/// 出牌: [0]梅花A* [1]梅花K* [2]梅花9 [3]梅花7 [4]梅花2*
+/// 基础 35x4
+/// [0]梅花A | +11 筹码 | 46x4
+/// 混搭小丑 | +50 筹码 | 96x4
+/// 玻璃牌 | x2 倍率 | 96x12
+/// = 296
+/// ```
+///
+/// 带 `*` 的是参与计分的那几张 (其余是打出去但不计分的, 例如第四张多余的牌).
+///
+/// 为什么要给到这一步: 只看一个总分, agent 无法知道哪张小丑贡献了多少, 也就无法从估错的
+/// 那一手里学到任何东西 —— 下一手还是会按同样的错法估.
+///
+/// `played` 是打出去的那几张牌, 下标口径与 `ScoreResult::scoring_cards` 相同.
+pub fn score_report(result: &ScoreResult, played: &[crate::cards::CardInstance], level: i32) -> String {
+    let mut out: Vec<String> = Vec::new();
+    let head = if level > 1 {
+        format!("{} Lv{level} = {}", hand_zh(result.hand), number(result.total))
+    } else {
+        format!("{} = {}", hand_zh(result.hand), number(result.total))
+    };
+    out.push(head);
+
+    // 打出去的牌, 计分的那几张标 `*` —— 与 bbcore 一致, 一眼看出哪几张真算进去了.
+    if !played.is_empty() {
+        let scoring = |index: usize| result.scoring_cards.contains(&index);
+        let cards: Vec<String> = played
+            .iter()
+            .enumerate()
+            .map(|(index, card)| {
+                format!(
+                    "[{index}]{}{}",
+                    playing_card(card),
+                    if scoring(index) { "*" } else { "" }
+                )
+            })
+            .collect();
+        out.push(format!("出牌: {}", cards.join(" ")));
+    }
+    out.push(format!(
+        "基础 {}x{}",
+        number(result.base_chips),
+        number(result.base_mult)
+    ));
+
+    // 被封禁的一手没有数值步骤, 补一行说明为什么是零 —— 只报一个 "0" 会让 agent 以为
+    // 计分坏了, 而实际是它踩了 Boss 的限制 (眼 / 嘴那两个"整手不计分"的).
+    if result.blocked {
+        out.push("被盲注封禁 | 本手不计分 | 0x0".to_owned());
+    }
+
+    for step in &result.steps {
+        out.push(format!(
+            "{} | {} | {}x{}",
+            source_label(&step.source, played),
+            change_text(step),
+            number(step.chips),
+            number(step.mult)
+        ));
+    }
+    out.push(format!("= {}", number(result.total)));
+    out.join("\n")
+}
+
+/// 一步的来源怎么称呼.
+fn source_label(source: &ScoreSource, played: &[crate::cards::CardInstance]) -> String {
+    match source {
+        ScoreSource::Card { index, card } => match played.get(*index) {
+            // 打出去的牌: 用那一份带强化/版本的完整信息, 与"出牌:"那一行对得上.
+            Some(full) => format!("[{index}]{}", playing_card(full)),
+            None => format!("[{index}]{}", plain_card(*card)),
+        },
+        ScoreSource::Held { card } => format!("留手{}", plain_card(*card)),
+        ScoreSource::Joker { key } => name_and_effect(key).0,
+        ScoreSource::Stage { name } => (*name).to_owned(),
+    }
+}
+
+/// 一步改了什么. 对照 bbcore 的 `factor()`.
+fn change_text(step: &ScoreStep) -> String {
+    match step.kind {
+        ScoreKind::Chips => format!("{} 筹码", signed(step.amount)),
+        ScoreKind::Mult => format!("{} 倍率", signed(step.amount)),
+        ScoreKind::XMult => format!("x{} 倍率", number(step.amount)),
+        ScoreKind::Dollars => {
+            let sign = if step.amount >= 0.0 { "+$" } else { "-$" };
+            format!("{sign}{}", number(step.amount.abs()))
+        }
+        ScoreKind::Reshape => "改写了这一对".to_owned(),
+    }
+}
+
+/// 带符号的增量.
+fn signed(amount: f64) -> String {
+    if amount >= 0.0 {
+        format!("+{}", number(amount))
+    } else {
+        number(amount)
+    }
+}
+
+/// 只有花色与点数的牌名 (手里那张牌的完整信息不在这里).
+fn plain_card(card: crate::cards::PlayingCard) -> String {
+    format!("{}{}", suit_zh(card.suit), rank_zh(card.rank))
 }

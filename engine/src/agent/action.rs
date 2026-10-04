@@ -46,20 +46,22 @@ pub fn apply(step: &Json, run: &mut RunState, env: &EvalEnv) -> Result<String, A
         "discard" => run
             .discard(&cards)
             .map(|()| format!("弃掉 {cards:?}")),
-        "play" => run.play(&cards, env, back).map(|result| {
-            // 把牌型与筹码/倍率的分项都打出来 —— agent 靠这个才能"学会"这一手为什么是这个分,
-            // 而不是只看一个总数去猜.
-            format!(
-                "打 {cards:?} -> {:.0} 分 | 牌型 {:?} | 筹码 {:.0} 倍率 {:.1} (基础 {:.0}/{:.1}, 计分牌 {:?})",
-                result.total,
-                result.hand,
-                result.chips,
-                result.mult,
-                result.base_chips,
-                result.base_mult,
-                result.scoring_cards
-            )
-        }),
+        "play" => {
+            // 打出去的牌要在 `play` 之前取下来: 打完它们就离开手牌了, 而明细里要把每一张
+            // 报成中文名 (含强化与版本), 事后再找就找不到了.
+            //
+            // 下标口径: 这里按 `cards` 原样顺序收集, 与引擎内部那份 `cards` 一一对应,
+            // 所以明细里的 `[n]` 就是调用方给的第 n 张.
+            let played: Vec<crate::cards::CardInstance> = cards
+                .iter()
+                .filter_map(|&index| run.hand.get(index))
+                .cloned()
+                .collect();
+            run.play(&cards, env, back).map(|result| {
+                let level = run.hands.get(result.hand).level;
+                crate::agent::summary::score_report(&result, &played, level)
+            })
+        }
         "rearrange" => {
             if let Some(order) = params.and_then(|p| p.get("hand")) {
                 run.rearrange_hand(&numbers_of(Some(order)))

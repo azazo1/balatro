@@ -491,6 +491,8 @@ fn the_eye_refuses_a_repeated_hand_type() {
     assert_eq!(second.total, 0.0, "重复的牌型不给分");
     assert!(second.scoring_cards.is_empty(), "一张都没参与计分");
     assert_eq!(eye.chips, after_first, "总分没变");
+    assert!(second.blocked, "这一手是被盲注封禁的, 不是算出来零分");
+    assert!(!first.blocked, "照常算分的那一手不该标成封禁");
 
     // 但这一手照样算打过了.
     assert_eq!(
