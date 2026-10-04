@@ -244,10 +244,15 @@ pub struct RunState {
     pub next_card_id: u32,
     /// 上一手打出的牌型, 供蓝封在回合末决定生成哪张行星牌.
     pub last_hand_played: Option<PokerHand>,
-    /// 小丑槽位上限, 默认 5.
-    pub joker_slots: usize,
-    /// 消耗牌槽位上限, 默认 2.
-    pub consumable_slots: usize,
+    /// 小丑槽位的**基数**: 初始 5, 再加券与卡牌给的加成. 默认 5.
+    ///
+    /// 它不是"还能放几个"的答案 —— 负片小丑会让槽位上限**加一**
+    /// (游戏里 `Card:add_to_deck` 改的就是 `G.jokers.config.card_limit`),
+    /// 所以算上限一律走 `joker_capacity()`, 别直接读这个字段.
+    /// 名字上把"基数"写出来, 就是为了让每个读它的地方都得想一下该用哪一个.
+    pub base_joker_slots: usize,
+    /// 消耗牌槽位的基数 (同上, 负片消耗牌也让上限加一).
+    pub base_consumable_slots: usize,
     /// 持有的小丑, 按从左到右的顺序. 成长值就存在这里, 所以它跨手牌保留.
     pub jokers: Vec<Joker>,
     /// 持有的消耗牌 (塔罗 / 行星 / 幻灵). 带版本 —— 珀克奥会往上加负片.
@@ -260,9 +265,45 @@ pub struct RunState {
     pub hands: HandTable,
     /// 本局是否已经通关.
     pub won: bool,
+    /// 现在是不是"正在打某个盲注" —— 用它可以问"这一刻还有没有生效的盲注".
+    ///
+    /// 摆盲注时置真, 这一回合打完置假. 与游戏里的对应关系是: **盲注在被打赢的那一刻就被清空了** ——
+    /// `Blind:defeat()` 的收尾是 `self:set_blind(nil, nil, true)`, 而 `reset` 传的是 `nil` (假),
+    /// 于是那一支会把 `name` 置成空串, `chips` 归零 (`game/blind.lua`). 它由房回合结算那一步调用
+    /// (`state_events.lua` 里 `G.GAME.blind:defeat()`).
+    ///
+    /// 于是"回合之间 (商店 / 开包) 没有生效的盲注"这件事, 在游戏里是靠**盲注被清空**体现的,
+    /// 而不是靠某个标志. 引擎这边保留盲注对象 (结算还要读它的目标分数), 所以用一个标志表达同一件事.
+    ///
+    /// **为什么需要它**: 同一局里 (XXWF71H9) 蛇这个 Boss 在回合内只补 3 张牌
+    /// (第 155 步玩家自己确认了 "打完 5 张后手牌只剩 6 张"), 但第 167 步在**商店里**开
+    /// 秘术包时补的是整整一手 8 张. 原因就是上面那句清空: 蛇的判据写的是
+    /// `G.GAME.blind.name == 'The Serpent'`, 而那时 `name` 已经是空串了.
+    ///
+    /// (注: Steamodded 也有个同名同义的 `in_blind`, 但它管的是 `Card:add_to_deck` 那几处
+    /// `if G.GAME.blind then` 的守卫, 与蛇这条判据无关 —— 别把两件事混起来.)
+    pub in_blind: bool,
 }
 
 impl RunState {
+    /// 小丑槽位的**上限**, 也就是游戏的 `G.jokers.config.card_limit`.
+    ///
+    /// 基数之外要加上**每张负片小丑的一份** —— 游戏在 `Card:add_to_deck` 里对负片牌做
+    /// `G.jokers.config.card_limit = G.jokers.config.card_limit + 1`, 从牌组里拿走时再减回来.
+    ///
+    /// 这里不照抄那对加减, 而是**从队里现数**: 两者等价 (那张牌在队里就有一份, 不在就没有),
+    /// 但现数的写法不可能漂 —— 增删小丑的路径有买 / 开包 / 卖 / 妖法销毁 / 灵质销毁 /
+    /// 隐形小丑复制 / 生命十字章等等十来条, 只要漏掉其中一条的减号, 上限就会悄悄偏,
+    /// 而症状是"某个地方买不进去"或"某个地方多出一个位置", 很难往这里想.
+    pub fn joker_capacity(&self) -> usize {
+        self.base_joker_slots + negative_count(&self.jokers)
+    }
+
+    /// 消耗牌槽位的上限 (`G.consumeables.config.card_limit`), 口径同上.
+    pub fn consumable_capacity(&self) -> usize {
+        self.base_consumable_slots + negative_count(&self.consumables)
+    }
+
     /// 开一局. `ante` 与 `stake` 从 1 起, 与游戏的开局一致.
     ///
     /// 起始次数来自 `get_starting_params` (出牌 4, 弃牌 3), 再套上 `Game:start_run` 里的赌注规则:
@@ -343,8 +384,8 @@ impl RunState {
             discards_per_round: discards,
             hand_size_sub: 0,
             hand_size_bonus: 0,
-            joker_slots: 5,
-            consumable_slots: 2,
+            base_joker_slots: 5,
+            base_consumable_slots: 2,
             jokers: Vec::new(),
             consumables: Vec::new(),
             open_pack: None,
@@ -356,6 +397,7 @@ impl RunState {
             last_hand_played: None,
             hands: HandTable::new(),
             won: false,
+            in_blind: false,
         }
     }
 
@@ -442,10 +484,11 @@ impl RunState {
             self.dollars += dollars;
         }
         if let Some(slots) = number("joker_slot") {
-            self.joker_slots = (self.joker_slots as i64 + slots as i64).max(0) as usize;
+            self.base_joker_slots = (self.base_joker_slots as i64 + slots as i64).max(0) as usize;
         }
         if let Some(slots) = number("consumable_slot") {
-            self.consumable_slots = (self.consumable_slots as i64 + slots as i64).max(0) as usize;
+            self.base_consumable_slots =
+                (self.base_consumable_slots as i64 + slots as i64).max(0) as usize;
         }
         if let Some(size) = number("hand_size") {
             self.hand_size_bonus += size as i64;
@@ -560,4 +603,27 @@ impl RunState {
             .map(|flags| flags.contains('d'))
             .unwrap_or(false)
     }
+}
+
+/// "这张牌是不是负片" —— 小丑与消耗牌都有 `edition` 这个字段, 但它们是两个类型,
+/// 数上限时都要用, 所以抽一个最小接口出来, 免得写两遍一样的东西.
+trait NegativeEdition {
+    fn is_negative(&self) -> bool;
+}
+
+impl NegativeEdition for Joker {
+    fn is_negative(&self) -> bool {
+        self.edition == Some(crate::cards::Edition::Negative)
+    }
+}
+
+impl NegativeEdition for super::consumable::Consumable {
+    fn is_negative(&self) -> bool {
+        self.edition == Some(crate::cards::Edition::Negative)
+    }
+}
+
+/// 数一遍这一组牌里有几张负片.
+fn negative_count<T: NegativeEdition>(cards: &[T]) -> usize {
+    cards.iter().filter(|card| card.is_negative()).count()
 }

@@ -31,6 +31,22 @@ pub fn aleeb_uda() -> HashMap<String, String> {
     uda
 }
 
+/// 摆上下一个盲注, 供测试构造局面用.
+///
+/// 真实流程里要打完一整个回合 (出牌 -> 结算 -> 商店) 才轮到选盲注, 而测试常常是直接
+/// 摆好局面 (例如指定 `boss_key` 之后就要"正处在那个 Boss 的回合"). 这里做的就是先把阶段
+/// 摆成"正在选盲注", 再走**同一个** `select_blind` —— 所以它管的那些规矩 (重置次数,
+/// 洗牌, 各 Boss 的挂钩) 一样会真正跑一遍.
+///
+/// 之所以要有这个函数: `select_blind` 加了阶段检查 (端点的 `requires_state` 就是
+/// `BLIND_SELECT`, 而 XXWF71H9 那份录像里确实出现过"商店里调 select"被游戏拒绝的情况).
+/// 测试里那些"再摆一次"的调用因此需要显式说明"我就是要把阶段摆到这里",
+/// 而不是让引擎留一个不看阶段的口子.
+pub fn place_blind(run: &mut RunState) {
+    run.phase = balatro_engine::run::Phase::BlindSelect;
+    run.select_blind().expect("阶段刚摆正, 选盲注该走得通");
+}
+
 /// 种子 ALEEB, 等离子牌组, 黄金赌注 (stake 8), 还没开局.
 ///
 /// 等离子牌组的 `ante_scaling` 是 2, 所以它的盲注目标是标准牌组的两倍.

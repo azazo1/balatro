@@ -253,7 +253,7 @@ fn score_play_inner(
         consumable_room: env.consumable_room,
         // 模具小丑的乘倍率要"队里有几张模具", 这里数好带过去.
         stencil_count: jokers.iter().filter(|joker| joker.key == "j_stencil").count(),
-        joker_slots: env.joker_slots,
+        joker_capacity: env.joker_capacity,
         hands_left: env.hands_left,
         deck_len: env.deck_len,
         deck_total: env.deck_total,
@@ -296,7 +296,12 @@ fn score_play_inner(
             // (`eval_card` 里 `get_chip_mult` 排在 `get_p_dollars` 前面).
             // 骰子只在**参与计分**的牌上掷 —— 打出去但没进计分名单的牌不掷;
             // 被削弱的牌连骰子都不掷 (`get_chip_mult` 与 `get_p_dollars` 开头都先判 debuff),
-            // 这里少掷一次, 后面所有掷骰都会跟游戏错开一格.
+            // 所以这里少掷一次, **这个键**之后的取值就会跟着错位 (第几张幸运牌对不上).
+            //
+            // 注意影响范围**仅限这个键**: 游戏的 `pseudorandom(键)` 每次都按这个键自己重播种,
+            // 所以别的键一点不受影响 (详见 `luajit_parity.rs::random_keys_are_independent`).
+            // 这句话以前写成"后面所有掷骰都会错开一格", 那是错的, 按它去判断轻重会误判.
+            //
             // 分子是 `G.GAME.probabilities.normal` (七上八下把它乘二), 不是写死的 1.
             if cards[index].lucky && !cards[index].debuffed {
                 if rng.pseudorandom("lucky_mult") < (1.0 + env.probability_extra) / 5.0 {

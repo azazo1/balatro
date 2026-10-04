@@ -1076,7 +1076,7 @@ fn burglar_takes_away_discards_and_adds_hands() {
     let without = {
         let mut run = RunState::new("ALEEB", 8);
         run.start_run();
-        run.select_blind();
+        common::place_blind(&mut run);
         (run.hands_left, run.discards_left)
     };
     assert!(without.1 > 0, "没有窃贼时是有弃牌的");
@@ -1086,7 +1086,7 @@ fn burglar_takes_away_discards_and_adds_hands() {
         let mut run = RunState::new("ALEEB", 8);
         run.start_run();
         run.jokers.push(Joker::new("j_burglar").expect("有这张"));
-        run.select_blind();
+        common::place_blind(&mut run);
         (run.hands_left, run.discards_left)
     };
     assert_eq!(with.1, 0, "窃贼让这一回合没有弃牌");
@@ -1297,7 +1297,7 @@ fn stencil_scales_with_empty_joker_slots() {
     let with_team = |keys: &[&str], slots: usize| -> f64 {
         let mut jokers: Vec<Joker> = keys.iter().map(|key| Joker::new(key).expect("有这张")).collect();
         let env = EvalEnv {
-            joker_slots: slots,
+            joker_capacity: slots,
             ..EvalEnv::default()
         };
         score_play(&pair, &table(), &env, BackEffect::Plain, &mut jokers)
@@ -1545,7 +1545,7 @@ fn marble_and_certificate_add_cards_when_the_blind_is_set() {
         run.start_run();
         let before = run.deck.len();
         run.jokers.push(Joker::new(joker).expect("有这张"));
-        run.select_blind();
+        common::place_blind(&mut run);
         // 牌堆少了两张去手牌, 但多了一张新牌.
         assert!(run.deck.len() != before - 8, "{joker} 应当往牌堆里加了东西");
         run.deck.clone()
@@ -1565,7 +1565,7 @@ fn marble_and_certificate_add_cards_when_the_blind_is_set() {
     run.start_run();
     run.jokers
         .push(Joker::new("j_certificate").expect("有这张"));
-    run.select_blind();
+    common::place_blind(&mut run);
     let sealed = run.hand.iter().filter(|card| card.seal.is_some()).count();
     assert_eq!(sealed, 1, "给了一张带蜡封的牌, 而且在手里");
     assert_eq!(run.hand.len(), 9, "手牌多了一张 (8 + 1)");
@@ -1900,11 +1900,11 @@ fn chaos_the_clown_gives_one_free_reroll_each_round() {
     run.start();
     run.jokers.push(Joker::new("j_chaos").expect("有这张"));
 
-    run.select_blind();
+    common::place_blind(&mut run);
     assert_eq!(run.free_rerolls, 1, "这一回合有一次免费重抽");
 
     // 下一回合照旧有一次 (而不是累加成两次).
-    run.select_blind();
+    common::place_blind(&mut run);
     assert_eq!(run.free_rerolls, 1, "每回合都正好一次");
 }
 
@@ -1953,7 +1953,7 @@ fn reserved_parking_rolls_for_held_face_cards() {
     let payouts = |seed: &str| -> f64 {
         let mut run = RunState::new(seed, 8);
         run.start();
-        run.select_blind();
+        common::place_blind(&mut run);
         run.jokers.push(Joker::new("j_reserved_parking").expect("有这张"));
 
         // 找一张人头牌留下, 其余的挑一张打出去.
@@ -2115,7 +2115,7 @@ fn constellation_ticket_and_ramen_work() {
     // 星座: 用两张行星牌, 倍率该到 1.2.
     let mut run = RunState::new("ALEEB", 8);
     run.start();
-    run.select_blind();
+    common::place_blind(&mut run);
     run.jokers.push(Joker::new("j_constellation").expect("有这张"));
     assert_eq!(run.jokers[0].x_mult, 1.0, "初始是 1");
     for key in ["c_mercury", "c_venus"] {
@@ -2133,7 +2133,7 @@ fn constellation_ticket_and_ramen_work() {
     // 金票: 打出一张黄金牌, 该多给 4 块.
     let mut run = RunState::new("ALEEB", 8);
     run.start();
-    run.select_blind();
+    common::place_blind(&mut run);
     run.jokers.push(Joker::new("j_ticket").expect("有这张"));
     run.hand[0].enhancement = Some(balatro_engine::cards::Enhancement::Gold);
     let result = run.play(&[0], &EvalEnv::default(), BackEffect::Plain).expect("能出牌");
@@ -2142,7 +2142,7 @@ fn constellation_ticket_and_ramen_work() {
     // 拉面: 弃一张掉 0.01, 掉到 1 就没了.
     let mut run = RunState::new("ALEEB", 8);
     run.start();
-    run.select_blind();
+    common::place_blind(&mut run);
     run.jokers.push(Joker::new("j_ramen").expect("有这张"));
     run.jokers[0].x_mult = 1.005;
     run.discard(&[0]).expect("能弃");
@@ -2194,7 +2194,7 @@ fn mime_retriggers_held_cards_and_glass_joker_grows() {
         .any(|seed| {
             let mut run = balatro_engine::run::RunState::new(seed, 8);
             run.start();
-            run.select_blind();
+            common::place_blind(&mut run);
             run.jokers.push(Joker::new("j_glass").expect("有这张"));
             run.hand[0].enhancement = Some(balatro_engine::cards::Enhancement::Glass);
             let before = run.jokers[0].x_mult;
@@ -2216,7 +2216,7 @@ fn the_idol_doubles_for_its_chosen_card() {
     let total = |set_idol: bool| -> f64 {
         let mut run = RunState::new("ALEEB", 8);
         run.start();
-        run.select_blind();
+        common::place_blind(&mut run);
         run.jokers.push(Joker::new("j_idol").expect("有这张"));
         if set_idol {
             let card = run.hand[0].card;
@@ -2248,7 +2248,7 @@ fn vampire_drains_enhancements_before_scoring() {
     let run_once = |with_vampire: bool| -> (f64, bool) {
         let mut run = RunState::new("ALEEB", 8);
         run.start();
-        run.select_blind();
+        common::place_blind(&mut run);
         if with_vampire {
             run.jokers.push(Joker::new("j_vampire").expect("有这张"));
         }
@@ -2289,7 +2289,7 @@ fn hologram_grows_on_card_added_and_space_joker_levels_up() {
     run.jokers.push(Joker::new("j_hologram").expect("有这张"));
     run.jokers.push(Joker::new("j_marble").expect("有这张"));
     assert_eq!(run.jokers[0].x_mult, 1.0, "初始是 1");
-    run.select_blind();
+    common::place_blind(&mut run);
     assert!(
         run.jokers[0].x_mult > 1.0,
         "有牌进牌堆之后该涨, 实际 {}",
@@ -2302,7 +2302,7 @@ fn hologram_grows_on_card_added_and_space_joker_levels_up() {
         .any(|seed| {
             let mut run = RunState::new(seed, 8);
             run.start();
-            run.select_blind();
+            common::place_blind(&mut run);
             run.jokers.push(Joker::new("j_space").expect("有这张"));
             // 打一张牌就是"高牌", 所以升级只会落在高牌上 —— 记它前后的等级来比.
             let high = balatro_engine::scoring::PokerHand::HighCard;
@@ -2371,7 +2371,7 @@ fn eight_ball_creates_a_tarot_from_scored_eights() {
             let seed = format!("SEED{i}");
             let mut run = RunState::new(&seed, 8);
             run.start();
-            run.select_blind();
+            common::place_blind(&mut run);
             run.jokers.push(Joker::new("j_8_ball").expect("有这张"));
             run.hand[0].card.rank = balatro_engine::cards::Rank::Eight;
             let before = run.consumables.len();
@@ -2395,7 +2395,7 @@ fn superposition_creates_a_tarot_for_an_ace_straight() {
 
     let mut run = RunState::new("ALEEB", 8);
     run.start();
-    run.select_blind();
+    common::place_blind(&mut run);
     run.jokers.push(Joker::new("j_superposition").expect("有这张"));
 
     let ranks = [Rank::Ace, Rank::Two, Rank::Three, Rank::Four, Rank::Five];
@@ -2424,7 +2424,7 @@ fn seance_creates_a_spectral_for_its_hand_type() {
 
     let mut run = RunState::new("ALEEB", 8);
     run.start();
-    run.select_blind();
+    common::place_blind(&mut run);
     run.jokers.push(Joker::new("j_seance").expect("有这张"));
 
     // 摆一手同花顺.
@@ -2458,7 +2458,7 @@ fn sixth_sense_destroys_a_lone_first_hand_six() {
 
     let mut run = RunState::new("ALEEB", 8);
     run.start();
-    run.select_blind();
+    common::place_blind(&mut run);
     run.jokers.push(Joker::new("j_sixth_sense").expect("有这张"));
 
     run.hand[0].card.rank = Rank::Six;
@@ -2541,4 +2541,55 @@ fn lucky_cat_grows_on_every_successful_lucky_trigger() {
     }
     assert!(grown > 0, "三十个种子里总该有触发过的");
     assert!(grown < 30, "也总该有没触发的 —— 否则上面那半断言等于没测");
+}
+
+/// 大理石与 DNA 往牌堆里加的牌要落在**牌堆底**, 不是牌堆顶.
+///
+/// # 为什么这条要单独钉
+///
+/// 游戏的 `CardArea:emplace` 对**牌堆**是特例 —— `G.deck.config.type` 是 `'deck'`, 于是它走
+/// `table.insert(self.cards, 1, card)` 那一支 (插到数组头部), 而抽牌 (`remove_card`) 取的是尾部.
+/// 两下一合: **新加的牌落在牌堆最底下, 最后才被抽到**.
+///
+/// 引擎这边数组下标 0 就是游戏的下标 1 (洗牌那条对拍测试钉住的), 所以"插到牌堆底"就是
+/// `insert(0)`. 这条曾经写成 `push` (等于插到牌堆顶), 后果是**这一回合刚加的牌在下一次补牌时
+/// 立刻被抽上来** —— 手牌内容当场就不对了.
+///
+/// **录像覆盖不到它**: 十九份录像里大理石只在商店货架上出现过, 一次都没进过队, 所以这个效果
+/// 从没触发过. 这类分支只能靠单测钉住.
+#[test]
+fn cards_added_to_the_deck_go_to_the_bottom() {
+    use balatro_engine::run::RunState;
+    use balatro_engine::scoring::{BackEffect, EvalEnv};
+
+    let mut run = RunState::new("ALEEB", 8);
+    run.start_run();
+    run.jokers.push(Joker::new("j_marble").expect("有这张"));
+    common::place_blind(&mut run);
+
+    // 石头牌就是刚加进来的那一张.
+    let index = run
+        .deck
+        .iter()
+        .position(|card| card.is_stone())
+        .expect("大理石该给一张石头牌");
+    assert_eq!(
+        index,
+        0,
+        "新加的牌在下标 {index}, 应当在 0 (牌堆底) —— 下标 0 是游戏的下标 1, \
+         而牌堆是**插头部、抽尾部**, 所以新牌落在最底下"
+    );
+    assert!(
+        !run.deck.last().expect("牌堆非空").is_stone(),
+        "新加的牌跑到牌堆顶了, 下一次补牌就会立刻抽到它"
+    );
+
+    // 出牌会补牌 —— 补上来的不该是那张石头牌 (它还在最底下).
+    run.play(&[0, 1, 2, 3, 4], &EvalEnv::default(), BackEffect::Plain)
+        .expect("能出牌");
+    assert!(
+        !run.hand.iter().any(|card| card.is_stone()),
+        "补牌把堆底那张石头牌抽上来了 —— 说明插的位置是牌堆顶. 实际手牌: {}",
+        common::hand_keys(&run)
+    );
 }

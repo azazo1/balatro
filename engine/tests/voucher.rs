@@ -16,6 +16,8 @@ fn voucher(key: &str) -> ShopCard {
         eternal: false,
         perishable: false,
         rental: false,
+        enhancement: None,
+        todo: None,
         // 券的价签不影响它买下之后的效果, 给个买得起的数就行.
         cost: 10.0,
     }
@@ -52,12 +54,12 @@ fn buying_a_voucher_changes_the_rules() {
     // 水晶球: 多一个消耗牌格子.
     let mut run = ready();
     run.buy(&voucher("v_crystal_ball")).expect("买下");
-    assert_eq!(run.consumable_slots, 3);
+    assert_eq!(run.base_consumable_slots, 3);
 
     // 反物质: 多一个小丑格子.
     let mut run = ready();
     run.buy(&voucher("v_antimatter")).expect("买下");
-    assert_eq!(run.joker_slots, 6);
+    assert_eq!(run.base_joker_slots, 6);
 
     // 清仓特卖: 折扣 25%.
     let mut run = ready();
@@ -80,7 +82,7 @@ fn buying_a_voucher_changes_the_rules() {
 fn blank_voucher_does_nothing_but_is_recorded() {
     let mut run = ready();
     let before = (
-        run.joker_slots,
+        run.base_joker_slots,
         run.hand_size(),
         run.hands_per_round,
         run.discards_per_round,
@@ -88,7 +90,7 @@ fn blank_voucher_does_nothing_but_is_recorded() {
     run.buy(&voucher("v_blank")).expect("买下");
     assert_eq!(
         (
-            run.joker_slots,
+            run.base_joker_slots,
             run.hand_size(),
             run.hands_per_round,
             run.discards_per_round

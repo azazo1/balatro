@@ -167,10 +167,10 @@ fn apply_step(
             run.start_run();
             Ok(())
         }
-        "select" => {
-            run.select_blind();
-            Ok(())
-        }
+        // 照游戏一样**可能被拒绝**: 端点 `select` 的 `requires_state` 是 BLIND_SELECT,
+        // 而录像里真出现过"不在选盲注阶段时调 select" (XXWF71H9 第 40 步, 那时在商店),
+        // 记录里是 `ok: false`. 所以这里要把错误**交出去**交给对拍判定, 不能 expect 掉.
+        "select" => run.select_blind(),
         "discard" => run.discard(&cards),
         "play" => run.play(&cards, env, back).map(|_| ()),
         "cash_out" => {
@@ -239,12 +239,20 @@ fn apply_step(
                 None
             };
             match target {
+                // `use: true` 是"买下并使用" —— 它是 `buy` 端点的一个**参数**, 不是独立方法:
+                // 买下来当场用掉, 不占消耗牌槽. 与普通购买是两条规矩, 所以不能折成 `buy`.
+                // 少了这一句, 引擎会把那张行星留在消耗槽里, 而记录里那一格是空的 ——
+                // XXWF71H9 第 106 步就是这么差的.
+                Some(card) if params.and_then(|p| p.get("use")).and_then(Json::as_bool) == Some(true) => {
+                    run.buy_and_use(&card).map(|_| ())
+                }
                 Some(card) => run.buy(&card).map(|_| ()),
                 None => Err(balatro_engine::run::ActionError::BadIndex(0)),
             }
         }
-        // 商店里那个"买并使用"按钮: 买下来**当场用掉**, 不占消耗牌格子.
-        // 它与普通购买是两条规矩 (槽满也能买, 牌本身不留场), 所以不能折成 `buy`.
+        // 同一件事在**旧录像**里是另一种编码: 那时还没有 `buy` 的 `use` 参数,
+        // 而是用 `press` 点"买并使用"那个按钮 (id 为 `buy_and_use`), 转换脚本把它记成这个方法名.
+        // 两种编码都要认 —— 只认一种的话, 另一种的录像会在那一步整体错位.
         "buy_and_use" => {
             let slot = amount(params, "card").map(|n| n as usize).unwrap_or(0);
             match run
@@ -485,10 +493,12 @@ fn the_aleeb_digests_match_step_by_step() {
 /// 1. 小丑 / 消耗牌 / 货架上的牌会被记上 `~牌自身的 ability.effect` (塔罗是 `~hand upgrade`,
 ///    多数小丑是光秃秃一个 `~`) —— 那是 digest 的记账方式, 不是牌上的强化, 去掉.
 ///    **扑克牌那一份要留着**: 那才是真的强化.
-/// 2. `p_buffoon_normal_1` / `_2` 看成同一个: 第一个商店白送的那个包是 `math.random(1, 2)`
-///    摇出来的, 走的是**全局**随机序列, 而录像是 Steamodded 构建产出的, 它在那条路上多掷了
-///    一个键, 全局序列挪了一格 (按键分流的那几条一点没动, 所以别的项全都对得上).
-///    两个原型机制完全相同 (都是两个小丑的包), 所以合并看待.
+/// 2. `p_buffoon_normal_1` / `_2` 看成同一个. **这一条遮着一个真实的差异**, 不是"两种包机制
+///    相同所以随便" —— 每局第一次进商店白送的那个小丑包, 编号由**全局** `math.random(1, 2)`
+///    决定, 取决于"上一次 `pseudoseed` 之后又空转了几颗"; 十九份录像里十八份引擎算得完全正确
+///    (含算出 `_2` 的 LG7RIX92), 只有 XXWF71H9 差一 (引擎 `_2`, 记录 `_1`).
+///    试过的修法 (挪券的抽取时机 + 补造牌空转的随机数) 同时对上三份录像却把 17 份 ALEEB 弄红,
+///    说明是拟合而不是修好, 已回退; 详见 `Shop::restock` 那段注释.
 fn normalize(digest: &str) -> String {
     const CARD_FIELDS: [&str; 5] = ["jokers", "consumables", "shop", "packs", "pack"];
     digest_fields(digest)
@@ -606,6 +616,7 @@ fn uda_for(seed: &str) -> std::collections::HashMap<String, String> {
     let text = match seed {
         "ALEEB" => ALEEB_UDA,
         "LG7RIX92" => include_str!("data/lg7rix92-uda.json"),
+        "XXWF71H9" => include_str!("data/xxwf71h9-uda.json"),
         other => panic!("没有为种子 {other} 准备存档进度表"),
     };
     match Json::parse(text).expect("uda 表能解析") {

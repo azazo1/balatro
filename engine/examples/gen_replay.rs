@@ -42,7 +42,7 @@ use std::path::PathBuf;
 
 use balatro_engine::data::json::Json;
 use balatro_engine::run::{Phase, RunState, digest};
-use balatro_engine::scoring::EvalEnv;
+use balatro_engine::scoring::{BackEffect, EvalEnv};
 
 /// 赌注的显示名换档位 (白 1 ... 金 8).
 fn stake_of(name: &str) -> i64 {
@@ -136,8 +136,21 @@ fn main() {
 
     // 记一步: 动作 + **引擎预测的状态**. digest 就是回放文件里那种格式,
     // 游戏重放时会拿它逐步核对 (见 `mods/bbreplay/replay/player.lua` 的比较那一段).
+    let verbose = std::env::var("GEN_REPLAY_VERBOSE").is_ok();
     let mut record = |run: &RunState, method: &str, params: Option<String>, actions: &mut Vec<String>| {
         wall += 1.5;
+        if verbose {
+            // 诊断用: 看清每一步的分数与目标差多少, 免得只看到"这一局输了"。
+            eprintln!(
+                "  {method:10} 分 {} / 目标 {} 手 {} 弃 {} 钱 {} 小丑 {}",
+                run.chips,
+                run.blind.as_ref().map(|blind| blind.chips).unwrap_or(0.0),
+                run.hands_left,
+                run.discards_left,
+                run.dollars,
+                run.jokers.len()
+            );
+        }
         let mut parts = vec![format!("\"method\":\"{method}\"")];
         if let Some(params) = params {
             parts.push(format!("\"params\":{params}"));
@@ -155,44 +168,34 @@ fn main() {
                 break;
             }
             Phase::BlindSelect => {
-                run.select_blind();
+                run.select_blind().expect("在选盲注阶段");
                 record(&run, "select", None, &mut actions);
             }
             Phase::SelectingHand => {
-                // 手里连一对都没有、又还有弃牌次数时, 先**弃掉点数最小的几张**换牌 ——
-                // 不换的话这一局基本过不了第一个盲注, 于是回放只有十来步, 覆盖不到商店.
-                let cards = if !has_pair(&run) && run.discards_left > 0 {
-                    match choose_discard(&run) {
-                        Some(cards) => {
-                            let params = format!(
-                                "{{\"cards\":[{}]}}",
-                                cards
-                                    .iter()
-                                    .map(|card| card.to_string())
-                                    .collect::<Vec<_>>()
-                                    .join(",")
-                            );
-                            run.discard(&cards).expect("弃得成 (上面查过还有次数)");
-                            record(&run, "discard", Some(params), &mut actions);
-                            continue;
-                        }
-                        None => choose_play(&run),
-                    }
-                } else {
-                    choose_play(&run)
-                };
+                // 先问引擎"这一手最好是哪几张, 能打多少分"。
+                let (cards, gain) = choose_play(&run, &env, back);
                 if cards.is_empty() {
                     eprintln!("第 {step} 步: 手里没牌了");
                     break;
                 }
-                let params = format!(
-                    "{{\"cards\":[{}]}}",
-                    cards
-                        .iter()
-                        .map(|card| card.to_string())
-                        .collect::<Vec<_>>()
-                        .join(",")
-                );
+                // 还差多少分, 按剩下几次出牌摊平 —— 摊不到的平均值就说明这一手不够好,
+                // 该弃牌换牌了 (还有弃牌次数的话). 弃掉的是**没进这一手里**的牌: 它们本来
+                // 就不参与计分, 换掉不亏. 次数是有限的, 所以这个循环一定会停.
+                let needed = (run.blind.as_ref().map(|blind| blind.chips).unwrap_or(0.0)
+                    - run.chips)
+                    .max(0.0);
+                let hands_left = run.hands_left.max(1) as f64;
+                let throw_away = choose_discard(&run, &cards);
+                if gain < needed / hands_left
+                    && run.discards_left > 0
+                    && !throw_away.is_empty()
+                {
+                    let params = cards_params(&throw_away);
+                    run.discard(&throw_away).expect("弃得成 (上面查过还有次数)");
+                    record(&run, "discard", Some(params), &mut actions);
+                    continue;
+                }
+                let params = cards_params(&cards);
                 match run.play(&cards, &env, back) {
                     Ok(_) => record(&run, "play", Some(params), &mut actions),
                     Err(error) => {
@@ -206,6 +209,35 @@ fn main() {
                 record(&run, "cash_out", None, &mut actions);
             }
             Phase::Shop => {
+                // 店里有买得起的小丑、且队里还有位置就买下来 —— **小丑是分数的来源**,
+                // 不买的话每手就是牌型那点分, 底注 1 的 Boss (600) 都过不去, 回放就停在
+                // 二十来步. 这条规则只看"买得起 + 有位置", 不做取舍, 所以它既短又确定.
+                //
+                // 注意买**不消耗**随机数 (商店的随机数在铺货那一步就用完了), 所以这里多买
+                // 一件不会让后面的预测偏掉 —— 这也是能把它加进来的前提.
+                if run.jokers.len() < run.joker_capacity()
+                    && let Some((slot, card)) = run
+                        .shop
+                        .as_ref()
+                        .and_then(|shop| {
+                            shop.jokers
+                                .iter()
+                                .enumerate()
+                                // 货架上那一格可能是小丑, 也可能是塔罗 / 行星 / 基础牌 ——
+                                // 这一版只买**小丑** (其余类型要走槽位与"用掉"的规矩, 先不碰).
+                                .filter(|(_, card)| card.key.starts_with("j_"))
+                                .find(|(_, card)| card.cost <= run.dollars - run.bankrupt_at)
+                        })
+                        .map(|(slot, card)| (slot, card.clone()))
+                {
+                    match run.buy(&card) {
+                        Ok(_) => {
+                            record(&run, "buy", Some(format!("{{\"card\":{slot}}}")), &mut actions);
+                            continue;
+                        }
+                        Err(error) => eprintln!("第 {step} 步: 买 {slot} 失败 {error:?}"),
+                    }
+                }
                 run.next_round().expect("在商店里走得成");
                 record(&run, "next_round", None, &mut actions);
             }
@@ -233,66 +265,137 @@ fn main() {
     );
 }
 
-/// 手里有没有一对 (同点数的两张).
-fn has_pair(run: &RunState) -> bool {
-    let mut seen = std::collections::BTreeSet::new();
-    run.hand
-        .iter()
-        .any(|card| !seen.insert(card.card.rank.nominal() as u8))
-}
-
-/// 弃牌策略: 丢掉点数最小的三张 (手里牌不够三张就有几张丢几张).
-fn choose_discard(run: &RunState) -> Option<Vec<usize>> {
-    if run.hand.len() < 3 {
-        return None;
+/// 挑一手要出的牌: **每个候选都在副本上真打一遍, 按打出来的分挑最好的一手**.
+///
+/// 这里不写启发式, 而是让引擎自己算 —— 它本来就会计分, 而 `RunState` 是 `Clone`,
+/// `play` 又是纯状态转移, 所以"在副本上试一手, 看结果"是既忠实又省事的做法:
+/// 走的是**真计分路径** (牌型, 小丑, 版本, 削弱, 牌背效果全都在内), 不会因为启发式
+/// 漏看某个组合而与实际不符. 顺带这也是快照 / 回滚这个能力的一个自然用法.
+///
+/// 候选是手里 1..5 张的全部组合 (八张手牌一共 218 种) —— 张数少于五张有时更划算
+/// (同花之外, 少带两张杂牌不影响牌型, 但少两张牌就少两份筹码; 反过来凑不成的组合
+/// 还不如出一张小牌), 所以不固定五张.
+fn choose_play(run: &RunState, env: &EvalEnv, back: BackEffect) -> (Vec<usize>, f64) {
+    let size = run.hand.len();
+    if size == 0 {
+        return (Vec::new(), 0.0);
     }
-    let mut order: Vec<usize> = (0..run.hand.len()).collect();
-    order.sort_by(|a, b| run.hand[*a].card.nominal().total_cmp(&run.hand[*b].card.nominal()));
-    order.truncate(3);
-    order.sort_unstable();
-    Some(order)
+    let before = run.chips;
+    let mut best: Vec<usize> = Vec::new();
+    let mut best_score = f64::NEG_INFINITY;
+    // 按张数从多到少试, 同样分数时**优先要张数多的** (更多牌参与计分); 因为只有严格更大
+    // 才替换, 所以把张数多的排前面即可.
+    for count in (1..=size.min(5)).rev() {
+        let mut combination: Vec<usize> = (0..count).collect();
+        loop {
+            let mut trial = run.clone();
+            if trial.play(&combination, env, back).is_ok() {
+                // 这一手打出来的分看本回合累计的筹码 —— 它已经加进去了.
+                let score = trial.chips;
+                if score > best_score {
+                    best_score = score;
+                    best = combination.clone();
+                }
+            }
+            // 下一个组合 (字典序).
+            let mut at = count;
+            let mut advanced = false;
+            while at > 0 {
+                at -= 1;
+                if combination[at] != at + size - count {
+                    combination[at] += 1;
+                    for next in at + 1..count {
+                        combination[next] = combination[next - 1] + 1;
+                    }
+                    advanced = true;
+                    break;
+                }
+            }
+            if !advanced {
+                break;
+            }
+        }
+    }
+    // 返回**增量**而不是累计分: 调用方要拿它跟"还差多少分"比.
+    (best, (best_score - before).max(0.0))
 }
 
-/// 出牌策略: **凑牌型**而不是随手出.
+/// 挑一组要弃掉的牌: **奔着一个牌型去**, 而不是随手丢。
 ///
-/// 为什么要认真挑: 随便出五张只能凑出"高牌", 底注 1 的盲注都过不去, 于是这一局十来步就结束 ——
-/// 那样的回放只覆盖了开局发牌, 验不到商店与后续底注. 这里的做法是"张数最多的那个点数优先,
-/// 同张数取点数大的", 补上剩下的最大的牌凑满五张 —— 能稳定出对子 / 三条 / 葫芦 / 四条.
+/// 这一步很要紧: 只弃"当前最好组合之外的牌"是一种保守换法, 它永远不会把一手散牌
+/// 换成同花 —— 于是每手都只有五六十分, 底注 1 的 Boss (600 分) 都过不去, 生成出来的
+/// 回放就只有二十来步, 覆盖不到后面的商店与包。
 ///
-/// 它**不是**要打得好看: 目标只是把流程走到更深处, 让每一步都成为一次真实的预测.
-fn choose_play(run: &RunState) -> Vec<usize> {
+/// 顺序照玩家的常规打法:
+///
+/// 1. 手上同一花色有 4 张以上 → 留那几张, 弃掉别的 (追同花; 同花是 35 筹码 x4 倍率);
+/// 2. 否则手上同一点数有两张以上 → 留那些对子 / 三条, 弃掉别的 (追葫芦或两对);
+/// 3. 都没有 → 弃掉点数最小的几张 (至少换掉一半, 牌才可能变好)。
+///
+/// `keep` 是引擎刚算出来的"当前最好的一手" —— 它已经算过一遍了, 那就**别把它丢了**:
+/// 追牌型的同时至少保住这一手, 免得弃完还不如原来。
+fn choose_discard(run: &RunState, keep: &[usize]) -> Vec<usize> {
     use std::collections::BTreeMap;
-    if run.hand.is_empty() {
+    let size = run.hand.len();
+    if size < 2 {
         return Vec::new();
     }
-    // 按点数分组: 点数 -> 手里的下标.
-    let mut groups: BTreeMap<u8, Vec<usize>> = BTreeMap::new();
+    // 1) 追同花: 按花色分组, 取最多的那一组.
+    let mut suits: BTreeMap<char, Vec<usize>> = BTreeMap::new();
     for (index, card) in run.hand.iter().enumerate() {
-        groups
-            .entry(card.card.rank.nominal() as u8)
+        suits
+            .entry(card.card.suit.code())
             .or_default()
             .push(index);
     }
-    // 张数最多的一组; 张数相同时取点数大的 (BTreeMap 的键是升序, 所以从后往前找).
-    let mut best: Vec<usize> = Vec::new();
-    for (_, indexes) in groups.iter().rev() {
-        if indexes.len() > best.len() {
-            best = indexes.clone();
+    let best_suit = suits.values().max_by_key(|indexes| indexes.len());
+    let mut planned: Vec<usize> = match best_suit {
+        Some(indexes) if indexes.len() >= 4 => indexes.clone(),
+        _ => {
+            // 2) 追对子 / 三条: 按点数分组, 把所有"两张以上"的都留着.
+            let mut ranks: BTreeMap<u8, Vec<usize>> = BTreeMap::new();
+            for (index, card) in run.hand.iter().enumerate() {
+                ranks
+                    .entry(card.card.rank.nominal() as u8)
+                    .or_default()
+                    .push(index);
+            }
+            let grouped: Vec<usize> = ranks
+                .values()
+                .filter(|indexes| indexes.len() >= 2)
+                .flatten()
+                .copied()
+                .collect();
+            if grouped.is_empty() {
+                // 3) 什么都没有: 弃掉点数最小的一半.
+                let mut order: Vec<usize> = (0..size).collect();
+                order.sort_by(|a, b| run.hand[*a].card.nominal().total_cmp(&run.hand[*b].card.nominal()));
+                order.truncate(size / 2);
+                return order;
+            }
+            grouped
         }
-    }
-    // 补上剩下点数最大的牌, 凑满五张.
-    let mut rest: Vec<usize> = (0..run.hand.len())
-        .filter(|index| !best.contains(index))
-        .collect();
-    rest.sort_by(|a, b| run.hand[*b].card.nominal().total_cmp(&run.hand[*a].card.nominal()));
-    for index in rest {
-        if best.len() >= 5 {
-            break;
-        }
-        best.push(index);
-    }
-    best.sort_unstable();
-    best
+    };
+    // 保住引擎刚算出来的那一手.
+    planned.extend(keep.iter().copied());
+    let keep: std::collections::BTreeSet<usize> = planned.into_iter().collect();
+    let mut throw_away: Vec<usize> = (0..size).filter(|index| !keep.contains(index)).collect();
+    // 一次最多弃五张 (游戏那边有上限); 要弃的多了就先弃点数小的.
+    throw_away.sort_by(|a, b| run.hand[*a].card.nominal().total_cmp(&run.hand[*b].card.nominal()));
+    throw_away.truncate(5);
+    throw_away
+}
+
+/// 把一组手牌下标写成动作参数.
+fn cards_params(cards: &[usize]) -> String {
+    format!(
+        "{{\"cards\":[{}]}}",
+        cards
+            .iter()
+            .map(|card| card.to_string())
+            .collect::<Vec<_>>()
+            .join(",")
+    )
 }
 
 /// 把一段字符串写成 JSON 字面量.

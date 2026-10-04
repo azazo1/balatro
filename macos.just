@@ -1,6 +1,10 @@
 # macOS 平台的打包入口.
 python := if os_family() == "windows" { "python" } else { "python3" }
-python_shebang := if os_family() == "windows" { "python" } else { "/usr/bin/env python3" }
+# 内联脚本 (下面 [script] 那些) 用哪个解释器. 这个设置只能在**本文件**里生效:
+# mod 文件不会继承主 justfile 的 settings, 所以每个有内联脚本的文件都得自己写一行.
+# 注意 `set` 是 const 上下文 —— 不能引用上面的 `python` 变量, 也不能调 os_family(),
+# 所以只能写字面量; 本文件是 macOS 专用的, 写 python3 就是对的.
+set script-interpreter := ['python3']
 
 [private]
 default:
@@ -25,84 +29,44 @@ run-modded: dist-modded
 
 # just macos run-agent [on|off] [fast]
 # 打包带 mod 的应用并开启 agent 接口运行, 使用独立存档 Balatro-Agent, 默认正常速度, 按局录制视频到 recordings/.
-[positional-arguments]
 run-agent record="on" fast="0":
-    #!{{ python_shebang }}
-    import sys
-    sys.path.insert(0, "scripts")
-    from run_agent import main
-    sys.exit(main(["macos", *sys.argv[1:]]))
+    {{ python }} scripts/run_agent.py macos {{ record }} {{ fast }}
 
 # just macos replay recordings/<stem> [tight|original|fast]
 # 按回放文件重玩一局并录制到 recordings/, 使用临时存档 Balatro-Replay, 期间锁定输入, 按住 Esc 1 秒中止.
 # 参数可以是这一局的文件夹 (每局一个文件夹), 也可以是里面的 .replay.json 文件本身.
+# 退出码由游戏给出并原样透传: 0 回放完成, 1 跑偏, 2 中止, 3 文件无法回放.
 replay file pacing="tight": dist-modded
-    #!/usr/bin/env bash
-    set -euo pipefail
-    case {{ quote(pacing) }} in
-        tight|original|fast) ;;
-        *) echo "pacing 只能是 tight, original 或 fast, 收到: {{ pacing }}" >&2; exit 2 ;;
-    esac
-    file={{ quote(file) }}
-    case "$file" in
-        /*) ;;
-        *) file={{ quote(invocation_directory()) }}/"$file" ;;
-    esac
-    if [ -d "$file" ]; then
-        # 给的是文件夹: 进去找这一局的回放文件, 只有一个才认.
-        found=()
-        for candidate in "$file"/*.replay.json; do
-            [ -f "$candidate" ] && found+=("$candidate")
-        done
-        if [ "${#found[@]}" -ne 1 ]; then
-            echo "文件夹里没有唯一的回放文件 (找到 ${#found[@]} 个): $file" >&2
-            exit 2
-        fi
-        file="${found[0]}"
-    fi
-    if [ ! -f "$file" ]; then
-        echo "找不到回放文件: $file" >&2
-        exit 2
-    fi
-    mkdir -p recordings
-    export BALATROBOT_ENABLE=1 BALATRO_SAVE_IDENTITY=Balatro-Replay
-    export BALATROBOT_REPLAY="$file" BALATROBOT_REPLAY_PACING={{ quote(pacing) }}
-    export BALATROBOT_RECORD=on BALATROBOT_RECORD_DIR="$PWD/recordings" BALATROBOT_RECORD_PREFIX=replay-
-    log="recordings/replay-$(date +%Y%m%d-%H%M%S)-game.log"
-    echo "游戏日志: $log"
-    # 退出码: 0 回放完成, 1 跑偏, 2 中止, 3 文件无法回放
-    dist/macos/Balatro-Modded.app/Contents/MacOS/love 2>&1 | tee "$log"
+    {{ python }} scripts/replay_game.py {{ quote(file) }} {{ pacing }} --invocation-dir {{ quote(invocation_directory()) }}
 
 # just macos replay-check <seed> <deck> <stake> [步数]
 # 引擎先跑一局并写下每一步的预测状态, 再让真游戏照着重放逐步核对.
 # 退出码 0 = 引擎全程预测正确; 1 = 在第 N 步跑偏 (日志里打印差在哪一项).
 # 覆盖哪条路径由参数决定, 不再受已有录像限制; 换一副牌组/赌注就是一条新路径.
-replay-check seed deck stake steps="240":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    root="{{ invocation_directory() }}"
-    # 注意这几个参数是 **just** 的, 不是 shell 变量 —— 在脚本里要用插值拿到值.
-    out="$root/.tmp/replay-check/{{ seed }}-{{ deck }}-{{ stake }}"
-    mkdir -p "$out"
-    # 模板: 借一份真实录像的 snapshot (存档进度 / 解锁 / 发现). 那是 LÖVE 自己的序列化格式,
-    # 引擎造不出来, 而它与种子 / 牌组 / 赌注都无关 (录像那份是全解锁的).
-    template=$(ls -d "$root"/recordings/*/*.replay.json 2>/dev/null | head -1)
-    if [ -z "$template" ]; then
-        echo "recordings/ 里没有可当模板的录像 (只需要其中的 snapshot 段)" >&2
-        exit 2
-    fi
-    cargo run --quiet --release --manifest-path "$root/engine/Cargo.toml" --example gen_replay -- \
-        --seed {{ quote(seed) }} --deck {{ quote(deck) }} --stake {{ quote(stake) }} \
-        --template "$template" --out "$out/replay.json" --steps {{ quote(steps) }}
-    # 重放. 退出码就是结论, 日志里带每步的 digest 差异.
-    just --justfile {{ quote(source_file()) }} replay "$out" tight
-    echo "引擎预测与真游戏逐步一致: {{ seed }} / {{ deck }} / {{ stake }}"
+replay-check seed deck stake steps="240": dist-modded
+    {{ python }} scripts/replay_check.py --seed {{ quote(seed) }} --deck {{ quote(deck) }} --stake {{ quote(stake) }} --steps {{ quote(steps) }} --invocation-dir {{ quote(invocation_directory()) }}
+
+# just macos replay-check-decks <seed> <stake> [步数]
+# 十五副牌组各让引擎跑一局, 再逐个交给真游戏重放核对, 最后打印一张结果表.
+# 一副牌组一次游戏启动, 所以整条要跑十来分钟.
+# 每副牌的**开局就是它的特征**: 无面牌组 40 张, 棋盘牌组只有两种颜色, 错乱牌组牌面随机,
+# 画师牌组手牌上限 10 —— 全在 digest 的 `deck=` 与 `hand=` 里, 游戏点头才算数.
+replay-check-decks seed stake steps="400": dist-modded
+    {{ python }} scripts/replay_check.py --seed {{ quote(seed) }} --stake {{ quote(stake) }} --steps {{ quote(steps) }} --all-decks --invocation-dir {{ quote(invocation_directory()) }}
 
 # just macos recordings-recover [--run] [--clean] [录像目录]
 # 扫描 recordings/ 里崩溃后残留的中间文件并补做合成, 默认只列出,
 # --run 执行, --clean 成功后删中间文件.
+# 用 [script] 而不是把参数拼进命令行: `{{ args }}` 是不加引号拼的, 路径里有空格时
+# 会被拆成两个参数 (实测 "/tmp/a b" 变成 `/tmp/a` 与 `b`). [positional-arguments]
+# 会把每个参数按原样放进 argv, 空格和引号都不动.
+[positional-arguments]
+[script]
 recordings-recover *args:
-    {{ python }} scripts/recordings_recover.py {{ args }}
+    import sys
+    sys.path.insert(0, {{ quote(justfile_directory() + "/scripts") }})
+    from recordings_recover import main
+    sys.exit(main(sys.argv[1:]))
 
 # 用指定 png 作为应用图标打包, 例如: just macos icon 图标.png
 icon path:

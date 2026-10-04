@@ -19,6 +19,8 @@ fn shop_card(key: &str, cost: f64) -> ShopCard {
         eternal: false,
         perishable: false,
         rental: false,
+        enhancement: None,
+        todo: None,
         cost,
     }
 }
@@ -82,7 +84,7 @@ fn buying_rejects_when_money_or_room_is_missing() {
 
     // 槽位满了也要拒, 而不是悄悄塞进去.
     let mut full = ready_to_buy(99.0);
-    full.joker_slots = 1;
+    full.base_joker_slots = 1;
     full.buy(&card).expect("第一个位置能买");
     assert_eq!(
         full.buy(&card),
@@ -238,7 +240,7 @@ fn picking_from_a_pack_rejects_bad_input() {
     // 消耗槽**满了也照样取得出来**: 游戏那边包里的牌是用 `emplace` 放的, 不查槽位
     // (与珀克奥的负片复制品同一个机制), 所以会出现"3 张挤在 2 格里".
     // 整局对拍的记录里第 48 步就是这样 —— 原来这里断言"要拒", 那是引擎自己加的限制.
-    run.consumable_slots = 0;
+    run.base_consumable_slots = 0;
     assert!(
         run.pick_from_pack(0).is_ok(),
         "包里的牌不看槽位, 取出来放得下"
@@ -527,7 +529,7 @@ fn luchador_disables_the_boss_when_sold() {
     let mut run = ready_to_buy(20.0);
     run.boss_key = Some("bl_water".to_owned());
     run.blind_on_deck = BlindKind::Boss;
-    run.select_blind();
+    common::place_blind(&mut run);
     run.jokers.push(Joker::new("j_luchador").expect("有这张"));
     assert!(
         !run.blind.as_ref().expect("有盲注").disabled,
@@ -577,4 +579,65 @@ fn flash_card_grows_with_every_shop_reroll() {
 
     // 没在商店里重掷不算 —— 这里只是把状态摆回出牌阶段, 倍率不该被清掉.
     assert_eq!(run.jokers[0].mult, 4.0, "倍率是攒出来的, 不会自己掉");
+}
+
+/// 商店里的**扑克牌**买下来要进**牌堆**, 不是小丑区, 也不是消耗区.
+///
+/// # 这条为什么必须有
+///
+/// 引擎原来只把货架上的东西分成"消耗牌"与"其余"两类, 于是买扑克牌会被当成小丑去查原型表,
+/// 直接抛 `UnknownCard`. 而这是**开着魔法把戏券 / 幻象券时每一局都会遇到的操作**
+/// (那两张券让商店的扑克牌格有货), 而且魔法把戏券**开局就是解锁的** ——
+/// 也就是说这是一条"一买就崩"的路, 只是十九份录像里恰好没人买过.
+///
+/// 落点照游戏: `if c1.ability.set == 'Default' or c1.ability.set == 'Enhanced' then ... G.deck:emplace(c1)`.
+#[test]
+fn buying_a_playing_card_puts_it_into_the_deck() {
+    let mut run = ready_to_buy(99.0);
+    let deck_before = run.deck.len();
+    let jokers_before = run.jokers.len();
+    let consumables_before = run.consumables.len();
+
+    run.buy(&shop_card("C_T", 1.0))
+        .expect("扑克牌要能买下来 (以前这条路会抛 UnknownCard)");
+
+    assert_eq!(run.deck.len(), deck_before + 1, "牌堆多一张");
+    assert_eq!(run.jokers.len(), jokers_before, "不该进小丑区");
+    assert_eq!(run.consumables.len(), consumables_before, "不该进消耗区");
+    assert_eq!(run.dollars, 98.0, "该扣钱");
+
+    // 进的是**牌堆底** (下标 0 = 游戏的下标 1), 因为牌堆是"插头部, 抽尾部".
+    assert_eq!(
+        run.deck[0].card.key(),
+        "C_T",
+        "买来的牌该落在牌堆底 (下标 0)"
+    );
+    // 新的牌要拿一个**新的建牌序号**, 否则它插进牌堆后的相对次序会跟游戏不同.
+    assert!(
+        run.deck[0].card.sort_id > 0,
+        "买来的牌该有自己的建牌序号, 现在是 {}",
+        run.deck[0].card.sort_id
+    );
+}
+
+/// 买来的扑克牌要**带着它的强化与版本**, 不能把这两项丢在半路上.
+///
+/// 货架那张牌的两项是铺货时掷好的 (`create_card_for_shop`), 买下来只是把它挪进牌堆 ——
+/// 中途重新掷一次或者直接丢掉, 那张牌就"少了它该有的样子", 而且不报错.
+#[test]
+fn a_bought_playing_card_keeps_its_enhancement_and_edition() {
+    use balatro_engine::cards::Edition;
+
+    let mut run = ready_to_buy(99.0);
+    let mut card = shop_card("C_6", 1.0);
+    card.enhancement = balatro_engine::cards::Enhancement::from_key("m_mult");
+    card.edition = Some(Edition::Foil);
+    run.buy(&card).expect("能买下来");
+
+    assert_eq!(
+        run.deck[0].enhancement,
+        balatro_engine::cards::Enhancement::from_key("m_mult"),
+        "强化要在买下来之后还在"
+    );
+    assert_eq!(run.deck[0].edition, Some(Edition::Foil), "版本要在买下来之后还在");
 }

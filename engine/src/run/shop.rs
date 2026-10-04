@@ -47,6 +47,12 @@ pub struct ShopCard {
     pub eternal: bool,
     pub perishable: bool,
     pub rental: bool,
+    /// 待办清单指定要打的牌型 —— **造出来时就掷好**并一路带着 (回放的 digest 里 `todo=` 段就是它).
+    /// 别的牌型都是 `None`.
+    pub todo: Option<crate::scoring::PokerHand>,
+    /// 扑克牌的强化. 只有"基础牌 / 强化牌"那两格可能有 —— 幻象券 (与它的前置魔法把戏券)
+    /// 会让商店的扑克牌格里出现**强化牌**, 见 `create_card_for_shop`.
+    pub enhancement: Option<Enhancement>,
     /// 售价, 按 `Card:set_cost` 算好.
     pub cost: f64,
 }
@@ -59,6 +65,8 @@ impl ShopCard {
             eternal: false,
             perishable: false,
             rental: false,
+            todo: None,
+            enhancement: None,
             cost: 0.0,
         }
     }
@@ -121,6 +129,18 @@ pub fn create_card_for_shop(run: &mut RunState, rates: &ShopRates) -> ShopCard {
     let total = rates.joker + rates.tarot + rates.planet + rates.playing_card + rates.spectral;
     let polled = run.rng.pseudorandom(&format!("cdt{}", run.ante)) * total;
 
+    // 幻象券 (与它的前置"魔法把戏券"): 商店的扑克牌格可能出现**强化牌**.
+    //
+    // 这一掷要**在这一格是什么类型定下来之前**掷, 因为游戏那张权重表是**先整个建出来**再遍历的
+    // (`for _, v in ipairs({...})` 里的三元表达式在构造表时就求值了), 所以哪怕这一格最后是张小丑,
+    // 这一掷也照样发生了. 按键独立性看, 它不影响别的键; 但它会影响**同一个键**的下一次取值 ——
+    // 也就是"下一格扑克牌是不是强化牌", 所以位置不能挪到分支里面去.
+    let illusion_roll = if run.used_vouchers.contains("v_illusion") {
+        Some(run.rng.pseudorandom("illusion"))
+    } else {
+        None
+    };
+
     let mut check = 0.0;
     // 顺序与游戏里的表一致: 小丑, 塔罗, 行星, 基础牌, 幻灵.
     let kinds = [
@@ -134,12 +154,14 @@ pub fn create_card_for_shop(run: &mut RunState, rates: &ShopRates) -> ShopCard {
         if polled > check && polled <= check + weight {
             return match kind {
                 "Joker" => create_joker(run, "sho"),
-                // 基础牌: 从 52 张牌面里抽一张. 商店摆的是裸牌, 带版本或蜡封的那种要另做.
+                // 扑克牌那一格. 有幻象券时"基础牌 / 强化牌"由上面那一掷决定 (超过 0.6 是强化牌),
+                // 没有幻象券时游戏写的就是固定的 'Base'.
                 "Base" => {
-                    let mut card = ShopCard::plain(playing_card_for_shop(run));
+                    let enhanced = illusion_roll.is_some_and(|roll| roll > 0.6);
+                    let mut card = playing_card_for_shop(run, enhanced);
                     card.cost = shop_cost(
                         base_cost_of(&card.key),
-                        None,
+                        card.edition,
                         false,
                         run.inflation,
                         run.discount_percent,
@@ -257,6 +279,16 @@ pub fn create_joker(run: &mut RunState, key_append: &str) -> ShopCard {
 
     let mut card = ShopCard::plain(key);
 
+    // 待办清单的"这一回合指定哪个牌型"是**造出来那一刻**就掷的 —— 挂在 `Card:set_ability` 里
+    // (键 `to_do`), 而 `set_ability` 在构造那张牌时就被调用了, 所以它排在下面"永恒 / 易腐"
+    // 与"版本"两次掷骰**之前**. 位置换了, 后面整条随机序列就跟着错位.
+    //
+    // 摆在货架上的待办清单也带着这个值: 回放的 digest 里 `todo=` 段就是它
+    // (XXWF71H9 第 179 步那面货架上有 `j_todo_list+f`, 记录里写着 `todo=Flush`).
+    if card.key == "j_todo_list" {
+        card.todo = Some(roll_todo(&mut run.rng, &run.hands, None));
+    }
+
     // 3. 商店里的小丑抽永恒 / 易腐, 再抽租赁. 两者用的是不同的 key.
     let poll = run
         .rng
@@ -330,11 +362,54 @@ fn shop_card_from_tags(run: &mut RunState, _rates: &ShopRates) -> Option<ShopCar
     Some(card)
 }
 
-/// 商店摆的那张裸牌: 从 52 张里抽, 键与标准包抽牌面时不同 (`sho` 而不是 `sta`).
-fn playing_card_for_shop(run: &mut RunState) -> String {
+/// 商店摆的那张扑克牌.
+///
+/// 三件事的顺序照 `create_card` 不能换:
+///
+/// 1. **强化**: 只有"强化牌"这一支才抽 `Enhanced` 池 (键 `Enhancedsho{底注}`) —— "基础牌"那一支
+///    在游戏里走的是 `forced_key = 'c_base'` 这条短路 (裸牌), **不抽池**;
+/// 2. **牌面**: 从 52 张里抽 (键 `frontsho{底注}`), 两支都有;
+/// 3. **版本**: 幻象券在场时再掷两次 `illusion` (见下).
+///
+/// 第 3 件事的位置很反直觉, 值得写下来: 它**不在** `create_card` 里面, 而是在调用方
+/// (`UI_definitions.lua` 铺货那段) 拿到牌之后才做, 判据是 `(v.type == 'Base' or v.type == 'Enhanced')
+/// and used_vouchers.v_illusion` —— 也就是**只要这一格是扑克牌, 且手里有幻象券**就问一次
+/// "要不要给版本" (超过 0.8 才给), 给了再掷一次决定给哪**个**版本 (多彩 > 0.85, 镭射 > 0.5, 否则闪箔).
+///
+/// 注意这一支**不受蜡封与永恒那类影响**: 商店里的扑克牌只可能有强化与版本, 没有蜡封.
+fn playing_card_for_shop(run: &mut RunState, enhanced: bool) -> ShopCard {
+    let enhancement = if enhanced {
+        let pool: Vec<String> = Catalog::get()
+            .pool("Enhanced")
+            .iter()
+            .map(|proto| proto.id.clone())
+            .collect();
+        let key = format!("Enhancedsho{}", run.ante);
+        Enhancement::from_key(&pick_or_resample(&mut run.rng, &pool, &key))
+    } else {
+        None
+    };
+
     let faces: Vec<String> = standard_deck().iter().map(|card| card.key()).collect();
     let frontsho_key = format!("frontsho{}", run.ante);
-    pick_or_resample(&mut run.rng, &faces, &frontsho_key)
+    let face = pick_or_resample(&mut run.rng, &faces, &frontsho_key);
+
+    let mut card = ShopCard::plain(face);
+    card.enhancement = enhancement;
+
+    if run.used_vouchers.contains("v_illusion")
+        && run.rng.pseudorandom("illusion") > 0.8
+    {
+        let pick = run.rng.pseudorandom("illusion");
+        card.edition = Some(if pick > 0.85 {
+            Edition::Polychrome
+        } else if pick > 0.5 {
+            Edition::Holo
+        } else {
+            Edition::Foil
+        });
+    }
+    card
 }
 
 /// 原型上的基础价, 查不到给 0 (不会出现在正常商店里).
@@ -654,12 +729,21 @@ impl Shop {
             .collect();
         // 券那一格的键在这**之后**、包**之前**才抽 —— 游戏里的顺序就是"卡 -> 券 -> 包"
         // (`game.lua` 里 `create_card_for_shop(G.shop_jokers)` 在前, 券的 `Card(...)` 在中间,
-        // `get_pack('shop_pack')` 在最后). 这个顺序不是随便的: 全局随机序列的位置由**最后一次**
-        // `pseudorandom` 决定, 而 `get_pack` 第一次调用会用全局的 `math.random(1, 2)` 挑那个
-        // 白送的小人包 —— 所以券抽在包后面还是前面, 决定了赠包是 `_1` 还是 `_2`.
-        // 整局对拍里 133 步那份第 4 步的赠包就是这么差的 (引擎 `_2`, 记录 `_1`).
+        // `get_pack('shop_pack')` 在最后).
+        //
+        // **这里与游戏有一处已知的差异, 而且它不是"挪一行"能修的.** 游戏在开局与打完 Boss 之后
+        // 就把券的键抽好了, 商店里那次抽根本不会发生; 引擎则在这里现抽, 于是多了一次游戏没有的
+        // `pseudoseed`。每次 `pseudoseed` 都会重新播种全局 PRNG, 所以引擎的全局序列停在**券**
+        // 那个种子上 (游戏停的是**最后一张牌**那个种子), 这会影响之后那个全局 `math.random(1, 2)`
+        // —— 也就是白送的小丑包编号。
+        // 试过的修法: 把这次抽取挪到牌**之前** (贴合游戏的时机), 并补上"造牌会空转的全局随机数"
+        // (每张 4 颗: `Card:init` 里 `discard_pos` 3 颗 + `start_materialize` -> `juice_up` 1 颗)。
+        // 这个模型能同时对上三份不同种子的录像, 但**实测把 17 份 ALEEB 录像全弄红了**
+        // (引擎算 `_2`, 实机是 `_1`) —— 说明模型只是碰巧拟合了那三份, 真实的分项还没数对。
+        // 所以维持现状 + 那条豁免, 详见 docs/rewrite/README.md 里这一段的记录。
+        //
         // 券已经买走的那一底不再摆券 (`voucher_spent`), 而不是"空着就再抽一张" ——
-        // 这两种情形在下面那句注释说的时机之外还得分开, 见 `RunState::voucher_spent`.
+        // 见 `RunState::voucher_spent`.
         if run.shop_vouchers.is_empty() && !run.voucher_spent {
             let key = run.next_voucher_key();
             run.shop_vouchers.push(key);
@@ -734,6 +818,8 @@ pub struct PackCard {
     pub seal: Option<Seal>,
     /// 标准包里开出来的强化牌会带上这个.
     pub enhancement: Option<Enhancement>,
+    /// 待办清单指定要打的牌型 (造出来时就掷好, 与商店货架上那条路一样).
+    pub todo: Option<crate::scoring::PokerHand>,
     /// 下面三个只对小丑包有意义: 包里的小丑与商店货架上的一样会掷永恒 / 易腐 / 租赁.
     pub eternal: bool,
     pub perishable: bool,
@@ -781,7 +867,7 @@ pub fn poll_edition_guaranteed(run: &mut RunState, key: &str) -> Option<Edition>
 pub fn open_pack(run: &mut RunState, pack_key: &str) -> Vec<PackCard> {
     // 幻觉: 开包时掷一次 (键 `halu{底注}`, 概率 1/2), 中了就额外给一张塔罗.
     // 它先看**消耗槽有没有位子** —— 游戏是"有位子才掷", 没位子时连骰子都不掷.
-    if run.consumables.len() < run.consumable_slots
+    if run.consumables.len() < run.consumable_capacity()
         && run
             .jokers
             .iter()
@@ -847,6 +933,8 @@ pub fn open_pack(run: &mut RunState, pack_key: &str) -> Vec<PackCard> {
                     edition: None,
                     seal: None,
                     enhancement: None,
+                    // 被望远镜指定的那张是行星牌, 不是小丑.
+                    todo: None,
                     eternal: false,
                     perishable: false,
                     rental: false,
@@ -873,13 +961,18 @@ pub fn open_pack(run: &mut RunState, pack_key: &str) -> Vec<PackCard> {
                 edition: None,
                 seal: None,
                 enhancement: None,
+                todo: None,
                 eternal: false,
                 perishable: false,
                 rental: false,
             };
+            // 同上: 待办清单在**造出来**那一刻就掷牌型, 排在"永恒 / 易腐 / 租赁 / 版本"之前.
+            if card.key == "j_todo_list" {
+                card.todo = Some(roll_todo(&mut run.rng, &run.hands, None));
+            }
             // 小丑包里的小丑与商店货架上的一样要掷"永恒 / 易腐 / 租赁 / 版本", 三掷的顺序也不能换.
             // **键跟商店不一样**: 游戏里按 `area` 取 `packetper` 与 `packssjr`,
-            // 少掷一次或者用错键, 后面的随机序列就整体偏了.
+            // 用错键就等于这两项取的是另一条序列 (按键独立, 所以错的只是这两项本身).
             if kind == "Joker" {
                 let poll = run.rng.pseudorandom(&format!("packetper{}", run.ante));
                 if run.modifiers.enable_eternals_in_shop && poll > 0.7 {
@@ -942,6 +1035,8 @@ fn standard_pack_card(run: &mut RunState, key_append: &str) -> PackCard {
         edition: None,
         seal: None,
         enhancement,
+        // 标准包开出来的是扑克牌, 没有待办清单那回事.
+        todo: None,
         // 标准包开出来的是扑克牌, 没有永恒 / 易腐 / 租赁那回事.
         eternal: false,
         perishable: false,
@@ -978,6 +1073,10 @@ fn standard_pack_card(run: &mut RunState, key_append: &str) -> PackCard {
 ///
 /// 第一次进商店时游戏无条件给基础小丑包 (`p_buffoon_normal_1` 或 `_2`), 用一次裸的
 /// `math.random(1, 2)` 决定, 所以那一次会消耗当前的全局 PRNG 状态.
+///
+/// 正因为它是**全局**的, 它的取值取决于"上一次 `pseudoseed` 之后又空转了几颗" —— 而引擎
+/// 还没把这个颗数数准: 十八份录像算得对, 一份差一 (详见 `Shop::restock` 那段注释, 那里写了
+/// 试过什么、为什么回退). 改动 `Shop::restock` 里造牌的条数或顺序时, 这一项是最先露馅的.
 pub fn get_pack(run: &mut RunState, key: &str) -> String {
     if !run.first_shop_buffoon && !run.banned_keys.contains("p_buffoon_normal_1") {
         run.first_shop_buffoon = true;
@@ -1039,8 +1138,10 @@ pub fn pick_or_resample(rng: &mut crate::rng::Rng, pool: &[String], pool_key: &s
 /// 待办清单换牌型时的掷法: 池子是**当前可见**的牌型, 键 `to_do`,
 /// 而且要**循环掷到和原来不同**为止 (游戏的 `while not to_do_poker_hand` 就是这个意思).
 ///
-/// 这个循环不能省成"掷一次" —— 每掷一次都会推进 `to_do` 这个键的值, 少掷一次,
-/// 后面所有按键取随机数的地方都会错开.
+/// 这个循环不能省成"掷一次" —— 每掷一次都会推进 `to_do` 这个键的计数. 影响范围**只到 `to_do`
+/// 这个键自己** (游戏的随机数按键独立, 见 `luajit_parity.rs::random_keys_are_independent`),
+/// 也就是"待办清单下一次换到的牌型"会不一样; 别的键不受影响.
+/// (这句话以前写成"后面所有按键取随机数的地方都会错开", 那是错的.)
 pub fn roll_todo(
     rng: &mut crate::rng::Rng,
     hands: &crate::scoring::HandTable,

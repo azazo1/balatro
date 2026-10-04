@@ -14,7 +14,9 @@ fn play_along(run: &mut RunState) -> usize {
     for _ in 0..400 {
         match run.phase {
             Phase::GameOver => break,
-            Phase::BlindSelect => run.select_blind(),
+            Phase::BlindSelect => {
+                run.select_blind().expect("在选盲注阶段");
+            }
             Phase::SelectingHand => {
                 let cards: Vec<usize> = (0..run.hand.len().min(5)).collect();
                 if run

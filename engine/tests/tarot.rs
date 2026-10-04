@@ -697,7 +697,7 @@ fn purple_seal_gives_nothing_when_consumable_slots_are_full() {
 
     let mut run = aleeb_run();
     run.start();
-    run.consumable_slots = 0;
+    run.base_consumable_slots = 0;
 
     let mut sealed = CardInstance::from_key("C_T").expect("能造出牌");
     sealed.seal = Some(Seal::Purple);
@@ -838,7 +838,7 @@ fn tarots_that_grant_more_cards() {
 
     let mut roomy = aleeb_run();
     roomy.start();
-    roomy.consumable_slots = 3;
+    roomy.base_consumable_slots = 3;
     roomy.consumables.push(balatro_engine::run::consumable::Consumable::plain("c_emperor".to_owned()));
     roomy.use_consumable(0, &[]).expect("能用");
     assert_eq!(roomy.consumables.len(), 2, "腾出位置就给两张");
@@ -861,7 +861,7 @@ fn tarots_that_grant_more_cards() {
     // 槽位不够时少给: 一格就只给一张 (被用掉那张不占格子, 所以那一格是空的).
     let mut run = aleeb_run();
     run.start();
-    run.consumable_slots = 1;
+    run.base_consumable_slots = 1;
     run.consumables.push(balatro_engine::run::consumable::Consumable::plain("c_high_priestess".to_owned()));
     run.use_consumable(0, &[]).expect("能用");
     assert_eq!(run.consumables.len(), 1, "一格就给一张");
@@ -1142,7 +1142,7 @@ fn enhancement_tarots_actually_enhance() {
     let improved = |key: &str, targets: &[usize]| -> Vec<Option<Enhancement>> {
         let mut run = aleeb_run();
         run.start();
-        run.select_blind();
+        common::place_blind(&mut run);
         run.consumables
             .push(balatro_engine::run::consumable::Consumable::plain(key.to_owned()));
         // 用刚推进去的那一张 (这个局开局可能已经有别的消耗牌, 不能写死 0).
@@ -1176,7 +1176,7 @@ fn fortune_teller_counts_tarots_used() {
 
     let mut run = aleeb_run();
     run.start();
-    run.select_blind();
+    common::place_blind(&mut run);
 
     // 先进队: 此时全局用量是 0.
     run.jokers.push(Joker::new("j_fortune_teller").expect("有这张"));

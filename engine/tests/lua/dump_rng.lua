@@ -83,7 +83,36 @@ for _, s in ipairs(seeds) do
   print("range\t" .. f(s) .. "\t" .. table.concat(parts, "\t"))
 end
 
--- 4. 完整链路: 洗一副 52 张牌
+-- 4. 轮子 (The Wheel) 的抽牌掷骰: 每抽一张牌掷一次 `pseudorandom(pseudoseed('wheel'))`.
+--
+-- 这一段要验的是**两件事**, 缺一不可:
+--   a. 这一掷的数值与真 LuaJIT 一致;
+--   b. 它会**消耗掉**全局随机数的位置 —— 所以"抽 8 张牌之后再掷别的键"得到的东西,
+--      与"没抽过牌直接掷别的键"不同.
+--
+-- 只验 a 是不够的: 掷了但不消耗 (或消耗次数不对) 同样会让后面整条序列错位,
+-- 而那种错误在数值上完全看不出来.
+print("# wheel")
+G.GAME.pseudorandom = {}
+G.GAME.pseudorandom.seed = "ALEEB"
+G.GAME.pseudorandom.hashed_seed = pseudohash("ALEEB")
+local parts = {}
+for i = 1, 8 do
+  parts[#parts + 1] = f(pseudorandom(pseudoseed('wheel')))
+end
+print("cards8\t" .. table.concat(parts, "\t"))
+-- 抽完这 8 张之后, 同一个键 `joker` 的第一次取值 (与下面"没抽过牌"那份对比).
+print("after8\tjoker\t" .. f(pseudorandom(pseudoseed('joker'))))
+print("after8\tboss\t" .. f(pseudorandom(pseudoseed('boss'))))
+
+-- 对照组: 同样从 ALEEB 起步, 但**一次都不抽牌**.
+G.GAME.pseudorandom = {}
+G.GAME.pseudorandom.seed = "ALEEB"
+G.GAME.pseudorandom.hashed_seed = pseudohash("ALEEB")
+print("none\tjoker\t" .. f(pseudorandom(pseudoseed('joker'))))
+print("none\tboss\t" .. f(pseudorandom(pseudoseed('boss'))))
+
+-- 5. 完整链路: 洗一副 52 张牌
 print("# shuffle")
 G.GAME.pseudorandom = {}
 G.GAME.pseudorandom.seed = "ALEEB"

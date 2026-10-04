@@ -14,7 +14,9 @@ fn play_along(run: &mut RunState) -> usize {
             break;
         }
         match run.phase {
-            balatro_engine::run::Phase::BlindSelect => run.select_blind(),
+            balatro_engine::run::Phase::BlindSelect => {
+                run.select_blind().expect("在选盲注阶段");
+            }
             balatro_engine::run::Phase::SelectingHand => {
                 let cards: Vec<usize> = (0..run.hand.len().min(5)).collect();
                 if run

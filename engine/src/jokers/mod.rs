@@ -77,8 +77,8 @@ pub struct TriggerContext<'a> {
     pub dollars: f64,
     /// 持有几张小丑, 含自己 (抽象小丑要看).
     pub joker_count: usize,
-    /// 小丑格子总数 (模具小丑要看空位).
-    pub joker_slots: usize,
+    /// 小丑格子的**上限** (模具小丑要看空位). 含负片小丑加出来的那一份.
+    pub joker_capacity: usize,
     /// 队里有**几张模具小丑**. 模具自己的乘倍率是"空位 + 队里模具张数",
     /// 所以它得知道队里一共有几张自己 —— 这一项由计分那一层数好传进来.
     pub stencil_count: usize,
@@ -1166,7 +1166,7 @@ impl Joker {
             // 模具小丑: 空着的小丑格子有几个就乘几倍, 再加上"队里模具小丑的张数" ——
             // 每张模具自己也算一格, 所以它在队里时那个空位没有被浪费.
             "j_stencil" => {
-                let empty = ctx.joker_slots.saturating_sub(ctx.joker_count);
+                let empty = ctx.joker_capacity.saturating_sub(ctx.joker_count);
                 let factor = empty + ctx.stencil_count;
                 if factor > 0 {
                     return Some(JokerEffect {

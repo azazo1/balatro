@@ -76,14 +76,14 @@ fn every_deck_applies_its_numeric_effects() {
         }
         if let Some(value) = config_number(deck, "joker_slot") {
             assert_eq!(
-                run.joker_slots as i64 - base.joker_slots as i64,
+                run.base_joker_slots as i64 - base.base_joker_slots as i64,
                 value as i64,
                 "{deck} 小丑槽位不对"
             );
         }
         if let Some(value) = config_number(deck, "consumable_slot") {
             assert_eq!(
-                run.consumable_slots as i64 - base.consumable_slots as i64,
+                run.base_consumable_slots as i64 - base.base_consumable_slots as i64,
                 value as i64,
                 "{deck} 消耗牌槽位不对"
             );
@@ -213,7 +213,7 @@ fn magic_deck_starts_with_consumables_and_a_voucher() {
         "水晶球要记进已兑换的券里"
     );
     // 基准 2 格, 水晶球加一格.
-    assert_eq!(run.consumable_slots, 3, "水晶球该多给一个消耗牌格子");
+    assert_eq!(run.base_consumable_slots, 3, "水晶球该多给一个消耗牌格子");
 }
 
 /// 字谜牌组: 开局三张券, 效果都要生效 (塔罗与星球权重各变 9.6, 商店多摆一件).
@@ -243,7 +243,7 @@ fn zodiac_deck_starts_with_three_vouchers() {
 fn green_deck_pays_no_interest() {
     let settle = |deck: &str| -> balatro_engine::run::RoundEval {
         let mut run = run_with_deck(deck);
-        run.select_blind();
+        run.select_blind().expect("在选盲注阶段");
         run.dollars = 100.0;
         // 一次出牌就过: 目标分数压到 1.
         if let Some(blind) = run.blind.as_mut() {
@@ -279,7 +279,7 @@ fn plasma_deck_doubles_the_blind_target() {
     let target = |mut run: RunState| -> f64 {
         run.boss_key = None;
         run.blind_on_deck = BlindKind::Small;
-        run.select_blind();
+        run.select_blind().expect("在选盲注阶段");
         run.blind.as_ref().expect("有盲注").chips
     };
     assert_eq!(target(plasma), target(plain) * 2.0, "等离子该是两倍");

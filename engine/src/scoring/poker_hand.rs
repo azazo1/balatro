@@ -234,8 +234,10 @@ pub struct EvalEnv {
     pub starting_deck_size: usize,
     /// 这一回合还剩几次出牌. 杂技演员要它 (最后一手才算), 而且要在**减过之后**读.
     pub hands_left: i64,
-    /// 小丑格子总数. 模具小丑要它 (空位越多乘得越高).
-    pub joker_slots: usize,
+    /// 小丑格子的**上限** (`G.jokers.config.card_limit`), 模具小丑要它 (空位越多乘得越高).
+    ///
+    /// 它是上限而不是基数: 负片小丑会让它加一, 所以传进来的一律是 `RunState::joker_capacity`.
+    pub joker_capacity: usize,
 }
 
 /// 一次判定的全部结果, 下标用 [`PokerHand::index`].

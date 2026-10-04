@@ -167,7 +167,7 @@ fn second_round_deal_matches_the_replay() {
     assert_eq!(run.deck.len(), 52);
 
     // 回放第 7 步 (select) 的 digest: round=2, deck=44, hand=D_A,S_K,H_K,C_Q,C_9,H_8,H_6,D_5.
-    run.select_blind();
+    common::place_blind(&mut run);
     assert_eq!(run.round, 2);
     assert_eq!(run.ante, 1, "第一个底注里还没打完 Boss");
     assert_eq!(run.blind.as_ref().unwrap().key, "bl_big");
@@ -202,7 +202,7 @@ fn boss_and_next_ante_match_the_replay() {
     for _ in 0..2 {
         run.phase = balatro_engine::run::Phase::Shop;
         run.next_round().expect("在商店里, 走得成");
-        run.select_blind();
+        common::place_blind(&mut run);
     }
     assert_eq!(run.round, 3);
     assert_eq!(run.blind_on_deck, BlindKind::Boss);
@@ -231,7 +231,7 @@ fn boss_and_next_ante_match_the_replay() {
         "下一底换了一个 Boss"
     );
 
-    run.select_blind();
+    common::place_blind(&mut run);
     assert_eq!(run.round, 4, "回合计数不随底注重置");
     let small = run.blind.as_ref().expect("有盲注");
     assert_eq!(small.key, "bl_small");
@@ -271,7 +271,7 @@ fn bosses_that_change_the_round_limits() {
         run.start();
         run.boss_key = Some(key.to_owned());
         run.blind_on_deck = BlindKind::Boss;
-        run.select_blind();
+        common::place_blind(&mut run);
         run
     };
 
@@ -295,7 +295,7 @@ fn bosses_that_change_the_round_limits() {
         .push(balatro_engine::jokers::Joker::new("j_chicot").expect("有这张"));
     chicot.boss_key = Some("bl_water".to_owned());
     chicot.blind_on_deck = BlindKind::Boss;
-    chicot.select_blind();
+    common::place_blind(&mut chicot);
     assert!(
         chicot.discards_left > 0,
         "手里有奇可时, 水不该把弃牌次数清零"
@@ -329,7 +329,7 @@ fn the_tooth_charges_per_card_played() {
         run.start();
         run.boss_key = Some(key.to_owned());
         run.blind_on_deck = BlindKind::Boss;
-        run.select_blind();
+        common::place_blind(&mut run);
         set_hand(&mut run, &["C_5", "D_5", "H_9"]);
         run
     };
@@ -360,7 +360,7 @@ fn the_arm_lowers_the_played_hand_level() {
         run.start();
         run.boss_key = Some(key.to_owned());
         run.blind_on_deck = BlindKind::Boss;
-        run.select_blind();
+        common::place_blind(&mut run);
         // 把对子抬到 3 级, 这样降级看得出来.
         run.hands.level_up(PokerHand::Pair, 2);
         // 手里放一对, 这样打出去的一定是对子.
@@ -401,7 +401,7 @@ fn the_ox_empties_the_wallet_on_the_most_played_hand() {
         run.start();
         run.boss_key = Some(key.to_owned());
         run.blind_on_deck = BlindKind::Boss;
-        run.select_blind();
+        common::place_blind(&mut run);
         // 让"对子"成为打得最多的那种.
         for _ in 0..3 {
             run.hands.record_played(PokerHand::Pair);
@@ -435,7 +435,7 @@ fn the_flint_halves_the_hand_base() {
         run.start();
         run.boss_key = Some(key.to_owned());
         run.blind_on_deck = BlindKind::Boss;
-        run.select_blind();
+        common::place_blind(&mut run);
         // 手里放一对 5, 基础值好算.
         set_hand(&mut run, &["C_5", "D_5"]);
         run
@@ -471,7 +471,7 @@ fn the_eye_refuses_a_repeated_hand_type() {
         run.start();
         run.boss_key = Some(key.to_owned());
         run.blind_on_deck = BlindKind::Boss;
-        run.select_blind();
+        common::place_blind(&mut run);
         run
     };
 
@@ -517,7 +517,7 @@ fn the_mouth_allows_only_one_hand_type() {
     mouth.start();
     mouth.boss_key = Some("bl_mouth".to_owned());
     mouth.blind_on_deck = BlindKind::Boss;
-    mouth.select_blind();
+    common::place_blind(&mut mouth);
 
     // 第一手打对子, 它记下"这一回合只能打对子".
     set_hand(&mut mouth, &["C_5", "D_5"]);
@@ -553,7 +553,7 @@ fn the_serpent_always_draws_three() {
     serpent.start();
     serpent.boss_key = Some("bl_serpent".to_owned());
     serpent.blind_on_deck = BlindKind::Boss;
-    serpent.select_blind();
+    common::place_blind(&mut serpent);
     assert_eq!(serpent.hand.len(), serpent.hand_size(), "开局照常发满");
 
     // 打两张: 手里剩六张, 只补三张 -> 九张 (超过手牌上限, 这正是蛇的特点).
@@ -572,7 +572,7 @@ fn the_serpent_always_draws_three() {
     plain.start();
     plain.boss_key = Some("bl_hook".to_owned());
     plain.blind_on_deck = BlindKind::Boss;
-    plain.select_blind();
+    common::place_blind(&mut plain);
     plain
         .play(&[0, 1], &EvalEnv::default(), BackEffect::Plain)
         .expect("能出牌");
@@ -599,7 +599,7 @@ fn the_pillar_debuffs_cards_played_this_ante() {
     // 到柱子回合.
     run.boss_key = Some("bl_pillar".to_owned());
     run.blind_on_deck = BlindKind::Boss;
-    run.select_blind();
+    common::place_blind(&mut run);
 
     let debuffed = run
         .deck
@@ -618,7 +618,7 @@ fn the_pillar_debuffs_cards_played_this_ante() {
 
     // 换到别的 Boss 时削弱要清掉 —— 它只对当前盲注有效.
     run.boss_key = Some("bl_hook".to_owned());
-    run.select_blind();
+    common::place_blind(&mut run);
     assert!(
         run.deck.iter().chain(run.hand.iter()).all(|c| !c.debuffed),
         "离开柱子之后不该还有牌被削"
@@ -639,7 +639,7 @@ fn suit_and_face_bosses_debuff_matching_cards() {
         run.start();
         run.boss_key = Some(key.to_owned());
         run.blind_on_deck = BlindKind::Boss;
-        run.select_blind();
+        common::place_blind(&mut run);
         run
     };
     let every_card = |run: &RunState| -> Vec<balatro_engine::cards::CardInstance> {
@@ -686,7 +686,7 @@ fn the_psychic_refuses_small_plays() {
     run.start();
     run.boss_key = Some("bl_psychic".to_owned());
     run.blind_on_deck = BlindKind::Boss;
-    run.select_blind();
+    common::place_blind(&mut run);
 
     assert_eq!(
         run.play(&[0, 1, 2], &EvalEnv::default(), BackEffect::Plain),
@@ -716,7 +716,7 @@ fn the_hook_discards_two_cards_after_each_hand() {
     run.start();
     run.boss_key = Some("bl_hook".to_owned());
     run.blind_on_deck = BlindKind::Boss;
-    run.select_blind();
+    common::place_blind(&mut run);
 
     let discarded_before = run.discard_pile.len();
     run.chips = 1.0; // 打不满目标, 所以只出一手不会收尾
@@ -737,7 +737,7 @@ fn the_hook_discards_two_cards_after_each_hand() {
     plain.start();
     plain.boss_key = Some("bl_window".to_owned());
     plain.blind_on_deck = BlindKind::Boss;
-    plain.select_blind();
+    common::place_blind(&mut plain);
     let discarded_before = plain.discard_pile.len();
     plain.chips = 1.0;
     plain.play(&[0, 1], &EvalEnv::default(), BackEffect::Plain)
@@ -772,7 +772,7 @@ fn blind_tags_are_drawn_once_per_ante() {
     run.end_round();
     run.cash_out().expect("这一回合在结算");
     run.next_round().expect("这一回合有商店");
-    run.select_blind();
+    common::place_blind(&mut run);
     assert_eq!(run.blind_tags[0].as_deref(), Some(small.as_str()));
     assert_eq!(run.blind_tags[1].as_deref(), Some(big.as_str()));
 }
@@ -811,7 +811,7 @@ fn skipping_a_blind_advances_without_counting_a_round() {
     assert_eq!(run.skip_blind(), Err(ActionError::NotAllowed("Boss 不能跳过")));
 
     // 选下去打 Boss, 这一格真打完了才会推进回合数.
-    run.select_blind();
+    common::place_blind(&mut run);
     assert_eq!(run.round, round_before + 1, "真的打了才加回合");
 }
 
@@ -837,7 +837,7 @@ fn start_run_stops_at_blind_select() {
     assert_eq!(run.round, 0, "跳过不加回合");
 
     // 选下去才发牌.
-    run.select_blind();
+    common::place_blind(&mut run);
     assert_eq!(run.phase, Phase::SelectingHand);
     assert_eq!(run.round, 1);
     assert_eq!(run.hand.len(), 8, "发满八张");
@@ -897,7 +897,7 @@ fn juggle_tag_raises_the_hand_limit_for_good() {
     assert_eq!(run.hand_size(), 11, "手牌上限加三");
 
     // 选下去发牌, 真的发出十一张.
-    run.select_blind();
+    common::place_blind(&mut run);
     assert_eq!(run.hand.len(), 11, "发到新上限");
     assert_eq!(run.deck.len(), 41);
 
@@ -906,7 +906,7 @@ fn juggle_tag_raises_the_hand_limit_for_good() {
     run.end_round();
     run.cash_out().expect("这一回合在结算");
     run.next_round().expect("这一回合有商店");
-    run.select_blind();
+    common::place_blind(&mut run);
     assert_eq!(run.hand_size(), 11, "下一回合还是十一张");
     assert_eq!(run.hand.len(), 11);
 }
@@ -935,7 +935,7 @@ fn top_up_tag_spawns_two_common_jokers() {
     // 格子满了就不硬塞.
     let mut full = RunState::new("ALEEB", 8);
     full.start_run();
-    full.joker_slots = 1;
+    full.base_joker_slots = 1;
     full.blind_tags[0] = Some("tag_top_up".to_owned());
     full.skip_blind().expect("跳过小盲注");
     assert_eq!(full.jokers.len(), 1, "只有一个格子就只给一个");
@@ -1076,7 +1076,7 @@ fn voucher_tag_adds_a_second_voucher() {
     run.skip_blind().expect("跳过小盲注");
 
     // 打到进商店.
-    run.select_blind();
+    common::place_blind(&mut run);
     run.chips = 999_999.0;
     run.play(&[0], &balatro_engine::scoring::EvalEnv::default(), balatro_engine::scoring::BackEffect::Plain)
         .expect("能出牌");
@@ -1306,6 +1306,8 @@ fn buffoon_pack_jokers_can_carry_flags() {
             eternal: false,
             perishable: false,
             rental: false,
+            enhancement: None,
+        todo: None,
             cost: 4.0,
         })
         .expect("买下小丑包");
@@ -1507,7 +1509,7 @@ fn burnt_joker_levels_up_only_on_the_first_discard() {
 
     let mut run = RunState::new("ALEEB", 8);
     run.start();
-    run.select_blind();
+    common::place_blind(&mut run);
     run.jokers.push(Joker::new("j_burnt").expect("有这张"));
 
     let pair_before = run.hands.get(balatro_engine::scoring::PokerHand::Pair).level;
@@ -1551,7 +1553,7 @@ fn dna_copies_the_single_card_of_the_first_hand() {
     let total = |with_dna: bool| -> usize {
         let mut run = RunState::new("ALEEB", 8);
         run.start();
-        run.select_blind();
+        common::place_blind(&mut run);
         if with_dna {
             run.jokers.push(Joker::new("j_dna").expect("有这张"));
         }
@@ -1625,7 +1627,9 @@ fn a_long_run_survives_many_antes() {
         }
         match run.phase {
             balatro_engine::run::Phase::GameOver => break,
-            balatro_engine::run::Phase::BlindSelect => run.select_blind(),
+            balatro_engine::run::Phase::BlindSelect => {
+                common::place_blind(&mut run);
+            }
             balatro_engine::run::Phase::SelectingHand => {
                 let cards: Vec<usize> = (0..run.hand.len().min(5)).collect();
                 let _ = run.play(&cards, &env, BackEffect::Plasma);
@@ -1678,7 +1682,7 @@ fn endless_mode_ends_at_ante_39_and_loses_cleanly() {
         run.start();
         run.ante = ante;
         run.blind_on_deck = BlindKind::Small;
-        run.select_blind();
+        common::place_blind(&mut run);
         run
     }
 
@@ -1765,7 +1769,7 @@ fn winning_the_final_boss_marks_the_run_won_and_keeps_going() {
         run.ante = run.win_ante;
         run.blind_on_deck = BlindKind::Boss;
         run.boss_key = Some("bl_final_vessel".to_owned());
-        run.select_blind();
+        common::place_blind(&mut run);
         run
     }
 
@@ -1807,7 +1811,7 @@ fn showdown_bosses_have_their_effects() {
         run.start();
         run.boss_key = Some(key.to_owned());
         run.blind_on_deck = BlindKind::Boss;
-        run.select_blind();
+        common::place_blind(&mut run);
         run
     };
 
@@ -1850,7 +1854,7 @@ fn verdant_leaf_turns_off_when_a_joker_is_sold() {
     run.start();
     run.boss_key = Some("bl_final_leaf".to_owned());
     run.blind_on_deck = BlindKind::Boss;
-    run.select_blind();
+    common::place_blind(&mut run);
     run.jokers.push(Joker::new("j_joker").expect("有这张"));
     assert!(run.hand.iter().all(|card| card.debuffed), "先是全失效");
 
@@ -1887,7 +1891,7 @@ fn disabling_a_blind_undoes_its_target_score() {
         }
         run.boss_key = Some(key.to_owned());
         run.blind_on_deck = BlindKind::Boss;
-        run.select_blind();
+        common::place_blind(&mut run);
         run.blind.as_ref().expect("有盲注").chips
     };
 
@@ -1938,7 +1942,7 @@ fn crimson_heart_never_redebuffs_the_same_joker() {
     run.start();
     run.boss_key = Some("bl_final_heart".to_owned());
     run.blind_on_deck = BlindKind::Boss;
-    run.select_blind();
+    common::place_blind(&mut run);
     for key in ["j_joker", "j_duo", "j_trio", "j_family", "j_sly"] {
         run.jokers.push(Joker::new(key).expect("有这张"));
     }
@@ -2000,7 +2004,7 @@ fn amber_acorn_sorts_the_jokers_before_each_shuffle() {
         }
         run.boss_key = Some("bl_final_acorn".to_owned());
         run.blind_on_deck = BlindKind::Boss;
-        run.select_blind();
+        common::place_blind(&mut run);
         run
     };
 
@@ -2037,7 +2041,7 @@ fn chicot_acquired_mid_round_disables_the_boss() {
     run.start();
     run.boss_key = Some("bl_water".to_owned());
     run.blind_on_deck = BlindKind::Boss;
-    run.select_blind();
+    common::place_blind(&mut run);
     assert_eq!(run.discards_left, 0, "水先按它的规矩把弃牌清零");
     assert!(
         !run.blind.as_ref().expect("有盲注").disabled,
@@ -2063,7 +2067,7 @@ fn cerulean_bell_forces_one_card_into_the_play() {
     run.start();
     run.boss_key = Some("bl_final_bell".to_owned());
     run.blind_on_deck = BlindKind::Boss;
-    run.select_blind();
+    common::place_blind(&mut run);
 
     let forced: Vec<usize> = run
         .hand
@@ -2094,7 +2098,7 @@ fn mail_in_rebate_pays_for_its_rank() {
 
     let mut run = RunState::new("ALEEB", 8);
     run.start();
-    run.select_blind();
+    common::place_blind(&mut run);
     run.jokers.push(Joker::new("j_mail").expect("有这张"));
 
     // 点数直接定成手里第一张牌的点数, 这样一定弃得中.
@@ -2107,7 +2111,7 @@ fn mail_in_rebate_pays_for_its_rank() {
     // 换成一个手里没有的点数: 不给.
     let mut other = RunState::new("ALEEB", 8);
     other.start();
-    other.select_blind();
+    common::place_blind(&mut other);
     other.jokers.push(Joker::new("j_mail").expect("有这张"));
     let hand_rank = other.hand[0].card.rank;
     other.mail_rank = Some(if hand_rank == balatro_engine::cards::Rank::Ace {
@@ -2131,7 +2135,7 @@ fn trading_card_destroys_a_lone_first_discard() {
     let total = |with_joker: bool| -> (usize, f64) {
         let mut run = RunState::new("ALEEB", 8);
         run.start();
-        run.select_blind();
+        common::place_blind(&mut run);
         if with_joker {
             run.jokers.push(Joker::new("j_trading").expect("有这张"));
         }
@@ -2158,7 +2162,7 @@ fn todo_list_pays_and_rerolls_on_a_match() {
 
     let mut run = RunState::new("ALEEB", 8);
     run.start();
-    run.select_blind();
+    common::place_blind(&mut run);
     run.jokers.push(Joker::new("j_todo_list").expect("有这张"));
 
     // 指定成"对子", 再从手里挑两张同点数的牌打出去.
@@ -2195,7 +2199,7 @@ fn hiker_and_midas_mask_change_the_played_cards_themselves() {
 
     let mut run = RunState::new("ALEEB", 8);
     run.start();
-    run.select_blind();
+    common::place_blind(&mut run);
     run.jokers.push(Joker::new("j_hiker").expect("有这张"));
     run.jokers
         .push(Joker::new("j_midas_mask").expect("有这张"));
@@ -2239,7 +2243,7 @@ fn throwback_scales_with_skipped_blinds() {
 
     let mut run = RunState::new("ALEEB", 8);
     run.start();
-    run.select_blind();
+    common::place_blind(&mut run);
     run.jokers.push(Joker::new("j_throwback").expect("有这张"));
     run.skips = 4;
     run.play(&[0], &EvalEnv::default(), BackEffect::Plain)
@@ -2260,7 +2264,7 @@ fn hand_evaluation_jokers_actually_reach_the_evaluator() {
     let play = |with: Option<&str>, back: BackEffect| -> (PokerHand, f64) {
         let mut run = RunState::new("ALEEB", 8);
         run.start();
-        run.select_blind();
+        common::place_blind(&mut run);
         if let Some(key) = with {
             run.jokers.push(Joker::new(key).expect("有这张"));
         }
@@ -2288,7 +2292,7 @@ fn matador_pays_when_the_boss_debuffs_the_hand() {
     run.start();
     run.boss_key = Some("bl_eye".to_owned());
     run.blind_on_deck = BlindKind::Boss;
-    run.select_blind();
+    common::place_blind(&mut run);
     run.jokers.push(Joker::new("j_matador").expect("有这张"));
 
     // 先打一手高牌并记下, 再打同一手 —— 第二次会被眼拦下, 于是斗牛士给钱.
@@ -2310,7 +2314,7 @@ fn observatory_multiplies_for_matching_planets_in_the_consumables() {
     let total = |with_voucher: bool| -> f64 {
         let mut run = RunState::new("ALEEB", 8);
         run.start();
-        run.select_blind();
+        common::place_blind(&mut run);
         if with_voucher {
             run.used_vouchers.insert("v_observatory".to_owned());
         }
@@ -2395,7 +2399,7 @@ fn telescope_puts_the_most_played_hand_planet_first() {
     let first_card_of_celestial_pack = |with_voucher: bool, play_pair: bool| -> String {
         let mut run = RunState::new("ALEEB", 8);
         run.start();
-        run.select_blind();
+        common::place_blind(&mut run);
         if play_pair {
             // 挑两张同点数的打出去, 于是"最常打的牌型"就是对子.
             let pair: Vec<usize> = (0..run.hand.len())
@@ -2484,7 +2488,7 @@ fn blind_select_jokers_create_and_destroy() {
     run.start();
     run.jokers.push(Joker::new("j_riff_raff").expect("有这张"));
     run.blind_on_deck = BlindKind::Small;
-    run.select_blind();
+    common::place_blind(&mut run);
     assert_eq!(run.jokers.len(), 3, "即兴小丑该造两张普通小丑");
 
     // 塔罗师: 造一张塔罗.
@@ -2493,7 +2497,7 @@ fn blind_select_jokers_create_and_destroy() {
     let before = run.consumables.len();
     run.jokers.push(Joker::new("j_cartomancer").expect("有这张"));
     run.blind_on_deck = BlindKind::Small;
-    run.select_blind();
+    common::place_blind(&mut run);
     assert_eq!(run.consumables.len(), before + 1, "塔罗师该造一张塔罗");
 
     // 疯狂: 涨 0.5, 并且销毁一个**别的**小丑.
@@ -2502,7 +2506,7 @@ fn blind_select_jokers_create_and_destroy() {
     run.jokers.push(Joker::new("j_madness").expect("有这张"));
     run.jokers.push(Joker::new("j_joker").expect("有这张"));
     run.blind_on_deck = BlindKind::Small;
-    run.select_blind();
+    common::place_blind(&mut run);
     assert_eq!(run.jokers.len(), 1, "该销毁掉那一个别的");
     assert_eq!(run.jokers[0].key, "j_madness", "留下的是疯狂自己");
     assert!(
@@ -2519,7 +2523,7 @@ fn blind_select_jokers_create_and_destroy() {
     // 卖价 = 买入价的一半向下取整, 最低一元 (与 `sell_price` 同一条公式).
     let sell = (run.jokers[1].cost / 2.0).floor().max(1.0);
     run.blind_on_deck = BlindKind::Small;
-    run.select_blind();
+    common::place_blind(&mut run);
     assert_eq!(run.jokers.len(), 1, "右边那张被销毁");
     assert_eq!(run.jokers[0].key, "j_ceremonial", "留下的是匕首");
     assert_eq!(
@@ -2538,7 +2542,7 @@ fn red_card_mr_bones_and_hallucination() {
     // 红牌: 跳过补充包时涨 3 倍率.
     let mut run = RunState::new("ALEEB", 8);
     run.start();
-    run.select_blind();
+    common::place_blind(&mut run);
     run.jokers.push(Joker::new("j_red_card").expect("有这张"));
     run.phase = Phase::BoosterOpened;
     run.skip_pack().expect("能跳过");
@@ -2548,7 +2552,7 @@ fn red_card_mr_bones_and_hallucination() {
     let mut run = RunState::new("ALEEB", 8);
     run.start();
     run.jokers.push(Joker::new("j_mr_bones").expect("有这张"));
-    run.select_blind();
+    common::place_blind(&mut run);
     run.chips = run.blind.as_ref().expect("有盲注").chips * 0.3;
     run.end_round();
     assert!(
@@ -2588,7 +2592,7 @@ fn swashbuckler_and_diet_cola() {
     // 大摇大摆: 放两张别的小丑, 倍率该是 1 加上它们的卖价之和.
     let mut run = RunState::new("ALEEB", 8);
     run.start();
-    run.select_blind();
+    common::place_blind(&mut run);
     run.jokers.push(Joker::new("j_swashbuckler").expect("有这张"));
     run.jokers.push(Joker::new("j_joker").expect("有这张"));
     run.jokers.push(Joker::new("j_duo").expect("有这张"));
@@ -2619,5 +2623,53 @@ fn swashbuckler_and_diet_cola() {
         run.tags.last().map(String::as_str),
         Some("tag_double"),
         "而且是那个双倍标签"
+    );
+}
+
+/// 轮子 (The Wheel) 每抽一张牌都要掷一次 `pseudorandom(pseudoseed('wheel'))` (`Blind:stay_flipped`).
+///
+/// # 为什么值得单独钉住
+///
+/// 这一掷的**结果**只决定"这张牌进来时背面朝上吗", 而背面只影响画面, 不进 digest ——
+/// 所以回放对拍**永远不会**发现它漏了. 但它是一个真实分支, 键的计数该像游戏一样往前走.
+///
+/// 于是只能直接验"掷了几次": 发一手牌之后, 这个键的取值应当已经推进到"第 (牌数 + 1) 次",
+/// 而不是停在第一次. 少了接线的实现会停在第一次, 这一条就会红.
+///
+/// 验证方式借了"随机数按键独立"这条性质 (见 `luajit_parity.rs::random_keys_are_independent`):
+/// 所以不必关心这一回合还掷过别的什么, 只管 `wheel` 这个键自己走了多少步.
+#[test]
+fn the_wheel_rolls_once_per_card_drawn() {
+    use balatro_engine::rng::Rng;
+    use balatro_engine::run::{BlindKind, RunState};
+
+    let mut wheel = RunState::new("ALEEB", 8);
+    wheel.start_run();
+    wheel.boss_key = Some("bl_wheel".to_owned());
+    wheel.blind_on_deck = BlindKind::Boss;
+    common::place_blind(&mut wheel);
+    let dealt = wheel.hand.len();
+    assert_eq!(dealt, wheel.hand_size(), "开局照常发满");
+
+    // 发完这一手之后再取这个键, 应当拿到"第 dealt + 1 次"的值.
+    //
+    // 第一次单独用一个 Rng 取, 不要与下面的推进入共用一个 —— 共用会把"取第一次"也算成一次推进,
+    // 于是比较的目标整体多一格 (这份测试的第一版就是这么写错的, 红了一次才发现接线其实是对的).
+    let first = Rng::new("ALEEB").pseudorandom("wheel");
+    let mut probe = Rng::new("ALEEB");
+    for _ in 0..dealt {
+        probe.pseudorandom("wheel");
+    }
+    let expected = probe.pseudorandom("wheel");
+    let after_deal = wheel.rng.pseudorandom("wheel");
+
+    assert_ne!(
+        after_deal, first,
+        "发牌之后 wheel 这个键还停在第一次 —— 说明抽牌那一掷根本没接上"
+    );
+    assert!(
+        (after_deal - expected).abs() <= 1e-15 * expected.abs().max(1.0),
+        "发 {dealt} 张牌之后期望第 {} 次的值 {expected}, 得到 {after_deal}",
+        dealt + 1
     );
 }

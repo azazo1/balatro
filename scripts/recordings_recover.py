@@ -35,7 +35,11 @@ GAME_PATTERN = "Balatro-Modded"
 IS_WINDOWS = os.name == "nt"
 
 
-def parse_args():
+def parse_args(argv=None):
+    """解析参数. `argv` 为 None 时用当前进程的命令行 (直接被命令行调用的情况).
+
+    just 那边的 recipe 是 [script] 形式, 参数从 argv 递进来, 所以这里要能收一份现成的.
+    """
     parser = argparse.ArgumentParser(description="扫描录像目录里残留的中间文件并补做合成")
     parser.add_argument("dir", nargs="?", default=os.path.join(layout.ROOT_DIR, "recordings"),
                         help="录像目录, 默认仓库根目录的 recordings/")
@@ -45,7 +49,7 @@ def parse_args():
                         help="游戏在运行时, 中间文件在这么多秒内有变化的局视为正在录制, 默认 30")
     parser.add_argument("--ffmpeg", help="ffmpeg 路径, 默认 $BALATROBOT_FFMPEG 或 PATH 中的 ffmpeg")
     parser.add_argument("-v", "--verbose", action="store_true", help="输出执行的命令等细节")
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def find_ffmpeg(explicit):
@@ -266,8 +270,8 @@ def recover(stem, files, directory, ffmpeg, args):
     return ok
 
 
-def main():
-    args = parse_args()
+def main(argv=None):
+    args = parse_args(argv)
     log.set_verbose(args.verbose)
     directory = os.path.abspath(args.dir)
     if not os.path.isdir(directory):

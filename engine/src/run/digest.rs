@@ -143,7 +143,7 @@ pub fn digest(run: &RunState) -> String {
             jokers
                 .map(|list| list
                     .iter()
-                    .map(|c| token_of(&c.key, c.edition, None, None, c.eternal, c.rental))
+                    .map(|c| token_of(&c.key, c.edition, None, c.enhancement, c.eternal, c.rental))
                     .collect())
                 .unwrap_or_default()
         )
@@ -151,7 +151,7 @@ pub fn digest(run: &RunState) -> String {
     parts.push(format!(
         "vouchers={}",
         voucher
-            .map(|c| token_of(&c.key, c.edition, None, None, c.eternal, c.rental))
+            .map(|c| token_of(&c.key, c.edition, None, c.enhancement, c.eternal, c.rental))
             .unwrap_or_default()
     ));
     parts.push(format!(
@@ -160,7 +160,7 @@ pub fn digest(run: &RunState) -> String {
             packs
                 .map(|list| list
                     .iter()
-                    .map(|c| token_of(&c.key, c.edition, None, None, c.eternal, c.rental))
+                    .map(|c| token_of(&c.key, c.edition, None, c.enhancement, c.eternal, c.rental))
                     .collect())
                 .unwrap_or_default()
         )
@@ -175,6 +175,35 @@ pub fn digest(run: &RunState) -> String {
                     .collect()
             )
         ));
+    }
+    // 待办清单指定要打的牌型. 它放在**所有区域之后**, 而且是按区域顺序收集起来的:
+    // 游戏那边的 `format.lua` 是在遍历区域的同一个循环里顺手把每张牌的 `to_do` 收进一张表,
+    // 循环走完再拼成一段. 牌型名里的空格会被换成下划线 (`Three of a Kind` -> `Three_of_a_Kind`).
+    //
+    // 只有待办清单小丑有这个值, 所以它平时是空的; 但它一旦出现就必须对上 ——
+    // 它是"这张牌被造出来时掷到了哪个牌型"的**唯一**外部证据 (掷骰的位置错了, 这一项会立刻露馅).
+    let mut todos: Vec<String> = Vec::new();
+    for joker in &run.jokers {
+        if let Some(hand) = joker.todo_hand {
+            todos.push(hand.key().replace(char::is_whitespace, "_"));
+        }
+    }
+    if let Some(shop) = run.shop.as_ref() {
+        for card in &shop.jokers {
+            if let Some(hand) = card.todo {
+                todos.push(hand.key().replace(char::is_whitespace, "_"));
+            }
+        }
+    }
+    if let Some(pack) = run.open_pack.as_ref() {
+        for card in &pack.contents {
+            if let Some(hand) = card.todo {
+                todos.push(hand.key().replace(char::is_whitespace, "_"));
+            }
+        }
+    }
+    if !todos.is_empty() {
+        parts.push(format!("todo={}", todos.join(",")));
     }
     parts.join(" ")
 }

@@ -1,0 +1,129 @@
+# shop_card
+case	ALEEB	1	28	24	28	false	4
+s1	card=false	enhanced=false
+s2	card=false	enhanced=false
+s3	card=false	enhanced=false
+s4	card=false	enhanced=false
+illusion_rolls	0
+--
+case	ALEEB	1	28	24	28	true	4
+s1	card=false	enhanced=false
+s2	card=false	enhanced=false
+s3	card=false	enhanced=false
+s4	card=false	enhanced=false
+illusion_rolls	4
+--
+case	ALEEB	1	28	0	28	true	6
+s1_front	0.9092040699436823
+s1_want	0.49681708699440708
+s1_which	0.15328987713241182
+s1	card=true	enhanced=false
+s2_front	0.84579667444492013
+s2_want	0.13820841132990491
+s2_which	0.2795559097946998
+s2	card=true	enhanced=false
+s3_front	0.46379994351010523
+s3_want	0.23771489780021815
+s3_which	0.34144665385122241
+s3	card=true	enhanced=false
+s4_front	0.97785231825244701
+s4_want	0.4976755611157575
+s4_which	0.25843374527975072
+s4	card=true	enhanced=false
+s5_pool	0.52386122690914316
+s5_front	0.089665347276998819
+s5_want	0.27873113761283053
+s5_which	0.47178522541354551
+s5	card=true	enhanced=true
+s6_pool	0.49601586048760327
+s6_front	0.50231314666517446
+s6_want	0.85953020835834226
+s6_which	0.46077972409472823
+s6	card=true	enhanced=true
+illusion_rolls	18
+--
+case	SEED2	1	28	0	28	true	6
+s1_pool	0.69071732984247292
+s1_front	0.67012190826738349
+s1_want	0.85532217233902963
+s1_which	0.61181320049538868
+s1	card=true	enhanced=true
+s2_front	0.20785121802067752
+s2_want	0.41499334633522289
+s2_which	0.17829489976870083
+s2	card=true	enhanced=false
+s3_front	0.29599679518335487
+s3_want	0.66171197503103807
+s3_which	0.34398542264744303
+s3	card=true	enhanced=false
+s4_front	0.11782500581668498
+s4_want	0.83674572087567145
+s4_which	0.76494652308105637
+s4	card=true	enhanced=false
+s5_front	0.7076247897777348
+s5_want	0.78120021296637088
+s5_which	0.20267272592244101
+s5	card=true	enhanced=false
+s6_front	0.04633753864335155
+s6_want	0.058520718862947074
+s6_which	0.19438874690355146
+s6	card=true	enhanced=false
+illusion_rolls	18
+--
+case	SEED3	2	28	0	28	true	6
+s1_front	0.086965702215803242
+s1_want	0.06419893405762811
+s1_which	0.78522880802574968
+s1	card=true	enhanced=false
+s2_front	0.90017910190014527
+s2_want	0.5075744595389502
+s2_which	0.78421814796180311
+s2	card=true	enhanced=false
+s3_front	0.1389889319354003
+s3_want	0.28124379549182432
+s3_which	0.78867102246410048
+s3	card=true	enhanced=false
+s4_front	0.86313885787816402
+s4_want	0.45162633248860784
+s4_which	0.51930594092003757
+s4	card=true	enhanced=false
+s5_front	0.61874672022399357
+s5_want	0.38401395926827386
+s5_which	0.30761090590300499
+s5	card=true	enhanced=false
+s6_pool	0.69682350712044361
+s6_front	0.64350845790539513
+s6_want	0.1284316402485941
+s6_which	0.52038002634767455
+s6	card=true	enhanced=true
+illusion_rolls	18
+--
+case	12345	3	28	0	28	true	6
+s1_pool	0.86217323163628024
+s1_front	0.73280563597287252
+s1_want	0.98226943811926115
+s1_which	0.44845070976728185
+s1	card=true	enhanced=true
+s2_front	0.28042970804667067
+s2_want	0.76433590770310667
+s2_which	0.033764109841738499
+s2	card=true	enhanced=false
+s3_front	0.68413615679915574
+s3_want	0.71106402124372492
+s3_which	0.080190215842034229
+s3	card=true	enhanced=false
+s4_front	0.30517756647176508
+s4_want	0.26651624664180695
+s4_which	0.9115252483893439
+s4	card=true	enhanced=false
+s5_pool	0.55053438081028649
+s5_front	0.77249685960811787
+s5_want	0.84896967864674866
+s5_which	0.19359601419803796
+s5	card=true	enhanced=true
+s6_front	0.18911279175621343
+s6_want	0.74798254796017427
+s6_which	0.84134730217447129
+s6	card=true	enhanced=false
+illusion_rolls	18
+--

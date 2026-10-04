@@ -43,9 +43,9 @@ pub fn apply(run: &mut RunState, key: &str) {
         // 油漆刷 / 调色板: 手牌上限各加一张.
         "v_paint_brush" | "v_palette" => run.hand_size_bonus += 1,
         // 水晶球: 多一个消耗牌格子.
-        "v_crystal_ball" => run.consumable_slots += 1,
+        "v_crystal_ball" => run.base_consumable_slots += 1,
         // 反物质: 多一个小丑格子. 空白券本身什么也不做 (它只是反物质的前置).
-        "v_antimatter" => run.joker_slots += 1,
+        "v_antimatter" => run.base_joker_slots += 1,
         "v_blank" => {}
         // 打磨 / 焕彩: 商店出版本的频率.
         "v_hone" | "v_glow_up" => run.edition_rate = extra,

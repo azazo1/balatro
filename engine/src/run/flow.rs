@@ -177,7 +177,18 @@ impl RunState {
     ///
     /// 洗牌用的键是 `'nr'..底注`; 底注不变时两个回合会用到同一个键, 而 `pseudoseed` 是递推的,
     /// 所以第二次调用给出的是另一组结果 —— 每个回合都能洗出新牌序靠的就是这个.
-    pub fn select_blind(&mut self) {
+    ///
+    /// **只在选盲注阶段能做** —— 端点的 `requires_state` 就是 `BLIND_SELECT`.
+    /// 少了这一条, 在商店或开包时调它会"成功地"把下一个盲注摆上: 引擎多走了一步,
+    /// 而游戏那边会拒绝, 于是从那一步起两边的阶段就错开了.
+    /// (XXWF71H9 那份录像第 40 步就是这么露出来的: 商店里连着来了个 `select`.)
+    pub fn select_blind(&mut self) -> Result<(), ActionError> {
+        if self.phase != Phase::BlindSelect {
+            return Err(ActionError::NotInPhase {
+                expected: Phase::BlindSelect,
+                actual: self.phase,
+            });
+        }
         self.round += 1;
         // 先把上一回合的牌全收回牌堆 —— 正常流程里 `end_round` 已经收过了, 但直接调
         // `select_blind` (换底注, 或测试) 时牌还在出牌区与弃牌堆里. 后面几个按牌生效的
@@ -205,6 +216,8 @@ impl RunState {
         self.hands_left = self.hands_per_round;
         self.discards_left = self.discards_per_round;
         self.discards_used = 0;
+        // 盲注从这一刻起生效, 到这一回合结束为止 (对应 `Blind:set_blind` 里 Steamodded 那句).
+        self.in_blind = true;
         // 眼与嘴限的是"这一回合打过的牌型", 每回合重新算.
         self.round_hand_types.clear();
         // 上一回合的削弱是"仅本盲注"的, 先全部清掉再按这一回合的 Boss 重判.
@@ -387,6 +400,7 @@ impl RunState {
         // 发完牌之后是"回合开始"那些小丑的时机 (`context.first_hand_drawn`).
         self.apply_round_start_jokers();
         self.phase = Phase::SelectingHand;
+        Ok(())
     }
 
     /// 回合开始时触发的小丑, 对应 `context.first_hand_drawn`.
@@ -406,7 +420,7 @@ impl RunState {
         // 即兴小丑: 有空位就造两张**普通**小丑 (追加键 `rif`).
         let blind_ok = !self.blind.as_ref().is_some_and(|blind| blind.disabled);
         if keys.iter().any(|(key, _)| key == "j_riff_raff") && blind_ok {
-            let room = self.joker_slots.saturating_sub(self.jokers.len());
+            let room = self.joker_capacity().saturating_sub(self.jokers.len());
             for _ in 0..room.min(2) {
                 if let Some(key) = super::shop::pick_joker_of_rarity(self, 1, "rif", false)
                     && let Some(joker) = Joker::new(&key)
@@ -418,7 +432,7 @@ impl RunState {
 
         // 塔罗师: 消耗槽有空位就造一张塔罗 (追加键 `car`).
         if keys.iter().any(|(key, _)| key == "j_cartomancer")
-            && self.consumables.len() < self.consumable_slots
+            && self.consumables.len() < self.consumable_capacity()
         {
             let key = super::shop::create_card(self, "Tarot", "car");
             self.consumables
@@ -579,7 +593,7 @@ impl RunState {
     /// 要按游戏的真实节奏走 (例如第一个盲注就想跳过) 就用 `start_run`.
     pub fn start(&mut self) {
         self.start_run();
-        self.select_blind();
+        self.select_blind().expect("在选盲注阶段");
     }
 
     /// 抽这一底的两个标签: 跳过小盲注与大盲注分别能拿到的.
@@ -666,12 +680,28 @@ impl RunState {
     ///
     /// 游戏钩的是 `context.playing_card_added` —— 也就是"牌进了牌堆"这件事本身,
     /// 所以这里把所有"加牌进牌堆"的地方都收成同一个入口, 免得以后又加一处忘了喂它.
+    ///
+    /// # 插到**牌堆底**, 不是牌堆顶
+    ///
+    /// 牌堆这一侧的 `emplace` 是特例: `CardArea:emplace` 写的是
+    /// `if location == 'front' or self.config.type == 'deck' then table.insert(self.cards, 1, card)`,
+    /// 而 `G.deck.config.type` 就是 `'deck'` —— 所以进牌堆的牌一律**插到数组头部**;
+    /// 而抽牌 (`remove_card`) 取的是**尾部**. 两下一合: **新牌落在牌堆最底下, 最后才抽到**.
+    ///
+    /// 这条语义在别处已经对齐过 (收弃牌回牌堆、标准包取出的牌都按它写), 但这里原来写的是
+    /// `push` —— 那等于插到**牌堆顶**, 于是"这一回合刚加的牌"会在下一次补牌时**立刻**被抽上来.
+    /// 实测确认过差别: 有大理石时 `push` 那一版补一手牌就摸到了那张石头牌.
+    ///
+    /// **录像抓不到这一条**: 十九份录像里大理石**只在货架上出现过, 一次都没进过队**,
+    /// 所以它的效果从没触发过. 这类"实现了但没被录到"的分支只能靠读源码定, 并且由单测钉住
+    /// (见 `tests/jokers.rs` 里那条"新加的牌在牌堆最底下").
     fn add_playing_card_to_deck(&mut self, card: crate::cards::CardInstance) {
-        self.deck.push(card);
+        self.deck.insert(0, card);
         for joker in self.jokers.iter_mut() {
             if joker.key == "j_hologram" && !joker.debuffed {
                 joker.x_mult += 0.25;
-            }        }
+            }
+        }
     }
 
     /// 复制一张牌, 给它**新的建牌序号** —— 对应游戏的 `copy_card`.
@@ -827,7 +857,7 @@ impl RunState {
             "tag_top_up" => {
                 let count = tag_config_number(key, "spawn_jokers") as i64;
                 for _ in 0..count {
-                    if self.jokers.len() >= self.joker_slots {
+                    if self.jokers.len() >= self.joker_capacity() {
                         break;
                     }
                     if let Some(picked) = super::shop::pick_joker_of_rarity(self, 1, "top", false)
@@ -977,13 +1007,57 @@ impl RunState {
     }
 
     /// 从牌堆末尾抽一张到手牌. 牌堆空了返回 `false`.
+    ///
+    /// 每抽一张都要问一次"这张牌进来时背面朝上吗" (`Blind:stay_flipped`), 因为**轮子 (The Wheel)
+    /// 在那一问里掷骰**: 它的规则是"每张抽进来的牌有 1/7 概率背面朝上", 写法就是
+    /// `pseudorandom(pseudoseed('wheel')) < G.GAME.probabilities.normal/7`.
+    ///
+    /// # 这一掷为什么在 digest 上看不出来 (但还是要照掷)
+    ///
+    /// 它**不会**让别的掷骰错位 —— 游戏的 `pseudorandom` 是**按键独立**的: 每次调用先
+    /// `pseudoseed(键)` (只读这个键自己的计数与开局的种子) 再 `math.randomseed`, 于是任意两个键
+    /// 的序列互不影响. 实测 (LuaJIT 与本引擎一致): 先连掷 8 次 `wheel` 再掷 `joker`, 与直接掷
+    /// `joker` 得到的是同一个数.
+    ///
+    /// 而 `'wheel'` 这个键**只在这一处**被用到 (`game/blind.lua` 里仅此一次), 背面本身又只影响
+    /// 画面 (不吃计分, 也不进 digest —— 见 `token_of`). 所以这一掷目前**没有任何可观测效果**.
+    ///
+    /// 仍然照掷的理由: 它是 `stay_flipped` 的一个真实分支, 键的计数该像游戏一样往前走;
+    /// 哪天引擎要暴露"哪些牌是背面"(agent 看不到的牌)这块状态, 图案就得来自它.
+    /// 值本身已经与真 LuaJIT 对拍过 (见 `tests/luajit_parity.rs` 的 wheel 段).
+    ///
+    /// 另外三个"背面"Boss 不掷骰, 所以这里不需要为它们做什么:
+    /// - 房子 (The House): 这一回合第一次抽牌才背面, 判据是"还没出过牌也没弃过牌";
+    /// - 记号 (The Mark): 人头牌背面, 判据是牌自己;
+    /// - 鱼 (The Fish): 每次出牌之后抽的都是背面, 判据是一个"准备好了"的标志.
+    ///
+    /// 至于**造牌**进手牌 (证书小丑, 熟悉的幻灵, 藏头诗的幻灵那种) 不走这里 —— 游戏那边它们
+    /// 是 `create_playing_card(..., G.hand, ...)` 直接放的, 不经过 `draw_card`, 自然也不问这一句.
     fn draw_one(&mut self) -> bool {
         match self.deck.pop() {
             Some(card) => {
+                // 掷在放牌**之前** —— 游戏里 `stay_flipped` 也是先问、再 `emplace`.
+                self.roll_stay_flipped();
                 self.hand.push(card);
                 true
             }
             None => false,
+        }
+    }
+
+    /// 抽牌时那一问 (`Blind:stay_flipped`). 只有轮子会在里面掷骰, 所以只有它需要照做.
+    ///
+    /// 盲注被停用 (翠叶卖小丑, 或奇可) 时不掷 —— 游戏那句是 `if not self.disabled then`.
+    /// 也不在**回合之外**掷: 盲注打赢的那一刻就被清空了 (`Blind:defeat` 里把名字置成空串),
+    /// 所以商店里开包补的那一手不掷 (详见 `RunState::in_blind`).
+    fn roll_stay_flipped(&mut self) {
+        let wheel = self.in_blind
+            && self
+                .blind
+                .as_ref()
+                .is_some_and(|blind| blind.key == "bl_wheel" && !blind.disabled);
+        if wheel {
+            let _ = self.rng.pseudorandom("wheel");
         }
     }
 
@@ -1028,10 +1102,14 @@ impl RunState {
 
         // 蛇 (The Serpent): 出过牌或弃过牌之后, 每次都**只抽三张** (牌堆不够就抽多少算多少),
         // 而不是把手牌补满. 开局的发牌不受影响 —— 那时这一回合还没出过牌也没弃过牌.
-        let serpent = self
-            .blind
-            .as_ref()
-            .is_some_and(|blind| blind.key == "bl_serpent" && !blind.disabled)
+        //
+        // 前提是**正在这个盲注里** (`in_blind`): 它的效果不管商店里发生的事 ——
+        // 商店里开秘术包会补满一手, 而不是三张 (XXWF71H9 第 167 步).
+        let serpent = self.in_blind
+            && self
+                .blind
+                .as_ref()
+                .is_some_and(|blind| blind.key == "bl_serpent" && !blind.disabled)
             && (!self.round_hand_types.is_empty() || self.discards_used > 0);
         if serpent {
             for _ in 0..self.deck.len().min(3) {
@@ -1273,7 +1351,7 @@ impl RunState {
             .filter(|card| card.seal == Some(Seal::Purple))
             .count();
         for _ in 0..purple {
-            if self.consumables.len() >= self.consumable_slots {
+            if self.consumables.len() >= self.consumable_capacity() {
                 break;
             }
             let key = super::shop::create_card(self, "Tarot", "8ba");
@@ -1339,7 +1417,7 @@ impl RunState {
         env.probability_extra = self.probability_scale - 1.0;
         // 消耗槽还剩几个位子也要传 —— 八号球那类"计分中造牌"的小丑是**先看位子再掷骰**,
         // 位子数传不进去的话它们会以为槽是满的, 于是永远不掷 (这个坑刚踩过一次).
-        env.consumable_room = self.consumable_slots.saturating_sub(self.consumables.len());
+        env.consumable_room = self.consumable_capacity().saturating_sub(self.consumables.len());
         env.idol_card = self.idol_card;
         // 帕瑞多利亚: 人人都是人头牌 —— 计分那一层也要知道.
         if active("j_pareidolia") {
@@ -1404,7 +1482,7 @@ impl RunState {
         env.dollars = self.dollars;
         env.deck_len = self.deck.len();
         env.discards_used = self.discards_used;
-        env.joker_slots = self.joker_slots;
+        env.joker_capacity = self.joker_capacity();
         // 整副牌的几项计数. 口径是游戏的 `G.playing_cards` —— **还活着**的全部牌:
         // 牌堆 + 手牌 + 弃牌堆 + 刚打出去的那几张 (那几张这时在 `taken` 里, 不在任何区).
         // 石头小丑 / 侵蚀 / 驾照都看它们.
@@ -1554,7 +1632,7 @@ impl RunState {
         let sixth_sense_fires = first_hand_of_round
             && taken.len() == 1
             && taken[0].card.rank == Rank::Six
-            && self.consumables.len() < self.consumable_slots
+            && self.consumables.len() < self.consumable_capacity()
             && self
                 .jokers
                 .iter()
@@ -1619,7 +1697,8 @@ impl RunState {
             let held: Vec<_> = self.hand.iter().map(CardInstance::to_hand_card).collect();
             // 骰子也交进去: 幸运牌 / 血石 / 生意那几张要在算分过程里掷.
             // 走**带造牌家当**那条入口: 八号球那类会在计分过程中造一张消耗牌,
-            // 而造牌自己也要掷骰, 必须在计分那一步照原样掷, 否则随机序列就错开了.
+            // 而造牌自己也要掷骰 (键 `spe_card` 那几条), 必须在计分那一步照原样掷,
+            // 否则**该造出来的那张**会不一样.
             // 造完之后把"用过哪些"并回运行状态.
             let mut creation = super::shop::creation_from(self);
             let result = crate::scoring::score_play_with_creation(
@@ -1822,6 +1901,11 @@ impl RunState {
     ///
     /// 小丑的 `end_of_round` 救场, 租金与易腐倒计时都还没做, 所以这里只有"分数够不够"这一条.
     pub fn end_round(&mut self) {
+        // 这一回合的盲注到此为止 —— 游戏里盲注是**在打赢那一刻就被清空的**
+        // (`Blind:defeat()` 收尾的 `set_blind(nil, nil, true)` 把 `name` 置成空串),
+        // 于是"回合之间 (商店 / 开包)"不再有任何生效的盲注. 引擎保留盲注对象 (结算要读目标分数),
+        // 所以用一个标志表达同一件事. 详细缘由见 `RunState::in_blind`.
+        self.in_blind = false;
         // 手牌效果先跑 —— 蓝封生成的行星牌要用 `last_hand_played`, 而收牌与换手牌都不改它.
         let hand_dollars = self.end_of_round_hand_effects();
         let passed = self.reached_target();
@@ -1839,7 +1923,7 @@ impl RunState {
 
         // 流浪汉: 回合结束时, 钱不多的化就给一张塔罗 (`create_card('Tarot', ..., 'vag')`).
         if self.dollars <= 4.0
-            && self.consumables.len() < self.consumable_slots
+            && self.consumables.len() < self.consumable_capacity()
             && self
                 .jokers
                 .iter()
@@ -1966,7 +2050,7 @@ impl RunState {
             scoring: &[],
             held: &[],
             full_hand_len: 0,
-            joker_slots: self.joker_slots,
+            joker_capacity: self.joker_capacity(),
             stencil_count: 0,
             hands_left: self.hands_left,
             discards_left: self.discards_left,
@@ -1980,7 +2064,7 @@ impl RunState {
                 .iter()
                 .any(|joker| joker.key == "j_pareidolia" && !joker.debuffed),
             probability_extra: self.probability_scale - 1.0,
-            consumable_room: self.consumable_slots.saturating_sub(self.consumables.len()),
+            consumable_room: self.consumable_capacity().saturating_sub(self.consumables.len()),
             deck_len: self.deck.len(),
             deck_total: 0,
             deck_stones: 0,
@@ -2043,7 +2127,7 @@ impl RunState {
             }
             // 蓝封: 消耗槽有空位时给一张行星牌.
             if seal == Some(Seal::Blue)
-                && self.consumables.len() < self.consumable_slots
+                && self.consumables.len() < self.consumable_capacity()
                 && let Some(played) = self.last_hand_played
                 && let Some(key) = planet_for_hand(played)
             {
@@ -2271,7 +2355,7 @@ impl RunState {
                 } else {
                     (3, "wra")
                 };
-                if self.jokers.len() < self.joker_slots {
+                if self.jokers.len() < self.joker_capacity() {
                     let new = self.create_joker_of_rarity(rarity, append);
                     if let Some(joker) = new {
                         self.add_joker(joker);
@@ -2304,7 +2388,7 @@ impl RunState {
                     .map(|(_, joker)| joker)
                     .collect();
                 // 复制品排在最后, 顺序与"留下的那些"一致.
-                if self.jokers.len() < self.joker_slots {
+                if self.jokers.len() < self.joker_capacity() {
                     self.add_joker(copy);
                 }
             }
@@ -2494,7 +2578,7 @@ impl RunState {
                 // 所以**不能占着格子**: 槽位 2、手上 2 张(含它自己)时要能造满 2 张.
                 // 少了这一条, 高女祭司只会造出一张行星 (整局对拍里第 41 步就是这么差的).
                 let room = self
-                    .consumable_slots
+                    .consumable_capacity()
                     .saturating_sub(self.consumables.len().saturating_sub(1));
                 for _ in 0..want.min(room) {
                     let new = super::shop::create_card(self, kind, append);
@@ -2504,7 +2588,7 @@ impl RunState {
             }
             // 审判: 白送一张小丑.
             "c_judgement" => {
-                if self.jokers.len() < self.joker_slots {
+                if self.jokers.len() < self.joker_capacity() {
                     let key = super::shop::create_card(self, "Joker", "jud");
                     if let Some(joker) = Joker::new(&key) {
                         self.add_joker(joker);
@@ -2567,7 +2651,7 @@ impl RunState {
                 let last = self.last_tarot_planet.clone();
                 if let Some(last) = last
                     && last != "c_fool"
-                    && self.consumables.len() < self.consumable_slots + 1
+                    && self.consumables.len() < self.consumable_capacity() + 1
                 {
                     self.consumables
                         .push(super::consumable::Consumable::plain(last));
@@ -2793,10 +2877,10 @@ impl RunState {
                 picked.edition,
             ));
         } else if key.starts_with("j_") {
-            if self.jokers.len() >= self.joker_slots {
+            if self.jokers.len() >= self.joker_capacity() {
                 return Err(ActionError::NoRoom {
                     what: "小丑",
-                    slots: self.joker_slots,
+                    slots: self.joker_capacity(),
                 });
             }
             let mut joker = Joker::new(&key).ok_or(ActionError::UnknownCard(key.clone()))?;
@@ -2805,6 +2889,10 @@ impl RunState {
             joker.edition = picked.edition;
             joker.eternal = picked.eternal;
             joker.rental = picked.rental;
+            // 待办清单的牌型在包里那张牌被**造出来**时就掷好了, 取的时候一路带过来.
+            if key == "j_todo_list" {
+                joker.todo_hand = picked.todo;
+            }
             if picked.perishable {
                 joker.perish_tally = PERISHABLE_ROUNDS;
             }
@@ -2815,13 +2903,6 @@ impl RunState {
                 && let Some(last) = self.jokers.last_mut()
             {
                 last.mult = self.tarots_used as f64;
-            }
-            // 待办清单在**造出来**那一刻就掷一次指定的牌型 (游戏的 `set_ability`, 键 `to_do`).
-            if key == "j_todo_list" {
-                let rolled = super::shop::roll_todo(&mut self.rng, &self.hands, None);
-                if let Some(last) = self.jokers.last_mut() {
-                    last.todo_hand = Some(rolled);
-                }
             }
             apply_joker_on_gain(self, &key, current);
         } else {
@@ -2931,7 +3012,7 @@ impl RunState {
                 .map(|(_, joker)| joker.key.clone())
                 .collect();
             // 游戏那边的条件写的是 `#G.jokers.cards <= card_limit`, 也就是**卖掉之前**还有位子.
-            if !others.is_empty() && self.jokers.len() <= self.joker_slots {
+            if !others.is_empty() && self.jokers.len() <= self.joker_capacity() {
                 let picked = self.rng.pick(&others, "invisible").clone();
                 if let Some(source) = self.jokers.iter().find(|joker| joker.key == picked).cloned()
                     && let Some(mut copy) = Joker::new(&picked)
@@ -3139,10 +3220,15 @@ impl RunState {
                 // 整局对拍里第 52 步买完券、第 57 步进商店时就是这么差的.
                 self.shop_vouchers.clear();
                 self.voucher_spent = true;
-                // "库存过剩"这类券会**当场**把货架多摆一件出来 (游戏里 `shop.joker_max` 加一之后,
-                // 商店立刻补一张). 少了这一步, 买完之后货架还是原来那两格 ——
-                // 整局对拍里第 52 步就是这么差的.
-                self.top_up_shelf();
+                // **只有"库存过剩"那两张券**会当场把货架多摆一件: 游戏里那两张各有一句
+                // `change_shop_size(1)`, 而那个函数把 `joker_max` 加一之后才把货架补到新的上限.
+                //
+                // 不能"买完券就补一次" —— 货架因为**买走东西**而少于上限时是不补的:
+                // XXWF71H9 第 81 步买的是别的券, 货架上前一步刚买走一张小丑只剩一格,
+                // 无条件补货会让它变回两格, 而游戏那边一直只有一格.
+                if matches!(key, "v_overstock_norm" | "v_overstock_plus") {
+                    self.top_up_shelf();
+                }
             }
             // 补充包买下会立刻打开, 包里的牌当场定下来, 然后进"挑牌"状态.
             key if key.starts_with("p_") => {
@@ -3160,11 +3246,18 @@ impl RunState {
                 return Ok(cost);
             }
             key => {
+                // 位子够不够看的是游戏的 `G.FUNCS.check_for_buy_space`, 它写的是
+                // `#G.jokers.cards < G.jokers.config.card_limit + ((card.edition and card.edition.negative) and 1 or 0)` ——
+                // **正在买的这张**如果是负片, 就多给一个位子: 它一进队就会把上限抬高一格
+                // (见 `Card:add_to_deck`), 所以"队里 5 张、上限 5"时照样买得下第 6 张负片小丑.
+                // 少了这半句, 引擎会在游戏点头的地方报"没位置" —— XXWF71H9 第 78 步就是这样:
+                // 队里 5 张小丑, 商店那张色欲小丑是负片版, 游戏让买, 引擎不让.
+                let extra_room = usize::from(card.edition == Some(crate::cards::Edition::Negative));
                 if is_consumable(key) {
-                    if self.consumables.len() >= self.consumable_slots {
+                    if self.consumables.len() >= self.consumable_capacity() + extra_room {
                         return Err(ActionError::NoRoom {
                             what: "消耗牌",
-                            slots: self.consumable_slots,
+                            slots: self.consumable_capacity(),
                         });
                     }
                     // 商店里买下的消耗牌也**带上它的版本**.
@@ -3172,11 +3265,29 @@ impl RunState {
                         key.to_owned(),
                         card.edition,
                     ));
+                } else if is_playing_card_key(key) {
+                    // **扑克牌进牌堆, 不进小丑区** —— 游戏里那一段写的是
+                    // `if c1.ability.set == 'Default' or c1.ability.set == 'Enhanced' then ... G.deck:emplace(c1)`.
+                    // 少了这一支, 买扑克牌会被当成小丑去查原型表, 报 `UnknownCard`
+                    // (而这是幻象券 / 魔法把戏券开了之后**每一局**都会遇到的操作).
+                    //
+                    // 顺序也要紧: 强化与版本一起带过去, 而且新的牌要拿一个**新的建牌序号**
+                    // (`G.playing_card` 那个全局计数), 否则它插进牌堆的位置会跟游戏不同.
+                    //
+                    // 走 `add_playing_card_to_deck` 而不是自己插 —— 游戏在 `G.deck:emplace` 之后紧跟
+                    // 一句 `playing_card_joker_effects({c1})` (也就是 `playing_card_added` 这个钩子,
+                    // 全息图靠它涨乘倍率). 自己插会漏掉这个钩子, 而且插入位置那条特例也重复写了一遍.
+                    let mut instance = crate::cards::CardInstance::from_key(key)
+                        .ok_or(ActionError::UnknownCard(key.to_owned()))?;
+                    instance.enhancement = card.enhancement;
+                    instance.edition = card.edition;
+                    instance.card.sort_id = self.next_sort_id();
+                    self.add_playing_card_to_deck(instance);
                 } else {
-                    if self.jokers.len() >= self.joker_slots {
+                    if self.jokers.len() >= self.joker_capacity() + extra_room {
                         return Err(ActionError::NoRoom {
                             what: "小丑",
-                            slots: self.joker_slots,
+                            slots: self.joker_capacity(),
                         });
                     }
                     let mut joker = Joker::new(key).ok_or(ActionError::UnknownCard(key.to_owned()))?;
@@ -3193,6 +3304,10 @@ impl RunState {
                     if card.perishable {
                         joker.perish_tally = PERISHABLE_ROUNDS;
                     }
+                    // 待办清单的牌型在货架上就掷好了 (见 `ShopCard::todo`), 买下来一路带着.
+                    if key == "j_todo_list" {
+                        joker.todo_hand = card.todo;
+                    }
                     let current = joker.extra;
                     self.add_joker(joker);
             // 占卜师: 它算的是"本赛局用过几张塔罗", 所以进队时要取全局现值, 而不是从 0 起.
@@ -3201,12 +3316,6 @@ impl RunState {
             {
                 last.mult = self.tarots_used as f64;
             }
-                    if key == "j_todo_list" {
-                        let rolled = super::shop::roll_todo(&mut self.rng, &self.hands, None);
-                        if let Some(last) = self.jokers.last_mut() {
-                            last.todo_hand = Some(rolled);
-                        }
-                    }
                     // 有几张小丑买进来就改规则, 这里统一处理.
                     apply_joker_on_gain(self, key, current);
                 }
@@ -3219,6 +3328,17 @@ impl RunState {
         }
         Ok(cost)
     }
+}
+
+/// 这张货架上的牌是不是**扑克牌** (拿 `C_T` 这种记号), 而不是小丑 / 消耗牌 / 券 / 包.
+///
+/// 判据就用"能不能按记号建出牌来": 记号的形状是 `花色_点数`, 而小丑 (`j_`) / 消耗牌 (`c_`) /
+/// 券 (`v_`) / 包 (`p_`) 的首段都不是花色字符, 所以这个判据不会认错.
+///
+/// 这类牌买下来进**牌堆** (`G.deck:emplace`), 与小丑 / 消耗牌的落点不同 —— 见
+/// `place_purchase` 里那一支.
+fn is_playing_card_key(key: &str) -> bool {
+    crate::cards::CardInstance::from_key(key).is_some()
 }
 
 /// 塔罗与行星属于消耗牌, 买下进消耗槽而不是小丑槽.
