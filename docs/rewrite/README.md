@@ -46,6 +46,65 @@ BBDUMP=1 BBDUMP_DIR="$PWD/recordings/dumps" just macos run-agent
 就写, 因为"环境变量没传到游戏进程"与"mod 没加载"是两回事, 只看 dump 文件区分不出来.
 详细说明见 [mods/bbdump/main.lua](../mods/bbdump/main.lua) 的文件头.
 
+## 反向对拍
+
+上面那张表都是"引擎跟着已有数据走". 反向对拍反过来: **让 agent 在引擎里把一局打完, 再把这局
+交给真游戏重放**, 由游戏逐步核对引擎写下的摘要. 游戏是裁判, 引擎是被告.
+
+```shell
+# 1. agent 逐步对局: 每次调用把动作文件从头重放一遍, 打印局面与可选动作
+engine/target/release/examples/play --seed AGENT2 --deck RED --stake GOLD \
+    --actions .tmp/agent/AGENT2.actions.jsonl
+# 2. 过程中 agent 自己看局面决定下一步 (动作先执行, 成功了才落盘)
+engine/target/release/examples/play --seed AGENT2 ... --do '{"method":"play","params":{"cards":[1,2,3]}}'
+# 3. 导出成游戏能回放的文件, 每步带引擎预测的摘要
+engine/target/release/examples/play --seed AGENT2 ... --emit .tmp/agent/AGENT2.replay.json
+# 4. 游戏重放并逐步比对. 退出码 0 = 全过, 1 = 跑偏 (会指出哪一步哪一项)
+just macos replay .tmp/agent/AGENT2.replay.json tight
+```
+
+`play` 每次调用都把动作文件**从头重放**再打印局面, 所以一步就是一次独立命令: 不需要常驻进程,
+中途断开也不怕. 动作先执行成功了才写进文件, 被拒绝的动作不污染历史.
+
+游戏侧要跑到能用的速度, 有两处得先设好 —— **只设一处没用**:
+
+- 存档 `~/Library/Application Support/Balatro-Replay/settings.jkr` 的 `GAMESPEED` (裸 deflate 的
+  Lua 表字面量, `zlib.decompress(data, -15)`).
+- 回放文件 `snapshot.settings.GAMESPEED`. 开始回放时会用它覆盖游戏当前设置
+  (`snapshot.lua` 的 `SETTING_KEYS` 与 `M.apply`), 所以**存档改成 4 也会被快照盖回 1**.
+  导出处因此固定写 4, 见 `play.rs` 的 `snapshot_of`.
+
+实测 (同一局 73 步, 一次出牌): 1 倍速 11539ms, 4 倍速 4132ms, 整局 45s -> 24s. 倍率只影响动画
+快慢, 不改任何状态, 逐步比对的摘要因此不受影响.
+
+这一轮由它抓出三处不一致, 都是**光读代码看不出来**的:
+
+- **摘要里商店三项的出现时机**. 游戏的 `G.UIDEF.shop()` 建出 `G.shop_jokers` / `shop_vouchers` /
+  `shop_booster` 之后再没有把它们置回 nil, 所以 `shop` / `vouchers` / `packs` 三项在**首次进商店
+  之前整段不出现**, 之后一直出现 (不逛商店时是空的). 引擎原来不管阶段总是写空值, 于是回放第一步
+  就被判不一致. 之所以长期没发现, 是因为 `engine/tests/dump_replay.rs` 只做**单向**比较
+  ("记录里有的项都要对上, 引擎多出来的项不管"), 而游戏自己的 `format.diff` 是双向的.
+- **非扑克牌卡也带 `~强化位`**. `bbcore` 原来只判 `ability.effect ~= "Base"`, 于是塔罗, 行星,
+  幻灵, 小丑都把原型的 `effect` 名当成强化名填了进去 (`c_sun~suit conversion`, `j_duo~x1.5 mult`).
+  那些名字由卡牌键唯一决定, 不携带状态, 而且**含空格** —— 摘要是空格分隔的 `key=value`, 于是
+  `j_duo~x1.5 mult` 被拆成两截, `c_saturn~hand upgrade,j_zany~type mult!e` 更是把 `j_zany` 连同
+  它的 `!e` 从字段里撕了出去. 已改成只对 `ability.set == "Enhanced"` (正好八种强化牌) 才填;
+  `format.lua` 另加一条过渡容忍, 让改动之前录下的回放仍能放.
+- **输掉的那一回合不扣租金**. 游戏那边租金走 `ease_dollars`, 它不改钱, 而是把改钱排成事件;
+  一旦这一局输掉, `update_game_over` 会把 `G.SETTINGS.paused` 置真, 事件队列随即跳过所有
+  "创建时不在暂停中"的事件 (`engine/event.lua` 的 `pause_skip`), 那笔钱就永远不执行.
+  73 步里前 72 步全对, 只有输掉那手的钱差 3 —— 正好是一张租赁小丑的租金. 定位方式是加探针记录
+  每次钱变化及其调用者, 现场是"`calculate_rental` 确实被调用了, 但它前后钱没变", 与
+  `ease_dollars` 排队 + `pause_skip` 丢弃这条链完全吻合.
+  易腐倒计时与销毁骰**不受影响** —— 它们是同步代码, 不排队.
+
+现状: 一局 73 步 (红牌组 / GOLD / 种子 AGENT2, 走到 `GAME_OVER`) 逐步对拍**零分歧**.
+
+遗留: 首包那个免费小丑包的编号 (`p_buffoon_normal_1` vs `_2`) 引擎还算不准 (它由一次裸的全局
+`math.random(1,2)` 决定, 取决于上一次 `pseudoseed` 之后空转了几颗). 现在靠"比对时抹掉图案编号"
+放过 —— 尾号只决定贴图, 不影响玩法. **这是容忍不是修好**, `engine/tests/dump_replay.rs` 的
+`normalize` 里另有一份同样的容忍.
+
 ## 可复现性的两处前提
 
 `b3ff12a` (待办清单) 与 `8eb8c9c` (轨道标签) 是两个 breaking fix, 都改了 `game/` 下的代码.
