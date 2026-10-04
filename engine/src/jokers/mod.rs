@@ -186,7 +186,7 @@ pub struct Joker {
     pub caino_xmult: f64,
     /// `ability.extra`: 多数成长类小丑的步长.
     pub extra: f64,
-    /// 买进来时花了多少. 卖出价按它算 (`max(1, floor(价/2))`), 所以必须记住.
+    /// 当前基础标价, 折扣与版本变化会重算. 卖价另外加上成长值.
     pub cost: f64,
     /// 拿到这张牌之后出过几手. 积分卡这类"按次数循环"的小丑要看.
     pub hands_since_gained: u32,
@@ -217,6 +217,11 @@ pub struct Joker {
 }
 
 impl Joker {
+    /// 成长的卖价加成不参与除二, 与 Card:set_cost 一致.
+    pub fn sell_price(&self) -> f64 {
+        (self.cost / 2.0).floor().max(1.0) + self.extra_value
+    }
+
     /// 按原型建一张小丑 (还没上过任何成长).
     pub fn new(key: &str) -> Option<Joker> {
         let proto = crate::data::catalog::Catalog::get().record(key)?;

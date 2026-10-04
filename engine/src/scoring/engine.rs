@@ -389,6 +389,10 @@ fn score_play_inner(
     };
 
     for &index in &scoring_cards {
+        // 削弱牌仍参与牌型识别, 但整段逐卡计分都跳过, 包括版本, 蜡封与小丑.
+        if cards[index].debuffed {
+            continue;
+        }
         // 这张牌要算几遍: 它自己那份 (红封给一次) 加上各小丑给的重触发
         // (袜子与巴斯金 / 烂脱口秀演员 / 黄昏 / 挂账 / 汽水).
         // 游戏那边把这些收成一个列表, 再把整段逐卡效果重跑那么多次, 这里等价.
@@ -492,6 +496,9 @@ fn score_play_inner(
     // 手牌阶段: 留在手里没打出去的牌各给自己的乘倍率 (钢铁牌), 以及看手牌的小丑
     // (男爵, 射月, 致胜之拳). 它排在逐卡计分之后, 小丑主效果之前.
     for card in held {
+        if card.debuffed {
+            continue;
+        }
         let mine = ScoreSource::Held { card: card.card };
         let x = card.h_x_mult();
         if x > 0.0 {

@@ -29,7 +29,10 @@ pub fn apply(run: &mut RunState, key: &str) {
         // 库存过剩: 商店多摆一件小丑.
         "v_overstock_norm" | "v_overstock_plus" => run.shop_size_bonus += 1,
         // 清仓特卖 / 清算: 折扣是**设定**而不是叠加 (后者要求先买前者).
-        "v_clearance_sale" | "v_liquidation" => run.discount_percent = extra,
+        "v_clearance_sale" | "v_liquidation" => {
+            run.discount_percent = extra;
+            super::shop::refresh_costs(run);
+        },
         // 多次重掷 / 重掷加强版: 重抽基准价各减 2.
         "v_reroll_surplus" | "v_reroll_glut" => {
             run.reroll_base_cost = (run.reroll_base_cost - extra).max(0.0);

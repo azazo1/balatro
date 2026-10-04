@@ -942,32 +942,30 @@ fn immediate_tags_pay_out_when_earned() {
     assert_eq!(run.phase, Phase::BlindSelect);
 }
 
-/// 杂耍标签让手牌上限**永久**加三 —— 它改的是规则而不是当下的局面, 所以之后每回合都多三张.
+/// 杂耍标签只增强下一次真正打的盲注, 结算时必须撤销.
 #[test]
-fn juggle_tag_raises_the_hand_limit_for_good() {
+fn juggle_tag_only_raises_the_next_blind_hand_limit() {
     use balatro_engine::run::RunState;
 
     let mut run = RunState::new("ALEEB", 8);
     run.start_run();
-    assert_eq!(run.hand_size(), 8, "开局是八张");
-
+    run.hand_size_bonus = 1;
     run.blind_tags[0] = Some("tag_juggle".to_owned());
     run.skip_blind().expect("跳过小盲注");
-    assert_eq!(run.hand_size(), 11, "手牌上限加三");
+    assert_eq!(run.hand_size(), 9, "标签还未触发");
+    assert!(run.tags.iter().any(|tag| tag == "tag_juggle"));
 
-    // 选下去发牌, 真的发出十一张.
     common::place_blind(&mut run);
-    assert_eq!(run.hand.len(), 11, "发到新上限");
-    assert_eq!(run.deck.len(), 41);
+    assert_eq!(run.hand.len(), 12);
+    assert!(!run.tags.iter().any(|tag| tag == "tag_juggle"));
 
-    // 打完这一格, 下一格仍然是十一张 —— 是永久改动而不是只算本回合.
     run.chips = 99_999.0;
     run.end_round();
-    run.cash_out().expect("这一回合在结算");
-    run.next_round().expect("这一回合有商店");
+    assert_eq!(run.hand_size(), 9, "结算撤销临时加成, 保留永久加成");
+    run.cash_out().expect("结算");
+    run.next_round().expect("离开商店");
     common::place_blind(&mut run);
-    assert_eq!(run.hand_size(), 11, "下一回合还是十一张");
-    assert_eq!(run.hand.len(), 11);
+    assert_eq!(run.hand.len(), 9, "下一盲注不能继续享受杂耍加成");
 }
 
 /// 补货标签: 白送两个**普通**小丑 (原型里那个 `_rarity = 0` 落在一级).

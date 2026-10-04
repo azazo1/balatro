@@ -1923,14 +1923,13 @@ fn egg_grows_its_sell_value_each_round() {
     egg.end_of_round_effect(&mut rng, 1.0);
     assert_eq!(egg.extra_value, 6.0, "两个回合涨 6 块");
 
-    // 卖掉时能多拿: 卖价是 `(买价 + 加成) / 2` 向下取整, 最低一元.
-    // 买价从卡本身取 —— 写死数字容易记错 (蛋其实是 4, 不是 3).
+    // 成长值在基础卖价除二之后相加, 不应再被除二.
     let base = egg.cost;
     let mut run = RunState::new("ALEEB", 8);
     run.start();
     run.phase = Phase::Shop;
     run.jokers.push(egg);
-    let expected = ((base + 6.0) / 2.0).floor().max(1.0);
+    let expected = (base / 2.0).floor().max(1.0) + 6.0;
     assert_eq!(
         run.sell_joker(0).expect("能卖"),
         expected,

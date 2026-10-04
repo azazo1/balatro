@@ -92,6 +92,29 @@ pub fn shop_cost(base_cost: f64, edition: Option<Edition>, rental: bool, inflati
     raw.floor().max(1.0)
 }
 
+/// 折扣券会立即重算现有价签, 不只影响下一次铺货.
+/// 从原型基础价重算, 避免在已折扣价格上再乘一次折扣.
+pub(super) fn refresh_costs(run: &mut RunState) {
+    let inflation = run.inflation;
+    let discount = run.discount_percent;
+    let free = run.shop_free;
+    let astronomer = run.jokers.iter().any(|joker| joker.key == "j_astronomer" && !joker.debuffed);
+    if let Some(shop) = run.shop.as_mut() {
+        for card in shop.jokers.iter_mut().chain(shop.voucher.iter_mut()).chain(shop.extra_voucher.iter_mut()).chain(shop.packs.iter_mut()) {
+            let planet = Catalog::get().record(&card.key).is_some_and(|proto| proto.category == "Planet");
+            card.cost = if free || (astronomer && (planet || card.key.starts_with("p_celestial"))) {
+                0.0
+            } else {
+                shop_cost(base_cost_of(&card.key), card.edition, card.rental, inflation, discount)
+            };
+        }
+    }
+    // Card:apply_to_run 遍历所有卡, 已持有小丑的卖价也跟着改变.
+    for joker in &mut run.jokers {
+        joker.cost = shop_cost(base_cost_of(&joker.key), joker.edition, joker.rental, inflation, discount);
+    }
+}
+
 /// `poll_edition`: 抽一次版本.
 ///
 /// `negative_ok` 对应 `not _no_neg`, `mod` 默认 1, `G.GAME.edition_rate` 默认 1.
@@ -412,11 +435,12 @@ fn playing_card_for_shop(run: &mut RunState, enhanced: bool) -> ShopCard {
     card
 }
 
-/// 原型上的基础价, 查不到给 0 (不会出现在正常商店里).
+/// 扑克牌没有商品原型记录, 使用 Card:set_ability 的默认基础价 1.
 fn base_cost_of(key: &str) -> f64 {
     Catalog::get()
         .record(key)
         .and_then(|proto| proto.base_cost)
+        .or_else(|| crate::cards::CardInstance::from_key(key).map(|_| 1.0))
         .unwrap_or(0.0)
 }
 

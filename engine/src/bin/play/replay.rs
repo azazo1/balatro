@@ -40,7 +40,7 @@ pub fn record_of(step: &Json, run: &RunState, wall: f64) -> String {
 ///
 /// `snapshot` 与版本号这类字段**原样取自模板**: 那是 LÖVE 自己的存档格式, 引擎既造不出也不该造.
 /// 只覆盖 `run` (这局的开局参数), `actions` (agent 打的每一步) 与 `result`.
-pub fn render(spec: &RunSpec, records: &[String]) -> String {
+pub fn render(spec: &RunSpec, records: &[String], won: bool) -> String {
     let parsed = Json::parse(&session::template_raw()).expect("模板能解析");
     let Json::Object(entries) = parsed else {
         panic!("模板顶层应当是个对象");
@@ -67,7 +67,7 @@ pub fn render(spec: &RunSpec, records: &[String]) -> String {
     // `engine-generated` 是引擎里那套写死的贪心策略自己跑的; 这一份的每一步都是 agent
     // 看过局面之后选的. 混成一个标记就分不出产物的来源了.
     fields.push(format!("\"source\":{}", quote("agent-played")));
-    fields.push("\"result\":{\"reason\":\"engine\",\"won\":false}".to_owned());
+    fields.push(format!("\"result\":{{\"reason\":\"engine\",\"won\":{won}}}"));
     fields.push(format!("\"actions\":[{}]", records.join(",\n")));
     format!("{{{}}}", fields.join(",\n"))
 }
@@ -120,6 +120,9 @@ pub(crate) fn quote(text: &str) -> String {
             '"' => out.push_str("\\\""),
             '\\' => out.push_str("\\\\"),
             '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            control if (control as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", control as u32)),
             other => out.push(other),
         }
     }
@@ -152,5 +155,27 @@ fn json_of(value: &Json) -> String {
                 .collect::<Vec<_>>()
                 .join(",")
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn quoted_json_round_trips_control_characters() {
+        let mut text: String = (0u8..32).map(char::from).collect();
+        text.push_str("\\\"中文");
+        let decoded = Json::parse(&quote(&text)).unwrap();
+        assert_eq!(decoded.as_str(), Some(text.as_str()));
+    }
+
+    #[test]
+    fn exported_result_keeps_the_engine_win_flag() {
+        let spec = RunSpec { seed: "4AH77J5E".to_owned(), deck: "PLASMA".to_owned(), stake: "GOLD".to_owned() };
+        for won in [false, true] {
+            let file = Json::parse(&render(&spec, &[], won)).unwrap();
+            assert_eq!(file.get("result").unwrap().get("won").and_then(Json::as_bool), Some(won));
+        }
     }
 }

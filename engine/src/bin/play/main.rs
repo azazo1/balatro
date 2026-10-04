@@ -381,7 +381,7 @@ fn run_step(args: &[String]) {
             deck: step.opening.deck.clone(),
             stake: step.opening.stake.clone(),
         };
-        let text = replay::render(&spec, &records);
+        let text = replay::render(&spec, &records, run.won);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).expect("能建回放文件所在目录");
         }

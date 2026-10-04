@@ -191,6 +191,10 @@ impl RunState {
             });
         }
         self.round += 1;
+        // 杂耍标签在真正开始下一盲注时才触发, 跳过盲注或开标签包不消耗它.
+        self.temporary_hand_size_bonus = self.tags.iter().filter(|tag| *tag == "tag_juggle")
+            .map(|tag| tag_config_number(tag, "h_size") as i64).sum();
+        self.tags.retain(|tag| tag != "tag_juggle");
         // 先把上一回合的牌全收回牌堆 —— 正常流程里 `end_round` 已经收过了, 但直接调
         // `select_blind` (换底注, 或测试) 时牌还在出牌区与弃牌堆里. 后面几个按牌生效的
         // Boss 效果要遍历**整副牌**, 收得晚了就漏掉刚打出去的那些.
@@ -827,8 +831,8 @@ impl RunState {
     /// 与 `apply_immediate_tag` 分开是因为这两类落点不同 —— 一个进现金, 一个改状态.
     fn apply_structural_tag(&mut self, key: &str) {
         match key {
-            // 杂耍标签: 手牌上限永久加三.
-            "tag_juggle" => self.hand_size_bonus += 3,
+            // 杂耍标签留到 round_start_bonus 时触发.
+            "tag_juggle" => {},
             // D6 标签: 这一轮的商店重抽不要钱.
             "tag_d_six" => self.free_reroll = true,
             // 代金券标签: 这一轮商店里的东西免费.
@@ -837,23 +841,8 @@ impl RunState {
             "tag_boss" => self.boss_key = Some(self.next_boss()),
             // 优惠券标签: 商店的券那一格再多摆一张.
             "tag_voucher" => self.extra_voucher_key = Some(self.next_voucher_key()),
-            // 下面这几个原型里的 `type` 写作 `new_blind_choice`, 但名字有误导 —— 它们不改盲注,
-            // 而是**白送一个补充包**并立刻打开. 吊饰与流星是随机挑一号 (游戏里用的是全局
-            // `math.random(1,2)`, 不是 `pseudorandom`).
-            "tag_charm" | "tag_meteor" | "tag_ethereal" | "tag_standard" | "tag_buffoon" => {
-                if let Some(key) = free_pack_key(self, key) {
-                    let contents = super::shop::open_pack(self, &key);
-                    let choices = super::shop::pack_choices(&key);
-                    self.open_pack = Some(super::shop::OpenPack {
-                        key,
-                        size: contents.len(),
-                        choices_left: choices,
-                        contents,
-                    });
-                    self.phase = Phase::BoosterOpened;
-                    self.deal_for_pack();
-                }
-            }
+            // 标签包排队打开. 双倍标签可能给多个包, 不可覆盖正在挑选的包.
+            "tag_charm" | "tag_meteor" | "tag_ethereal" | "tag_standard" | "tag_buffoon" => {},
             // 补货标签: 白送两个小丑. 稀有度由原型里那个 `_rarity = 0` 决定 ——
             // `0 > 0.95` 与 `0 > 0.7` 都不成立, 所以落在普通 (一级).
             "tag_top_up" => {
@@ -917,9 +906,12 @@ impl RunState {
         self.skips += 1;
         // 双倍标签的语义是"**持有它时**, 之后拿到的标签来两份" —— 复制的是这一次拿到的那个,
         // 而不是它自己被拿到时生效. 它自己不会再被复制 (源码里那条 `~= 'tag_double'`).
-        let double = tag != "tag_double" && self.tags.iter().any(|held| held == "tag_double");
-        self.grant_tag(&tag);
-        if double {
+        let doubles = if tag == "tag_double" { 0 } else {
+            let count = self.tags.iter().filter(|held| *held == "tag_double").count();
+            self.tags.retain(|held| held != "tag_double");
+            count
+        };
+        for _ in 0..=doubles {
             self.grant_tag(&tag);
         }
         // 前进到下一个盲注, 但**不加回合数** —— 那一笔留给真正打的盲注.
@@ -927,7 +919,32 @@ impl RunState {
             BlindKind::Small => BlindKind::Big,
             _ => BlindKind::Boss,
         };
+        self.open_next_tag_pack();
         Ok(tag)
+    }
+
+    /// 按获得顺序打开一份标签包, 剩余标签等待这个包关掉后再触发.
+    fn open_next_tag_pack(&mut self) {
+        if self.phase != Phase::BlindSelect || self.open_pack.is_some() {
+            return;
+        }
+        let Some(index) = self.tags.iter().position(|tag| matches!(tag.as_str(),
+            "tag_charm" | "tag_meteor" | "tag_ethereal" | "tag_standard" | "tag_buffoon")) else {
+            return;
+        };
+        let tag = self.tags.remove(index);
+        if let Some(key) = free_pack_key(self, &tag) {
+            let contents = super::shop::open_pack(self, &key);
+            self.open_pack = Some(super::shop::OpenPack {
+                choices_left: super::shop::pack_choices(&key),
+                size: contents.len(),
+                key,
+                contents,
+            });
+            self.pack_return_phase = Phase::BlindSelect;
+            self.phase = Phase::BoosterOpened;
+            self.deal_for_pack();
+        }
     }
 
     /// 抽一张**指定稀有度**的小丑. 幽灵与灵魂用它, 键各不同.
@@ -974,7 +991,7 @@ impl RunState {
     ///
     /// 基础值是 8, 镣铐 (The Manacle) 那一类会把它压低, 最低不会低过 1.
     pub fn hand_size(&self) -> usize {
-        (8 + self.hand_size_bonus - self.hand_size_sub).max(1) as usize
+        (8 + self.hand_size_bonus + self.temporary_hand_size_bonus - self.hand_size_sub).max(1) as usize
     }
 
     /// 把这个盲注**停用并且把它留下的痕迹擦掉** —— 对应 `Blind:disable()`.
@@ -1774,7 +1791,8 @@ impl RunState {
             .any(|joker| joker.key == "j_hiker" && !joker.debuffed)
         {
             for index in result.scoring_cards.iter().copied() {
-                if let Some(card) = taken.get_mut(index) {
+                if let Some(card) = taken.get_mut(index)
+                    && !card.debuffed {
                     card.perma_bonus += 5.0;
                 }
             }
@@ -1788,6 +1806,7 @@ impl RunState {
         {
             for index in result.scoring_cards.iter().copied() {
                 if let Some(card) = taken.get_mut(index)
+                    && !card.debuffed
                     && (card.card.rank.is_face() || self.has_pareidolia())
                 {
                     card.enhancement = Some(Enhancement::Gold);
@@ -1801,7 +1820,7 @@ impl RunState {
             .jokers
             .iter()
             .filter(|joker| joker.key != "j_swashbuckler")
-            .map(|joker| sell_price(joker.cost + joker.extra_value))
+            .map(Joker::sell_price)
             .sum();
         for joker in self.jokers.iter_mut() {
             if joker.key == "j_swashbuckler" {
@@ -1978,6 +1997,9 @@ impl RunState {
         // 收牌放在**通过之后** —— 输局时游戏不会走"手牌进弃牌堆、弃牌堆回牌堆"那两句,
         // 牌就留在各区里 (整局对拍里第 39 步那盘输局, 记录里牌堆还是 28、手牌还有 7 张).
         self.collect_all_cards();
+        // 盲注成功结束时撤销本轮的临时手牌变化, 商店开包不应继承这些变化.
+        self.temporary_hand_size_bonus = 0;
+        self.hand_size_sub = 0;
 
         // 篝火: 打赢 Boss 就归零 (它的说明写着"打赢 Boss 盲注时重置").
         if self.blind.as_ref().is_some_and(|blind| blind.kind == BlindKind::Boss) {
@@ -2457,6 +2479,7 @@ impl RunState {
                 } else {
                     crate::cards::Edition::Negative
                 });
+                super::shop::refresh_costs(self);
                 if hex {
                     // 销毁其余的小丑, **永恒的除外** —— 抽中的那一张当然也留着
                     // (`if v ~= eligible_card and (not v.ability.eternal)`).
@@ -2648,7 +2671,7 @@ impl RunState {
             // 节制: 拿所有小丑的**卖出价**之和, 上限 `extra` (50).
             // (游戏里这个数是在牌的更新里算好存进 `ability.money` 的; 这里按用的时候现算.)
             "c_temperance" => {
-                let total: f64 = self.jokers.iter().map(|joker| sell_price(joker.cost)).sum();
+                let total: f64 = self.jokers.iter().map(Joker::sell_price).sum();
                 let cap = super::shop::consumable_count(&key, "extra") as f64;
                 self.dollars += total.min(cap);
             }
@@ -2678,6 +2701,7 @@ impl RunState {
                         }
                     }
                 }
+                super::shop::refresh_costs(self);
             }
             // 愚者: 把**上一次用掉的**塔罗或行星复制一张进消耗槽 (不能复制自己).
             "c_fool" => {
@@ -2811,7 +2835,8 @@ impl RunState {
                 }
             }
         }
-        self.phase = Phase::Shop;
+        self.phase = self.pack_return_phase;
+        self.open_next_tag_pack();
     }
 
     /// 不取任何东西, 直接把这个补充包收掉 (游戏里那个"跳过"按钮).
@@ -2819,17 +2844,17 @@ impl RunState {
     /// 包里剩下的东西一样都不拿. 注意它**不影响随机数序列** —— 包的内容在买下那一刻就已经
     /// 全部掷好了, 与取不取哪张无关.
     pub fn skip_pack(&mut self) -> Result<(), ActionError> {
-        // 红牌: 跳过补充包时给自己涨 3 点倍率 (游戏在 `context.skipping_booster` 那一支里做).
-        for joker in self.jokers.iter_mut() {
-            if joker.key == "j_red_card" && !joker.debuffed {
-                joker.mult += 3.0;
-            }
-        }
         if self.phase != Phase::BoosterOpened {
             return Err(ActionError::NotInPhase {
                 expected: Phase::BoosterOpened,
                 actual: self.phase,
             });
+        }
+        // 红牌: 跳过补充包时给自己涨 3 点倍率 (游戏在 `context.skipping_booster` 那一支里做).
+        for joker in self.jokers.iter_mut() {
+            if joker.key == "j_red_card" && !joker.debuffed {
+                joker.mult += 3.0;
+            }
         }
         self.close_pack();
         Ok(())
@@ -2922,6 +2947,8 @@ impl RunState {
             joker.edition = picked.edition;
             joker.eternal = picked.eternal;
             joker.rental = picked.rental;
+            joker.cost = super::shop::shop_cost(joker.cost, joker.edition, joker.rental,
+                self.inflation, self.discount_percent);
             // 待办清单的牌型在包里那张牌被**造出来**时就掷好了, 取的时候一路带过来.
             if key == "j_todo_list" {
                 joker.todo_hand = picked.todo;
@@ -3029,7 +3056,10 @@ impl RunState {
             .jokers
             .get(index)
             .ok_or(ActionError::BadIndex(index))?;
-        let price = sell_price(joker.cost + joker.extra_value);
+        if joker.eternal {
+            return Err(ActionError::NotAllowed("永恒小丑不能卖掉"));
+        }
+        let price = joker.sell_price();
         let key = joker.key.clone();
         // 离场时要用"当前"那个成长值 (海龟豆的手牌上限每回合会掉).
         let current_extra = joker.extra;
@@ -3110,16 +3140,18 @@ impl RunState {
 
     /// 卖掉一张消耗牌. 价钱按原型的基础价算.
     pub fn sell_consumable(&mut self, index: usize) -> Result<f64, ActionError> {
-        let key = self
-            .consumables
-            .get(index)
-            .map(|card| card.key.clone())
-            .ok_or(ActionError::BadIndex(index))?;
+        let card = self.consumables.get(index).ok_or(ActionError::BadIndex(index))?;
+        let key = card.key.clone();
         let base = crate::data::catalog::Catalog::get()
             .record(&key)
             .and_then(|proto| proto.base_cost)
             .unwrap_or(0.0);
-        let price = sell_price(base);
+        let astronomer = self.jokers.iter().any(|joker| joker.key == "j_astronomer" && !joker.debuffed)
+            && crate::data::catalog::Catalog::get().record(&key).is_some_and(|proto| proto.category == "Planet");
+        let cost = if astronomer { 0.0 } else {
+            super::shop::shop_cost(base, card.edition, false, self.inflation, self.discount_percent)
+        };
+        let price = sell_price(cost);
         self.dollars += price;
         self.consumables.remove(index);
         // 同上: 卖掉之后记录也去掉.
@@ -3274,6 +3306,7 @@ impl RunState {
                     choices_left: choices,
                     contents,
                 });
+                self.pack_return_phase = Phase::Shop;
                 self.phase = Phase::BoosterOpened;
                 self.deal_for_pack();
                 return Ok(cost);

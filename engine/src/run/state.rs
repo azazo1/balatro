@@ -229,8 +229,10 @@ pub struct RunState {
     pub discards_per_round: i64,
     /// 手牌上限的临时扣减, 由镣铐 (The Manacle) 之类的 Boss 给.
     pub hand_size_sub: i64,
-    /// 手牌上限的永久加成, 由杂耍标签这类给.
+    /// 手牌上限的永久加成, 由牌组, 优惠券与小丑给.
     pub hand_size_bonus: i64,
+    /// 杂耍标签给当前盲注的临时手牌上限, 成功结算时清零.
+    pub temporary_hand_size_bonus: i64,
     /// 这一轮商店的重抽是否免费 (D6 标签给的).
     pub free_reroll: bool,
     /// 这一轮商店里的东西是否免费 (代金券标签给的).
@@ -269,6 +271,8 @@ pub struct RunState {
     pub consumables: Vec<super::consumable::Consumable>,
     /// 买下并开好的补充包, 挑完就清空. 对应游戏里的 `G.pack_cards`.
     pub open_pack: Option<OpenPack>,
+    /// 开包前所在的阶段. 标签包应返回选盲注, 商店包返回商店.
+    pub pack_return_phase: Phase,
     /// 当前这一底的货架, 离开商店时清空.
     pub shop: Option<Shop>,
     /// 这台机器上的牌型表: 各牌型的等级与已打出次数. 行星牌升的就是它.
@@ -395,11 +399,13 @@ impl RunState {
             discards_per_round: discards,
             hand_size_sub: 0,
             hand_size_bonus: 0,
+            temporary_hand_size_bonus: 0,
             base_joker_slots: 5,
             base_consumable_slots: 2,
             jokers: Vec::new(),
             consumables: Vec::new(),
             open_pack: None,
+            pack_return_phase: Phase::Shop,
             shop: None,
             planets_used: 0,
             tarots_used: 0,

@@ -479,7 +479,7 @@ pub fn render(run: &RunState, extras: &Extras) -> String {
                 joker.debuffed,
             );
             // 卖价: 游戏是 `max(1, floor(价/2))`, 再叠上成长出来的那份.
-            let sell = ((joker.cost + joker.extra_value) / 2.0).floor().max(1.0);
+            let sell = joker.sell_price();
             out.push(format!(
                 "  [{index}] {}",
                 item_line(
