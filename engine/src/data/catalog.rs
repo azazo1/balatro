@@ -14,7 +14,9 @@ use std::sync::OnceLock;
 
 use super::json::Json;
 
-const CATALOG_JSON: &str = include_str!("../../../docs/game/data/catalog.json");
+/// 随仓库走的静态快照. `knowledge` 模块要用同一份里的 `name_zh` / `effect_zh`,
+/// 所以这里放开可见性, 免得同一个 300KB 文件被两处各自读一遍 (编译器会合并这两处引用).
+pub(crate) const CATALOG_JSON: &str = include_str!("../../../docs/game/data/catalog.json");
 
 /// 一个原型的静态定义.
 #[derive(Clone, Debug)]

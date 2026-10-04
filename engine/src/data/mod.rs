@@ -2,3 +2,4 @@
 
 pub mod catalog;
 pub mod json;
+pub mod knowledge;
