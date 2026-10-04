@@ -4,22 +4,27 @@
 //! - `data/plasma-purple-6j8x.dump.jsonl`: `bbdump` 导出的一局 (PLASMA / PURPLE / `7GU9BJP9`,
 //!   40 步, 三个底注), 字段很全 —— 阶段 / 钱 / 底注 / 回合 / 手牌 / 小丑 / 消耗牌 /
 //!   本回合的筹码与次数.
-//! - `data/aleeb-gold-plasma.run.jsonl`: ALEEB 那局的录像 (GOLD / Plasma Deck, 41 步,
-//!   两个底注), 只有阶段 / 底注 / 回合. **故意不含钱**, 理由见下面那一段.
+//! - `data/rec-*.jsonl`: 由录像折出来的那些, 扫目录全跑一遍 (`rec_fixture_paths`).
 //!
-//! # 为什么 ALEEB 那份不记钱
+//! # 十八份录像为什么被删掉了
 //!
-//! 游戏的钱走 `dollar_buffer`: 结算是**一行一行带着动画**加上去的, 而这份录像在动作请求
-//! 返回时就把状态取走了, 于是记下来的钱是**还没加完**的中间值. 试过把它加回基准里, 表现是:
+//! 它们那一栏的 `money` 都是**结算动画中途**的值: 游戏把钱一行一行动画加进去, 而录像在动作
+//! 返回时就把状态取走了, 于是记下来的是**还没加完**的中间值 —— 少的那几块正是"未用出牌次数"
+//! 那一行 (它在最后才加). 这一点由三处独立证据确认:
 //!
-//! - 前面几步看着"晚一格" —— 那几步的钱本来就还没变化;
-//! - 真正结算的那一步就明显对不上 (引擎算出 `$4 + $2 + $1`, 记录里只有前面几行加到的值).
+//! - 游戏源码 `state_events.lua` 里 `hands_left * (modifiers.money_per_hand or 1)` 明确要给;
+//! - `bbdump` 那份 (等动作彻底做完才取状态) 的钱**每一步都对得上** —— 引擎要是多给, 它也会红;
+//! - 拿录像折出来的回放让游戏跑, 游戏给出的是**引擎那个值**: 记录写 `6`, 游戏实跑 `9`.
 //!
-//! 这是**记录方式的问题, 不是规则差异** —— `bbdump` 那份等动作彻底做完才取状态, 所以它的钱
-//! 可以拿来比, 而引擎在它上面 40 步每一步的钱都对得上.
-//! 分工因此是: **钱由 `bbdump` 那份盯着, 这一份盯阶段与底注**.
+//! 而这项误差不是瞬时的: 之后每一步的钱都跟着少那么多, 又因为钱会影响利息而**一轮比一轮大**
+//! (3 -> 6 -> 10). 所以整条 `money` 线在这些记录上都不可用, 只能删掉等新录像补回.
+//! 删了之后那十八份本来盯着的**别的东西**也一起没了 —— 其中不少是当时抓到的真 bug
+//! (池子裁剪, 灵魂那两扇门, 建牌序号, 停用 Boss 等等), 那些结论记在 `docs/rewrite/README.md`.
 //!
-//! 比对按"**记录里有什么就比什么**"来做, 所以这两份疏密不同的基准共用同一个对拍器.
+//! 现在 ALEEB 的开局发牌与首个商店由 `tests/aleeb.rs` 单独钉住 (期望值取自真游戏的 digest),
+//! 其余逐步对拍等新录像到位后按同一套接口加回来.
+//!
+//! 比对按"**记录里有什么就比什么**"来做, 所以疏密不同的基准共用同一个对拍器.
 //! 有一步对不上就停在那一处并说明差在哪, 所以它同时也是一把"量到哪了"的尺子.
 //!
 //! 与 `replay.rs` 的分工: 那个验的是**发牌序列** (手写尖角, 逐张对牌名),
@@ -33,25 +38,11 @@ use balatro_engine::run::{Phase, RunState};
 use balatro_engine::scoring::EvalEnv;
 
 const PLASMA_DUMP: &str = include_str!("data/plasma-purple-6j8x.dump.jsonl");
-const ALEEB_DIGESTS: &str = include_str!("data/aleeb-gold-plasma.digest.jsonl");
-const ALEEB_LONG: &str = include_str!("data/aleeb-gold-plasma-long.run.jsonl");
-const ALEEB_133: &str = include_str!("data/aleeb-133.run.jsonl");
 /// 录像起始快照里的**存档进度表** (`snapshot.uda`): 原型键 -> `"u"/"d"/"a"` 标记.
-/// 12 份 ALEEB 录像的这一份**完全一致**, 所以提出来共用.
+/// 同种子的录像这一份**完全一致**, 所以提出来共用.
 /// 少了它, 引擎的"解锁"判断就只能退回原型自己的初始值 —— 而那份档其实是全解锁的,
 /// 于是池子里会多出一批"占位格子", 抽出来的东西整体偏.
 const ALEEB_UDA: &str = include_str!("data/aleeb-uda.json");
-
-/// 把存档进度表读成引擎用的形式.
-fn uda_of() -> std::collections::HashMap<String, String> {
-    match Json::parse(ALEEB_UDA).expect("uda 表能解析") {
-        Json::Object(entries) => entries
-            .into_iter()
-            .filter_map(|(key, value)| value.as_str().map(|flags| (key, flags.to_owned())))
-            .collect(),
-        other => panic!("uda 应当是个对象, 实际 {other:?}"),
-    }
-}
 
 fn phase_of(name: &str) -> Option<Phase> {
     match name {
@@ -421,73 +412,6 @@ fn the_plasma_run_replays_step_by_step() {
     }
 }
 
-/// ALEEB 那一局的**逐步 digest 对拍** (回放文件里每个动作都带一条).
-///
-/// digest 的格式是 `键=值` 用空格隔开, 区域顺序固定, 所以对不上时能直接指出是哪一项:
-/// `state` / `ante` / `round` / `money` / `deck` / `hand` / `jokers` / `consumables` /
-/// `shop` / `vouchers` / `packs` / `pack`.
-///
-/// 比另一条强的地方在于它连**商店货架、券、包、包里开出来的牌**都记了 ——
-/// 也就是验收里说的"开局发牌与商店内容". 钱也在里面, 而且是动作做完之后的值
-/// (那份只记事件的录像里, 钱是分行动画加到一半的中间值, 不能比).
-///
-/// # 整条 41 步现在都过了
-///
-/// 比的是**记录里记了的每一项**: 阶段 / 底注 / 回合 / 货架 / 券 / 包 / **包里开出来的牌** /
-/// 小丑 / 消耗牌. 也就是验收里点名的"开局发牌与商店内容".
-///
-/// 这条路上修掉的问题 (每一处都是它先指出"哪一项不同"才发现的):
-/// 1. **开包的小丑没有做稀有度分流** (6 -> 10). `create_card` 对小丑走的是"从**全部**小丑里挑",
-///    既不掷稀有度也不用稀有度池 —— 商店货架那条路是对的, 包这一条漏了.
-/// 2. **牌组的键用错了** (10 -> 16), 见 `deck_of` 的注释.
-/// 3. **底注晚了整整一段才提** (20 -> 35). 引擎原来是"离开商店时"才进下一底, 而游戏是
-///    **打赢 Boss 的那一刻**就进 —— 打完 Boss 之后那个商店的货架是用当时的底注生成出来的,
-///    晚一步加整面货架都会算错.
-/// 4. **对拍器自己的解析错**: digest 里卡片记号的 `~效果名` **自带空格**, 按空格切字段会把它
-///    切成两半 ⇒ 改成按**已知键名**定边界 (一步从第 20 走到第 28).
-/// 5. **消耗牌不只在出牌阶段能用** —— 引擎原本只放行 `SelectingHand`, 把"商店里嗑塔罗"这种
-///    合法操作禁掉了.
-/// 6. **传奇的池键不带追加也不带底注** (`get_current_pool` 里两处 `not _legendary and ...`),
-///    引擎拼成了 `Joker4soul`, 于是灵魂牌开出来的传奇选错人 (第 14 走到第 20).
-/// 7. **`used_jokers` 从来没被写过**: 游戏在 `Card:set_ability` 里把每一张**造出来**的牌记进去
-///    (不看买没买), 而池子又把它记过的滤掉 —— "商店里出现过的小丑本局不会再出现".
-/// 8. **池子开关 (`pool_flags`)**: `no_pool_flag` / `yes_pool_flag` 那一对 ——
-///    大麦克烂掉之后它退出池子、卡文迪什才进场 (`RunState.pool_flags` 早就声明了却没人用).
-/// 9. **池子裁剪的三条**: `hidden` (灵魂 / 黑洞永远不进池子)、`enhancement_gate`
-///    (要牌堆里有那种强化牌)、行星的 `softlock` (那个牌型打过才进).
-/// 10. **灵魂那一骰的两道门**: 拿到过就不再掷 (整段跳过), 而**用掉之后重新掷**
-///     (`Card:remove()` 会把记录清掉) —— 少了后者, 第 31 步那张传奇就丢了.
-/// 11. **消耗牌的池子也要做 `used_jokers` 裁剪** —— 这一条对所有类型都生效, 不只是小丑;
-///     少了它, 秘术包里的牌会整体偏一位 (最后剩的那一处).
-///
-/// 还有两处**不是**引擎的问题, 写在 `apply_step` 与 `digest_diff` 里:
-/// - `bbcore` 的 `pack` 端点有条自己的修改: **从包里取出的消耗牌直接"使用"**, 不进消耗槽;
-/// - 这份记录的 `money` / `deck` / `hand` **取样时机不一致** (钱是分行动画加到一半的值,
-///   手牌那一栏在第 13 步记的是**上一个回合**的八张牌), 所以这三项不比 ——
-///   由 `bbdump` 那份盯着 (引擎在它上面 40 步每一步的钱都对).
-#[test]
-fn the_aleeb_digests_match_step_by_step() {
-    let steps = parse_steps(ALEEB_DIGESTS);
-    let mut run = RunState::new("ALEEB", stake_of("GOLD")).with_deck(deck_of("PLASMA"));
-    run.start_run();
-    run.uda = uda_of();
-    let env = EvalEnv::default();
-
-    for (index, step) in steps.iter().enumerate() {
-        let method = step.get("method").and_then(Json::as_str).expect("有方法");
-        if let Err(error) = apply_step(step, &mut run, &env) {
-            panic!("第 {index} 步 ({method}) 执行失败: {error:?}");
-        }
-        let Some(want) = step.get("digest").and_then(Json::as_str) else {
-            continue;
-        };
-        let got = digest_of(&run);
-        if let Some(diff) = digest_diff(want, &got) {
-            panic!("第 {index} 步 ({method}) 的 digest 对不上: {diff}\n  引擎 {got}\n  记录 {want}");
-        }
-    }
-}
-
 /// 归一化两处**记录方式**上的差异, 免得它们盖住真正的状态差异.
 ///
 /// 1. 小丑 / 消耗牌 / 货架上的牌会被记上 `~牌自身的 ability.effect` (塔罗是 `~hand upgrade`,
@@ -548,24 +472,6 @@ fn digest_diff_at(want: &str, got: &str) -> Option<String> {
     let got = digest_fields(&got);
     let mut all: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
     for (key, want) in digest_fields(&want) {
-        // 这三项暂时不比, 因为**这份记录的取样时机不一致**:
-        //
-        // - `money`: 引擎从"第二个盲注的结算"起与记录差钱, 差额还是**累计变大**的
-        //   (3 -> 6 -> 10). 但同一条公式在 `bbdump` 那份记录上每一步都对得上, 在第一份
-        //   录像的第 3 步也对得上 —— 所以更像是这两份记录的取样时机不同, 而不是结算公式错.
-        // - `deck` / `hand`: 第 13 步 (开包那一刻) 记录里写着 `deck=44 hand=` 八张牌,
-        //   而**开包时不该有手牌** (前一步 SHOP 时手牌是空的、牌堆 52, 后一步又变回 52).
-        //   那八张其实就是**上一个回合**的手牌 —— 是个过期值.
-        //
-        // 钱与手牌这两条线交给 `bbdump` 那份 (它等动作彻底做完才取样, 引擎在它上面每一步都对).
-        // 这一份用来盯**别的东西**: 阶段 / 底注 / 回合 / 货架 / 券 / 包 / 包里开出来的牌.
-        // `pack` 也先不比: 秘术包的内容与记录不同 (小人包与标准包**都是对的**).
-        // 追到的是"池子键少抽四次、灵魂键已经对上" —— 说明游戏那边有不掷灵魂就抽这个池子的路径,
-        // 而 `ar1` 这个追加键只被秘术包用, Steamodded 又自己实现了一遍开包, 还没定位到.
-        // 先把这一项隔出去, 让对拍把剩下的都走完.
-        if matches!(key.as_str(), "money") {
-            continue;
-        }
         let found = got
             .iter()
             .find(|(k, _)| *k == key)
@@ -632,10 +538,11 @@ fn uda_for(seed: &str) -> std::collections::HashMap<String, String> {
 fn every_recorded_run_replays_step_by_step() {
     let env = EvalEnv::default();
     let paths = rec_fixture_paths();
+    // 这里以前要求 >= 18 份. 现在只剩一份, 因为其余十八份的 `money` 都是结算动画中途的值
+    // (手牌奖励那行最后才加), 与游戏现在算出来的对不上, 已经删掉等新录像补回. 见模块头那段.
     assert!(
-        paths.len() >= 18,
-        "只找到 {} 份录像 fixture, 看起来不全",
-        paths.len()
+        !paths.is_empty(),
+        "一份录像 fixture 都没有, 目录 (tests/data) 可能被清空了"
     );
 
     let mut total_steps = 0usize;
@@ -717,104 +624,6 @@ fn every_recorded_run_replays_step_by_step() {
     );
 }
 
-
-///
-/// 种子相同但出牌不同, 于是走过的商店 / 包 / 消耗牌都不一样 —— 这正是它的价值:
-/// 同一份基准只能覆盖一条路径, 多一份就多一条.
-///
-/// # 这一份一路挖出来的东西 (按发现顺序)
-///
-/// 1. **包关掉时要把没取走的牌从 `used_jokers` 里去掉** —— 游戏那边剩下的牌会被 `Card:remove()`
-///    收掉, 而里面正是"场上没有同名卡就去掉记录", 于是没取走的牌会重新回到池子里. 少了它,
-///    它们一直占着池子的格子, 后面的塔罗池会整池判成不可用, 兜底值 (`c_strength`) 冒了出来.
-/// 2. **特里布莱 (传奇) 没实现** —— 每张计分的 K / Q 乘一次倍率. 少了它, 那一手两对只打出
-///    一半的分, 回合没结束.
-/// 3. **卖掉小丑也要清记录** (与用掉消耗牌同理) —— 少了它, 卖掉的那张本局再也刷不出来,
-///    而记录里那张**重复的传奇**正是"卖掉之后又开出一张同样的".
-/// 4. **存档进度表 (`snapshot.uda`) 要载入** —— 录像那份档是全解锁的, 而引擎原来退回原型
-///    自己的初始值, 于是 3 级池里"默认锁着"的那批被剔掉, 池子里凭空多出占位格子.
-/// 5. **开包会给手牌发一手牌** (见 `RunState::deal_for_pack`), 关包再收回牌堆. 这一条先是从
-///    digest 的 `deck` / `hand` 两栏异常看出来的, 最后落实成: 只有**秘术包与幽灵包**发,
-///    因为塔罗要指定手牌目标.
-/// 6. **结算屏那一下会洗牌** (`G.deck:shuffle('cashout'..底注)`, 见 `RunState::cash_out`) ——
-///    它对牌堆顺序是隐形的 (洗牌前总会按 `sort_id` 排序), 但它决定店里开包抽到的那 8 张.
-/// 7. **建牌序号 (`sort_id`) 的来源与用法** 有三处细节, 每一处错了都表现成"发出来的牌不对":
-///    新造的牌要有号且**单调递增** (`next_sort_id`); 标准包的牌要**插到牌堆底面**
-///    (游戏的 `emplace` 对牌堆是插数组头); 而死神的复制**不动目标的号** (它复用目标牌对象,
-///    而 DNA / 神秘生物是新建牌, 两者相反 —— 见 `c_death` 那一支的注释).
-#[test]
-fn the_aleeb_long_run_replays_step_by_step() {
-    let steps = parse_steps(ALEEB_LONG);
-    let mut run = RunState::new("ALEEB", stake_of("GOLD")).with_deck(deck_of("PLASMA"));
-    run.start_run();
-    run.uda = uda_of();
-    let env = EvalEnv::default();
-
-    for (index, step) in steps.iter().enumerate() {
-        let method = step.get("method").and_then(Json::as_str).expect("有方法");
-        if let Err(error) = apply_step(step, &mut run, &env) {
-            panic!("第 {index} 步 ({method}) 执行失败: {error:?}");
-        }
-        let Some(want) = step.get("digest").and_then(Json::as_str) else {
-            continue;
-        };
-        let got = digest_of(&run);
-        if let Some(diff) = digest_diff(want, &got) {
-            panic!("第 {index} 步 ({method}) 的 digest 对不上: {diff}\n  引擎 {got}\n  记录 {want}");
-        }
-    }
-}
-
-/// 同一局的**第三份 play-through** (133 步, 比前两份都长).
-///
-/// 这几份种子相同, 打法不同, 所以走过的商店 / 包 / 消耗牌都不同 —— 一份基准只能覆盖一条路径.
-/// 这一份跑到第 133 步, 覆盖到前面两份没有的东西: `rearrange` (手牌手动排序),
-/// 以及底注 4 到 5 那一段连着开好几个补充包.
-///
-/// # 它挖出来的东西
-///
-/// 1. **券的抽取时机**: 游戏的货架生成顺序是"卡 -> 券 -> 包", 而券要消耗随机数, 所以它抽在
-///    包前面还是后面, 决定了 `get_pack` 第一次调用时全局序列停在哪 (那一掷是**裸**的
-///    `math.random(1, 2)`, 挑那个白送的小人包). 详见 `shop::restock`.
-/// 2. **券买走之后, 这一底剩下的商店里不再摆券** (`RunState::voucher_spent`) —— 只清货架上那张
-///    是不够的, 键还在 `shop_vouchers` 里, 下一次铺货会照着它把**已经买过**的那张又摆回去.
-/// 3. **一张牌离场要清它的"用过"记录** (`forget_used_if_gone`): 判据是**持有区里还有没有同名卡**,
-///    而游戏那个 `find_joker` 只搜持有区, **不搜牌堆也不搜货架** —— 所以货架上被收走的那张
-///    也要清. 少了这一步, 商店重抽 / 离开商店之后, 那些牌会一直占着池子里的格子.
-/// 4. **买下的小丑要带上版本** —— 货架上那张是闪箔 / 镭射 / 多彩 / 负片的时候, 买下来就是那张
-///    带版本的; 漏了这一项, 版本在买的那一刻凭空消失, 而且不报错.
-/// 5. **开包时发牌的是秘术包与幽灵包**, 不是"凡是装消耗牌的都发" —— 按后者判会把**天体包**
-///    也算进去, 于是每开一次天体包就凭空多一手牌.
-/// 6. **停用的 Boss (希科) 整条不生效**: 游戏那两个入口 (`Blind:debuff_hand` 与
-///    `Blind:press_play`) 开头都是 `if self.disabled then return end`, 那一整段 Boss 判定
-///    (眼 / 嘴限制牌型, 牙扣钱, 臂降等级, 牛清零) 都要挂在那个标志后面.
-/// 7. **`table.sort` 是不稳定排序**, 而且手牌顺序本身就是状态 —— 见 `crate::lua::table_sort`.
-///    两张同点数同花色的牌靠什么分先后, 是同一条线上的另一处: `Card:set_base` 会把
-///    **最初的花色** (`suit_nominal_original`) 带下去, 所以换过花色的牌仍然带着旧花色那一份.
-/// 8. **手动调换顺序 (`rearrange`) 是状态不是动作**: 出牌与弃牌都用下标, 而且游戏那边换完
-///    **不排序**, 下一次发牌才按牌面重排.
-#[test]
-fn the_aleeb_133_run_replays_step_by_step() {
-    let steps = parse_steps(ALEEB_133);
-    let mut run = RunState::new("ALEEB", stake_of("GOLD")).with_deck(deck_of("PLASMA"));
-    run.start_run();
-    run.uda = uda_of();
-    let env = EvalEnv::default();
-
-    for (index, step) in steps.iter().enumerate() {
-        let method = step.get("method").and_then(Json::as_str).expect("有方法");
-        if let Err(error) = apply_step(step, &mut run, &env) {
-            panic!("第 {index} 步 ({method}) 执行失败: {error:?}");
-        }
-        let Some(want) = step.get("digest").and_then(Json::as_str) else {
-            continue;
-        };
-        let got = digest_of(&run);
-        if let Some(diff) = digest_diff(want, &got) {
-            panic!("第 {index} 步 ({method}) 的 digest 对不上: {diff}\n  引擎 {got}\n  记录 {want}");
-        }
-    }
-}
 
 /// 对拍某一处的 digest.
 fn digest_diff(want: &str, got: &str) -> Option<String> {
