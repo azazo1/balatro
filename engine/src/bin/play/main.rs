@@ -95,10 +95,15 @@ struct StepArgs {
 }
 
 fn run_step(args: &[String]) {
-    let need = |name: &str| {
-        value_of(args, name)
-            .unwrap_or_else(|| panic!("{name} 是必给的"))
-            .to_owned()
+    // 缺参数时报清楚再退出, 不用 panic: 调用方多是 agent, 而 panic 的样子像"程序坏了",
+    // 它多半会当成引擎的 bug 来排查, 而不是去补上参数.
+    let need = |name: &str| match value_of(args, name) {
+        Some(value) => value.to_owned(),
+        None => {
+            eprintln!("缺参数 {name}.\n");
+            eprint!("{HELP}");
+            std::process::exit(2);
+        }
     };
     let step = StepArgs {
         seed: need("--seed"),
@@ -124,7 +129,13 @@ fn run_step(args: &[String]) {
                 continue;
             }
             actions.push(
-                Json::parse(line).unwrap_or_else(|error| panic!("动作文件里这行不是 JSON: {line} ({error})")),
+                match Json::parse(line) {
+                    Ok(parsed) => parsed,
+                    Err(error) => {
+                        eprintln!("{} 里这行不是合法 JSON: {line}\n  ({error})", step.actions.display());
+                        std::process::exit(2);
+                    }
+                }
             );
         }
     } else {
@@ -178,7 +189,15 @@ fn run_step(args: &[String]) {
     // 新动作: **先执行, 成功了才落盘**. 反过来的话, 一条被拒绝的动作会留在历史里, 之后每次
     // 重放都在同一位置失败, 对局就废了 —— agent 犯错是常态, 动作文件里只该装真的生效过的.
     if let Some(text) = &step.do_action {
-        let step_json = Json::parse(text).unwrap_or_else(|error| panic!("--do 不是合法 JSON: {error}"));
+        let step_json = match Json::parse(text) {
+            Ok(parsed) => parsed,
+            Err(error) => {
+                // 这一条最常发生: 引号被 shell 吃掉, 或者少一个逗号. 说清是哪种, 并原样回报收到的
+                // 文本 —— 调用方才能看出到底是自己写错了, 还是参数在传递途中被改过.
+                eprintln!("--do 不是合法 JSON: {error}\n  收到的是: {text}");
+                std::process::exit(2);
+            }
+        };
         match action::apply(&step_json, &mut run, &env) {
             Ok(what) => {
                 use std::io::Write;
