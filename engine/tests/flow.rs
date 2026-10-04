@@ -1266,6 +1266,38 @@ fn rental_pays_rent_and_perishable_expires() {
     assert_eq!(got.mult, 2.0, "削弱之后小丑的 +4 没了");
 }
 
+/// 输掉的那一回合**不扣租金**, 而易腐照样到期.
+///
+/// 游戏那边租金是 `ease_dollars` 排的事件, 不是当场改钱; 而输局会让 `update_game_over`
+/// 把 `G.SETTINGS.paused` 置真, 事件队列随即丢掉所有"创建时不在暂停中"的事件
+/// (`engine/event.lua` 的 `pause_skip`), 那笔钱就永远不执行.
+///
+/// 这一条是反向对拍抓到的: 一局 73 步里前 72 步全对, 只有输掉的那手游戏比引擎多 3 块,
+/// 正好是一张租赁小丑的租金 (探针记到 `calculate_rental` 被调用了, 但它前后钱没变).
+#[test]
+fn losing_round_skips_rent_but_still_expires_perishable() {
+    use balatro_engine::jokers::Joker;
+    use balatro_engine::run::{Phase, RunState};
+
+    let mut rental = Joker::new("j_joker").expect("有这张");
+    rental.rental = true;
+    let mut perishable = Joker::new("j_joker").expect("有这张");
+    perishable.perish_tally = 1;
+
+    let mut run = RunState::new("ALEEB", 8);
+    run.start();
+    run.dollars = 4.0;
+    // 分数远达不到目标 —— 这一局必输.
+    run.chips = 0.0;
+    run.jokers.push(rental);
+    run.jokers.push(perishable);
+    run.end_round();
+
+    assert_eq!(run.phase, Phase::GameOver, "这一局应当输掉");
+    assert_eq!(run.dollars, 4.0, "输局不扣租金");
+    assert!(run.jokers[1].debuffed, "易腐是同步代码, 输局照样到期");
+}
+
 /// 小丑包里的小丑也会带版本 / 永恒 / 易腐 / 租赁 —— 与商店货架上的一样, 只是掷骰的键不同.
 ///
 /// 这三掷用的是 `packetper` / `packssjr` / `edi` 三条键, 少掷一次不光那张牌"少了特性",

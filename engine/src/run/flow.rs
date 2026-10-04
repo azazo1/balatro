@@ -1907,9 +1907,22 @@ impl RunState {
         // 于是"回合之间 (商店 / 开包)"不再有任何生效的盲注. 引擎保留盲注对象 (结算要读目标分数),
         // 所以用一个标志表达同一件事. 详细缘由见 `RunState::in_blind`.
         self.in_blind = false;
-        // 手牌效果先跑 —— 蓝封生成的行星牌要用 `last_hand_played`, 而收牌与换手牌都不改它.
-        let hand_dollars = self.end_of_round_hand_effects();
+        // 分数够不够要**先**算, 因为租金扣不扣取决于这一局活不活得下来 —— 缘由见
+        // `end_of_round_hand_effects` 的说明.
         let passed = self.reached_target();
+        // 骨先生能在分数不够时保住这一局, 它也算"活下来了" (游戏那边它会置 `saved`, 于是
+        // `game_over` 变回假, 租赁那笔事件照常执行).
+        let bones_would_save = !passed
+            && self
+                .jokers
+                .iter()
+                .any(|joker| joker.key == "j_mr_bones" && !joker.debuffed)
+            && self
+                .blind
+                .as_ref()
+                .is_some_and(|blind| blind.chips > 0.0 && self.chips / blind.chips >= 0.25);
+        // 手牌效果随后跑 —— 蓝封生成的行星牌要用 `last_hand_played`, 而收牌与换手牌都不改它.
+        let hand_dollars = self.end_of_round_hand_effects(passed || bones_would_save);
 
         // 礼物卡: 每回合给**所有**小丑的卖出价涨 1 块 (包括它自己).
         if self
@@ -1937,15 +1950,11 @@ impl RunState {
 
         // 骨先生: 没达标但分数到了目标的 25% 就**保住这一局** (它自己销毁).
         // 游戏是在 `context.game_over` 那一刻拦下来的, 拦完之后流程照常往前走.
-        let bones_saves = !passed
-            && self
-                .jokers
-                .iter()
-                .any(|joker| joker.key == "j_mr_bones" && !joker.debuffed)
-            && self
-                .blind
-                .as_ref()
-                .is_some_and(|blind| blind.chips > 0.0 && self.chips / blind.chips >= 0.25);
+        //
+        // 这里直接用上面早算好的 `bones_would_save`: 它只读状态, 而骨先生自己在回合末没有
+        // 任何效果 (不会因"销毁骰"而消失), 所以两次判定必然一致 —— 同一套判定写两处,
+        // 迟早会有一处被改漏.
+        let bones_saves = bones_would_save;
         if bones_saves {
             let index = self
                 .jokers
@@ -2033,7 +2042,19 @@ impl RunState {
     ///
     /// 对应 `Card:get_end_of_round_effect` 与 `get_p_dollars`: 黄金牌与金封各给三块,
     /// 蓝封给一张"最后打出的牌型"对应的行星牌 (消耗槽有空位时才给). 逐张按手牌从左到右走.
-    fn end_of_round_hand_effects(&mut self) -> f64 {
+    ///
+    /// `survived` 是"这一局还活得下去吗" (分数够了, 或者骨先生会救). **只有活下来才扣租金** ——
+    /// 游戏那边租金走的是 `ease_dollars`, 它不改钱, 而是把改钱排成一个事件; 而一旦这一局输掉,
+    /// `update_game_over` 会把 `G.SETTINGS.paused` 置真, 事件队列随即跳过所有"创建时没在暂停中"
+    /// 的事件 (`engine/event.lua` 的 `pause_skip`), 那笔钱就永远不执行了.
+    ///
+    /// 这一条是反向对拍抓到的: 一局完整的 73 步里前 72 步全对, 最后一步 (输掉的那手) 游戏的钱
+    /// 比引擎多 3 —— 正好是一张租赁小丑的租金. 探针记下的现场是"`calculate_rental` 确实被调用了,
+    /// 但它前后钱都是 3", 与 `ease_dollars` 排队 + `pause_skip` 丢弃这条链完全吻合.
+    ///
+    /// 易腐倒计时**不受这个标志影响**: `Card:calculate_perishable` 是直接改 `perish_tally` 的
+    /// 同步代码, 没有排队, 所以输局时照样往下走.
+    fn end_of_round_hand_effects(&mut self, survived: bool) -> f64 {
         let mut dollars = 0.0;
         // 先把手牌的信息取出来, 后面要改 `self` (加行星牌).
         let hand: Vec<(bool, Option<Enhancement>, Option<Seal>)> = self
@@ -2090,14 +2111,19 @@ impl RunState {
         // 租金是**当场扣钱** (不是记进结算栏), 而且这一段排在利息之前 ——
         // 所以租赁小丑会连带把这一轮的利息压低, 这一点与游戏一致.
         //
+        // 输掉的那一局不扣租金 (`survived` 为假): 游戏那笔钱排在事件队列里, 而输局会把
+        // `G.SETTINGS.paused` 置真, 队列随即丢掉它. 详见本函数的文档注释.
+        //
         // 每张小丑自己的回合末效果 (`end_of_round_effect`: 大麦克的销毁骰, 爆米花的退化)
         // 排在这一格的最前面, 与游戏的顺序一致. 判定要销毁的先记下标, 循环完了再挪.
+        //
+        // 销毁骰与易腐倒计时都**不**受 `survived` 影响: 它们在游戏里是同步代码, 不排队.
         let mut doomed: Vec<usize> = Vec::new();
         for (index, joker) in self.jokers.iter_mut().enumerate() {
             if joker.end_of_round_effect(&mut self.rng, self.probability_scale) {
                 doomed.push(index);
             }
-            if joker.rental {
+            if joker.rental && survived {
                 self.dollars -= RENTAL_RATE;
             }
             if joker.perish_tally > 0 {
