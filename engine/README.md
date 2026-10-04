@@ -59,6 +59,54 @@ just macos replay-check-decks <种子> <赌注> [步数]    # 十五副牌组各
 它需要**启动游戏** (GUI), 所以只能在能跑图形环境的机器上执行; 退出码即结论 ——
 0 全程预测正确, 1 在第 N 步跑偏, 2 中止, 3 文件无法回放.
 
+## 让 agent 玩
+
+`play` 是给 agent 用的对局与查询入口. 它**不需要游戏**, 也不需要图形环境:
+agent 在引擎里走完一局, 再由游戏照着重放核对 (上面那条反向校验的路线).
+
+```shell
+just play step --seed AGENT2 --deck RED --stake GOLD --actions .tmp/agent/AGENT2.actions.jsonl
+just play step --seed AGENT2 --deck RED --stake GOLD --actions .tmp/agent/AGENT2.actions.jsonl \
+    --do '{"method":"play","params":{"cards":[1,2,3]}}'
+just play step ... --emit .tmp/agent/AGENT2.replay.json   # 交给 just macos replay 逐步对拍
+
+just play prompt                    # 系统提示词
+just play lookup j_odd_todd 奇数托德 # 查卡牌的中文名与效果
+just play docs                      # 手册目录
+just play docs rules/economy.md     # 读某一节
+just play search 利息               # 全局搜子串
+```
+
+每一步是一次**独立命令**: 每次调用把动作文件从头重放一遍再打印局面. 引擎是确定性的, 所以
+重放换来的是无状态 —— 不需要常驻进程, 中途断开也不怕. 动作**先执行, 成功了才写进文件**,
+所以被拒绝的动作不会留在历史里, agent 犯错不会把对局弄废.
+
+### 给 agent 的信息
+
+输出照着内置 agent (`mods/balatrobot`) 给模型的那一份做. 这不是装饰: 同一个引擎, 给 agent
+一串内部键名还是给一份带中文名与效果的局面, 打出来的结果会差很多, 而且输的原因会看起来像
+"agent 水平不行", 实际是信息没给够. 每步给出:
+
+- **阶段, 底注, 回合, 金钱**, 以及这一回合的得分与剩余出牌 / 弃牌次数.
+- **三个盲注的名字, 状态, 效果**, 当前那个的**目标分**与奖金 (选盲注阶段就先预告, 否则没法决定
+  跳不跳), 以及**跳过能拿到的标签**. Boss 的效果 (例如"所有方片牌都被削弱") 要在这里就看得见.
+- **手牌**: 每张的花色点数 (中文), 修饰 (强化 / 版本 / 蜡封 / 被削弱), 以及**计分筹码**.
+- **小丑与消耗牌**: 中文名, 效果文本, 卖价, 以及**当前成长值**.
+- **商店与卡包**: 每格的名字, 价格, 修饰 (永恒 / 易腐 / 租赁), 刷新价.
+- **牌型**: 只列等级高于 1 或这一局打过的, 带等级, 当前筹码与倍率, 已打次数 (含本回合).
+- **上一手**: 打了哪几张, 得多少分, 什么牌型, 计分明细.
+- **会变的值**: 每回合重掷的目标花色与点数 (古老小丑, 偶像, 邮件回扣, 城堡), 待办清单认的牌型,
+  盲注公牛要用的最常打出牌型, 小丑的成长值, 容量, 利息, 以及**摸牌堆与弃牌堆的花色点数分布**
+  (算同花与顺子的命中率靠它).
+
+原则是: 凡是**决策要用**的就给, 哪怕它让输出变长; 凡是引擎**没记录**的就不编 (报"还没掷"而不是
+猜一个). 与内置 agent 的一处刻意不同: 它是一段连续对话, 所以能"每张牌只介绍一次"省 token;
+这里每步是新进程, 没有记忆可留, 于是**每次都写全** —— 省 token 该做在 agent 那一侧, 不该靠少给它.
+
+规则信息走 `lookup` / `docs` / `search` 三个子命令, 与内置 agent 的 `lookup` / `docs_read` /
+`docs_search` 对应, 数据源同为 `docs/game/data/catalog.json` 与 `docs/game/` 下的手册 (编译期内嵌,
+所以从任何工作目录调用都对). 手册里带 `[...]` 占位的那类效果不携带实时值, 那种要看"会变的值".
+
 ## 结构与覆盖
 
 ```
@@ -66,11 +114,13 @@ src/
   rng/     LuaJIT 的 math.random 与游戏的 pseudoseed (按键独立) 的移植
   lua/     按 Lua 语义移植的 table.sort 等
   cards/   牌面, 强化, 版本, 蜡封, 建牌序号
-  data/    只读的原型表 (从 docs/game/data/catalog.json 读入)
+  data/    只读的原型表 (从 docs/game/data/catalog.json 读入) 与 agent 用的知识查询
   scoring/ 一次出牌的计分: 牌型, 等级表, 小丑四段钩子, 逐卡增强 / 版本
   jokers/  小丑效果
   run/     一局的状态与流程: 建堆洗牌, 出牌, 弃牌, 盲注, 结算, 商店, 开包, 快照
   batch/   批量并行跑对局 (按种子分片, 无锁)
+  agent/   给 agent 的一层 (不参与规则计算): 动作施加, 局面摘要, 动态值, 提示词
+  bin/play/ 上面那条命令行的入口
 tests/     测试与 fixture 基准 (基准数据在 data/ 下)
 ```
 

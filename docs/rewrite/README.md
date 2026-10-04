@@ -53,12 +53,11 @@ BBDUMP=1 BBDUMP_DIR="$PWD/recordings/dumps" just macos run-agent
 
 ```shell
 # 1. agent 逐步对局: 每次调用把动作文件从头重放一遍, 打印局面与可选动作
-engine/target/release/examples/play --seed AGENT2 --deck RED --stake GOLD \
-    --actions .tmp/agent/AGENT2.actions.jsonl
+just play step --seed AGENT2 --deck RED --stake GOLD --actions .tmp/agent/AGENT2.actions.jsonl
 # 2. 过程中 agent 自己看局面决定下一步 (动作先执行, 成功了才落盘)
-engine/target/release/examples/play --seed AGENT2 ... --do '{"method":"play","params":{"cards":[1,2,3]}}'
+just play step --seed AGENT2 ... --do '{"method":"play","params":{"cards":[1,2,3]}}'
 # 3. 导出成游戏能回放的文件, 每步带引擎预测的摘要
-engine/target/release/examples/play --seed AGENT2 ... --emit .tmp/agent/AGENT2.replay.json
+just play step --seed AGENT2 ... --emit .tmp/agent/AGENT2.replay.json
 # 4. 游戏重放并逐步比对. 退出码 0 = 全过, 1 = 跑偏 (会指出哪一步哪一项)
 just macos replay .tmp/agent/AGENT2.replay.json tight
 ```
