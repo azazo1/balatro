@@ -277,6 +277,10 @@ fn score_play_inner(
         }
         // 红封让这张牌多算一遍: 整段 (含它自己的筹码与逐卡小丑的效果) 都重跑, 不是只加倍率.
         for _ in 0..repeats {
+            // 这一遍里这张幸运牌有没有**成功触发**过: 两个骰子中任意一个中了就算.
+            // 游戏把它记在牌自己身上 (`Card.lucky_trigger`), 并在这一遍的逐卡小丑跑完之后清掉,
+            // 所以它的作用范围正好是"这一遍", 而且每多算一遍就多一次机会.
+            let mut lucky_trigger = false;
             // 金封: 这张牌被打出时直接给三块 (`Card:get_p_dollars`).
             if cards[index].gold_seal {
                 dollars += 3.0;
@@ -290,18 +294,31 @@ fn score_play_inner(
             }
             // 幸运牌的两份都靠掷骰 (1/5 给 +20 倍率, 1/15 给 20 块), 顺序是**倍率在前, 钱在后**
             // (`eval_card` 里 `get_chip_mult` 排在 `get_p_dollars` 前面).
-            // 骰子只在**参与计分**的牌上掷 —— 打出去但没进计分名单的牌不掷.
-            if cards[index].lucky {
-                if rng.pseudorandom("lucky_mult") < 0.2 {
+            // 骰子只在**参与计分**的牌上掷 —— 打出去但没进计分名单的牌不掷;
+            // 被削弱的牌连骰子都不掷 (`get_chip_mult` 与 `get_p_dollars` 开头都先判 debuff),
+            // 这里少掷一次, 后面所有掷骰都会跟游戏错开一格.
+            // 分子是 `G.GAME.probabilities.normal` (七上八下把它乘二), 不是写死的 1.
+            if cards[index].lucky && !cards[index].debuffed {
+                if rng.pseudorandom("lucky_mult") < (1.0 + env.probability_extra) / 5.0 {
                     mult += 20.0;
+                    lucky_trigger = true;
                 }
-                if rng.pseudorandom("lucky_money") < 1.0 / 15.0 {
+                if rng.pseudorandom("lucky_money") < (1.0 + env.probability_extra) / 15.0 {
                     dollars += 20.0;
+                    lucky_trigger = true;
                 }
             }
 
             // 逐张计分牌的小丑 (笑脸, 奇数托德那批): 每张牌各判一次, 按持有顺序.
-            for joker in jokers.iter() {
+            // 这里拿的是可变引用而不是 `iter()`: 幸运猫要当场改自己的成长值, 改完的那一份
+            // 在**本次**的小丑主效果那一趟就要用上 (主效果排在逐卡之后), 不能等这一手结束再并回.
+            for joker in jokers.iter_mut() {
+                // 幸运猫: 这张幸运牌这一遍成功触发过就涨一份 (0.25 倍率).
+                // 游戏写在 `context.individual` 分支里, 认的是同一张牌上的 `lucky_trigger` 标志;
+                // 蓝图复制到它身上那一趟游戏会跳过成长, 这里同样只在它自己那一格长.
+                if lucky_trigger {
+                    joker.grow_on_lucky_trigger();
+                }
                 if let Some(effect) = joker.individual(&cards[index], &ctx, rng) {
                     mult += effect.mult_mod;
                     chips += effect.chip_mod;

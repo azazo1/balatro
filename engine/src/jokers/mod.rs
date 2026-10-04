@@ -712,6 +712,26 @@ impl Joker {
         None
     }
 
+    /// 幸运猫的成长: 一张**刚成功触发过**的幸运牌被计分时涨一份乘倍率.
+    ///
+    /// 这条不在 `individual` 的返回值里, 因为它是**改自己**而不是给这一手加分:
+    /// 涨完的值由稍后的主效果 (泛化的 `x_mult > 1` 那一条) 读走, 所以同一手就生效.
+    /// 游戏那边写在 `context.individual` 分支里, 判的是同一张牌上的 `lucky_trigger` 标志;
+    /// 被削弱的幸运猫不长 (`Card:calculate_joker` 开头就挡掉), 别的小丑也不长.
+    ///
+    /// 返回是否真的涨了, 数值本身已经写回 `self` (给调用方和测试看的只是这个判断).
+    pub fn grow_on_lucky_trigger(&mut self) -> bool {
+        if self.debuffed || self.key != "j_lucky_cat" {
+            return false;
+        }
+        let step = self.extra_number("extra");
+        if step == 0.0 {
+            return false;
+        }
+        self.x_mult += step;
+        true
+    }
+
     /// 逐张计分牌触发 (`context.individual`).
     ///
     /// 与 `joker_main` 的区别在于**粒度**: 这里对每一张参与计分的牌各判一次, 而不是整手判一次.
@@ -749,8 +769,13 @@ impl Joker {
                 }
             }
             // 生意: 每张**人头牌**计分时掷一次 (1/2), 中了给两块.
+            // 分子是 `G.GAME.probabilities.normal`, 不能写死成 1 (七上八下会把它乘二).
             "j_business" => {
-                if ctx.is_face(card) && rng.pseudorandom("business") < 0.5 {
+                let odds = self.extra;
+                if ctx.is_face(card)
+                    && odds > 0.0
+                    && rng.pseudorandom("business") < (1.0 + ctx.probability_extra) / odds
+                {
                     return Some(JokerEffect {
                         dollars: self.extra,
                         ..JokerEffect::default()

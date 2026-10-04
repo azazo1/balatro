@@ -2394,3 +2394,71 @@ fn sixth_sense_destroys_a_lone_first_hand_six() {
         "那张 6 该被销毁 (不进弃牌堆)"
     );
 }
+
+/// 幸运猫: 幸运牌**成功触发**一次就涨 0.25 乘倍率, 而且涨出来的那一份**这一手就用上**.
+///
+/// 这张牌卡在两处, 都得在这里钉住:
+///
+/// 1. 触发标志的生命周期是"这张牌的这一遍计分": 两个骰子任一中了就算触发过,
+///    判定发生在逐卡小丑之前, 逐卡跑完就清掉 —— 红封让整段重跑时又会有新的一次机会.
+/// 2. 成长写在逐卡那一趟, 但吃它的是稍后的**主效果** (泛化的 `x_mult > 1` 那条).
+///    所以这里同时断言小丑身上的值和这一手的倍率, 只验其中一个都漏得掉 "写了没接上".
+///
+/// 骰子结果不预置, 而是三十个种子各跑一遍: 先照计分里的同样顺序 (倍率在前, 钱在后) 自己掷一次,
+/// 知道这手会不会触发, 再用同一个种子真跑一遍对账.
+#[test]
+fn lucky_cat_grows_on_every_successful_lucky_trigger() {
+    use balatro_engine::cards::{CardInstance, Enhancement};
+    use balatro_engine::rng::Rng;
+    use balatro_engine::scoring::score_play_with_rng;
+
+    let mut run = common::aleeb_run();
+    run.start();
+
+    let mut lucky = CardInstance::from_key("C_5").expect("能造出牌");
+    lucky.set_enhancement(Enhancement::Lucky);
+    // 一对 5: 底子 20 筹码 2 倍率.
+    let cards = [lucky.to_hand_card(), card("D_5")];
+
+    let mut grown = 0;
+    for index in 0..30 {
+        let seed = format!("LUCKY-CAT-{index}");
+        // 探测那一次要把两个骰子都掷掉 —— 写成一个 `||` 会在第一个中了之后短路掉第二个,
+        // 之后的随机序列就跟计分里错开了.
+        let mut probe = Rng::new(seed.as_str());
+        let mult_hit = probe.pseudorandom("lucky_mult") < 1.0 / 5.0;
+        let money_hit = probe.pseudorandom("lucky_money") < 1.0 / 15.0;
+        let triggered = mult_hit || money_hit;
+
+        let mut jokers = [Joker::new("j_lucky_cat").expect("有这张")];
+        assert_eq!(jokers[0].x_mult, 1.0, "刚拿到手是 1, 还没触发过");
+        let mut rng = Rng::new(seed.as_str());
+        let result = score_play_with_rng(
+            &cards,
+            &[],
+            &run.hands,
+            &EvalEnv::default(),
+            BackEffect::Plain,
+            &mut jokers,
+            &mut rng,
+        )
+        .expect("对子能识别");
+
+        let expected_x = if triggered { 1.25 } else { 1.0 };
+        assert_eq!(
+            jokers[0].x_mult, expected_x,
+            "种子 {seed}: 触发过才涨, 而且只涨一份"
+        );
+        let expected_mult = (if mult_hit { 22.0 } else { 2.0 }) * expected_x;
+        assert_eq!(
+            result.mult, expected_mult,
+            "种子 {seed}: 刚涨出来的乘倍率这一手就该乘进来"
+        );
+        assert_eq!(result.total, (20.0 * expected_mult).floor());
+        if triggered {
+            grown += 1;
+        }
+    }
+    assert!(grown > 0, "三十个种子里总该有触发过的");
+    assert!(grown < 30, "也总该有没触发的 —— 否则上面那半断言等于没测");
+}
