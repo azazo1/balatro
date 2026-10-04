@@ -9,7 +9,9 @@
 mod replay;
 mod session;
 
-use std::path::PathBuf;
+use std::collections::hash_map::RandomState;
+use std::hash::{BuildHasher, Hasher};
+use std::path::{Path, PathBuf};
 
 use balatro_engine::agent::{action, dynamics, prompt, summary};
 use balatro_engine::data::json::Json;
@@ -41,7 +43,9 @@ const HELP: &str = "\
   prompt    输出系统提示词            play prompt [--endless] [--strategy 文本]
 
 step 的参数:
-  --seed 种子 --deck 牌组 --stake 赌注   开局参数 (必给)
+  --seed 种子 --deck 牌组 --stake 赌注   开局参数. 新开一局时必给牌组与赌注;
+                                        种子不给就随机生成 (形状同游戏的新开一局),
+                                        定下来之后记进动作文件, 之后不用再给.
   --actions 文件                        这一局的动作文件, 也是全部历史 (必给)
   --do JSON                             追加并执行一条动作
   --emit 文件                           把这局导出成游戏能回放的文件
@@ -85,13 +89,149 @@ fn flag(args: &[String], name: &str) -> bool {
 
 // ---------------------------------------------------------------- 对局
 
+/// 一次 `step` 调用的输入.
 struct StepArgs {
-    seed: String,
-    deck: String,
-    stake: String,
+    opening: Opening,
     actions: PathBuf,
     do_action: Option<String>,
     emit: Option<PathBuf>,
+}
+
+/// 这一局的开局参数.
+///
+/// 定下来之后**记进动作文件的第一行**, 而不是每次调用都从命令行重给: 种子可能是随机生成的,
+/// 命令行无从重复, 而动作文件是这一局的全部历史 —— 它才是真相. 顺带堵住一处静默出错: 原来三个
+/// 参数每次都要重打, 中途漏一个或打错就会按另一局去建堆, 而动作文件上看不出来.
+struct Opening {
+    seed: String,
+    deck: String,
+    stake: String,
+}
+
+/// 从动作文件的第一行取开局参数. 旧格式 (`{"method":"start"}` 不带 `params`) 给 `None`.
+fn opening_from(actions: &[Json]) -> Option<Opening> {
+    let first = actions.first()?;
+    if first.get("method").and_then(Json::as_str) != Some("start") {
+        return None;
+    }
+    let params = first.get("params")?;
+    let text = |key: &str| params.get(key).and_then(Json::as_str).map(str::to_owned);
+    Some(Opening {
+        seed: text("seed")?,
+        deck: text("deck")?,
+        stake: text("stake")?,
+    })
+}
+
+/// 开局那一行动作. 参数按 JSON 转义, 免得路径或别的字段里有引号.
+fn start_line(opening: &Opening) -> String {
+    format!(
+        "{{\"method\":\"start\",\"params\":{{\"seed\":{},\"deck\":{},\"stake\":{}}}}}",
+        replay::quote(&opening.seed),
+        replay::quote(&opening.deck),
+        replay::quote(&opening.stake)
+    )
+}
+
+/// 游戏生成的种子长度.
+const SEED_LEN: usize = 8;
+
+/// 游戏生成种子用的字母表: 数字 `1-9` 与字母 `A-N`, `P-Z`.
+///
+/// 与 `game/functions/misc_functions.lua` 的 `random_string` 逐段对应 (那里是三次 `math.random`
+/// 取字符码): **没有 `0` 也没有 `O`** —— 与对方看混, 游戏故意跳过.
+const SEED_ALPHABET: &[u8] = b"123456789ABCDEFGHIJKLMNPQRSTUVWXYZ";
+
+/// 生成一个开局种子, 形状与游戏"新开一局"时给的一致.
+///
+/// 游戏那边是 `random_string(8, ...)` (见 `game/functions/misc_functions.lua`): 八位, 字母表是
+/// 数字 `1-9` 与字母 `A-N`, `P-Z` —— **没有 `0` 也没有 `O`** (它们与对方看混). 照抄这个形状,
+/// 生成的种子手输回游戏时不会被拒.
+fn generate_seed() -> String {
+    // 引擎只有 std, 没有随机数库. `RandomState` 是标准库里唯一与操作系统熵挂钩的东西 ——
+    // 它的键由 OS 随机数播种, 且每次构造都不一样; 再掺进时钟, 连着开两局也不会撞.
+    let mut hasher = RandomState::new().build_hasher();
+    hasher.write_u64(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_nanos() as u64)
+            .unwrap_or(0),
+    );
+    // `| 1` 是防 xorshift 落进 0 里出不来 (零点是它的吸收态).
+    let mut state = hasher.finish() | 1;
+    let mut out = String::with_capacity(SEED_LEN);
+    for _ in 0..SEED_LEN {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        out.push(SEED_ALPHABET[(state % SEED_ALPHABET.len() as u64) as usize] as char);
+    }
+    out
+}
+
+/// 读动作文件; 不存在给空. 有一行不是 JSON 就说清是哪一行并退出.
+fn read_actions(path: &Path) -> Vec<Json> {
+    if !path.is_file() {
+        return Vec::new();
+    }
+    let text = std::fs::read_to_string(path).unwrap_or_default();
+    let mut actions = Vec::new();
+    for line in text.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        match Json::parse(line) {
+            Ok(parsed) => actions.push(parsed),
+            Err(error) => {
+                eprintln!("{} 里这行不是合法 JSON: {line}\n  ({error})", path.display());
+                std::process::exit(2);
+            }
+        }
+    }
+    actions
+}
+
+/// 命令行给的开局参数与动作文件里记的对不上时报清楚.
+///
+/// 不默默按其中一个走: 两者不一致时无论选哪个都是在打"另一局", 而动作文件里的历史是按原来那局
+/// 记的 —— 继续下去只会在某一处对不上.
+///
+/// **逐个检查, 而不是"三个都给才查"**: 只多给一个参数同样是在改这一局 (例如只给
+/// `--deck BLUE`), 漏检下来它会静默地按另一副牌组建堆.
+///
+/// 种子的比较**区分大小写** (引擎与游戏都是按原样的字节序列去哈希, 大小写不同就是不同的局);
+/// 牌组与赌注按各自的规范化形式比 (`RED` 与 `red` 是同一副, `WHITE` 与 `1` 是同一档).
+fn check_conflict(
+    recorded: &Opening,
+    cli_seed: Option<&str>,
+    cli_deck: Option<&str>,
+    cli_stake: Option<&str>,
+) {
+    let mut problems: Vec<String> = Vec::new();
+    if let Some(seed) = cli_seed
+        && seed != recorded.seed
+    {
+        problems.push(format!("--seed {seed} (文件里记的是 {})", recorded.seed));
+    }
+    if let Some(deck) = cli_deck
+        && session::deck_of(deck) != session::deck_of(&recorded.deck)
+    {
+        problems.push(format!("--deck {deck} (文件里记的是 {})", recorded.deck));
+    }
+    if let Some(stake) = cli_stake
+        && session::stake_of(stake) != session::stake_of(&recorded.stake)
+    {
+        problems.push(format!("--stake {stake} (文件里记的是 {})", recorded.stake));
+    }
+    if problems.is_empty() {
+        return;
+    }
+    eprintln!("命令行给的参数与这份动作文件记的不一致:");
+    for problem in problems {
+        eprintln!("  {problem}");
+    }
+    eprintln!("动作文件是这一局的全部历史, 开局参数是定下来的. 想换参数就换一个 --actions 文件.");
+    std::process::exit(2);
 }
 
 fn run_step(args: &[String]) {
@@ -105,46 +245,59 @@ fn run_step(args: &[String]) {
             std::process::exit(2);
         }
     };
+    let actions_path = PathBuf::from(need("--actions"));
+    let cli_seed = value_of(args, "--seed").map(str::to_owned);
+    let cli_deck = value_of(args, "--deck").map(str::to_owned);
+    let cli_stake = value_of(args, "--stake").map(str::to_owned);
+
+    // 动作文件是这一局的全部历史, 所以先读它 —— 开局参数以它记的为准.
+    let mut actions = read_actions(&actions_path);
+    let opening = if let Some(recorded) = opening_from(&actions) {
+        check_conflict(
+            &recorded,
+            cli_seed.as_deref(),
+            cli_deck.as_deref(),
+            cli_stake.as_deref(),
+        );
+        recorded
+    } else {
+        // 没有记着参数: 要么是新开一局, 要么是一份旧格式的动作文件.
+        if !actions.is_empty() && cli_seed.is_none() {
+            // 旧文件里没有种子, 而种子无从推断 —— 随便生成一个就不是原来那一局了.
+            eprintln!("{} 的第一行没有记开局参数 (旧格式), 种子无从推断.", actions_path.display());
+            eprintln!("请用 --seed 把这一局的种子补上 (牌组与赌注也从命令行给).");
+            std::process::exit(2);
+        }
+        Opening {
+            // 种子没给就现生成一个, 与游戏"新开一局"时给的一样.
+            seed: cli_seed.unwrap_or_else(generate_seed),
+            deck: need("--deck"),
+            stake: need("--stake"),
+        }
+    };
+
+    // 新开一局: 把开局参数写进第一行, 之后调用就不用再给这几个了.
+    if actions.is_empty() {
+        if let Some(parent) = actions_path.parent() {
+            std::fs::create_dir_all(parent).expect("能建动作文件所在目录");
+        }
+        let line = start_line(&opening);
+        std::fs::write(&actions_path, format!("{line}\n")).expect("能写动作文件");
+        eprintln!("新开一局: 种子 {} / 牌组 {} / 赌注 {}", opening.seed, opening.deck, opening.stake);
+        eprintln!("(开局参数已写进 {}, 之后不用再给)", actions_path.display());
+        actions.push(Json::parse(&line).expect("刚拼出来的是合法 JSON"));
+    }
+
     let step = StepArgs {
-        seed: need("--seed"),
-        deck: need("--deck"),
-        stake: need("--stake"),
-        actions: PathBuf::from(need("--actions")),
+        opening,
+        actions: actions_path,
         do_action: value_of(args, "--do").map(str::to_owned),
         emit: value_of(args, "--emit").map(PathBuf::from),
     };
 
-    let mut run = RunState::new(&step.seed, session::stake_of(&step.stake))
-        .with_deck(&session::deck_of(&step.deck))
+    let mut run = RunState::new(&step.opening.seed, session::stake_of(&step.opening.stake))
+        .with_deck(&session::deck_of(&step.opening.deck))
         .with_uda(session::uda_from_template());
-
-    // 动作文件是这份对局的全部历史. 不存在就当开局: 建堆并写第一行 `start`.
-    let mut actions: Vec<Json> = Vec::new();
-    if step.actions.is_file() {
-        for line in std::fs::read_to_string(&step.actions)
-            .unwrap_or_default()
-            .lines()
-        {
-            if line.trim().is_empty() {
-                continue;
-            }
-            actions.push(
-                match Json::parse(line) {
-                    Ok(parsed) => parsed,
-                    Err(error) => {
-                        eprintln!("{} 里这行不是合法 JSON: {line}\n  ({error})", step.actions.display());
-                        std::process::exit(2);
-                    }
-                }
-            );
-        }
-    } else {
-        if let Some(parent) = step.actions.parent() {
-            std::fs::create_dir_all(parent).expect("能建动作文件所在目录");
-        }
-        actions.push(Json::parse("{\"method\":\"start\"}").expect("内建的是合法 JSON"));
-        std::fs::write(&step.actions, "{\"method\":\"start\"}\n").expect("能写动作文件");
-    }
 
     let env = EvalEnv::default();
     let verbose = std::env::var("PLAY_VERBOSE").is_ok();
@@ -224,9 +377,9 @@ fn run_step(args: &[String]) {
 
     if let Some(path) = &step.emit {
         let spec = replay::RunSpec {
-            seed: step.seed.clone(),
-            deck: step.deck.clone(),
-            stake: step.stake.clone(),
+            seed: step.opening.seed.clone(),
+            deck: step.opening.deck.clone(),
+            stake: step.opening.stake.clone(),
         };
         let text = replay::render(&spec, &records);
         if let Some(parent) = path.parent() {
@@ -246,7 +399,12 @@ fn print_state(run: &RunState, step: &StepArgs, steps: usize, last_hand: Option<
         "=== 第 {steps} 步 | {} ===",
         summary::phase_zh(run.phase)
     );
-    say!("种子 {} / 牌组 {} / 赌注 {}", step.seed, step.deck, step.stake);
+    say!(
+        "种子 {} / 牌组 {} / 赌注 {}",
+        step.opening.seed,
+        step.opening.deck,
+        step.opening.stake
+    );
     say!(
         "{}",
         summary::render(
@@ -386,4 +544,93 @@ fn run_search(args: &[String]) {
 fn run_prompt(args: &[String]) {
     let strategy = value_of(args, "--strategy");
     emit!("{}", prompt::system(flag(args, "--endless"), strategy));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 字母表必须与游戏 `random_string` 用的完全一致.
+    ///
+    /// 游戏那边是 `math.random('1','9')` / `('A','N')` / `('P','Z')` 三段: 数字九位, 字母两段
+    /// 共二十五位, 合起来 34. **没有 `0` 也没有 `O`** —— 它们与对方看混, 游戏故意跳过.
+    /// 这个字面量抄错一位不会报错, 只会生成一个形状不对的种子 (手输回游戏可能被拒),
+    /// 所以在这里钉住.
+    #[test]
+    fn seed_alphabet_matches_the_game() {
+        let mut expected: Vec<char> = ('1'..='9')
+            .chain('A'..='N')
+            .chain('P'..='Z')
+            .collect();
+        expected.sort_unstable();
+        let mut actual: Vec<char> = alphabet_str().chars().collect();
+        actual.sort_unstable();
+        assert_eq!(actual, expected, "字母表与游戏的不一致");
+        assert!(!actual.contains(&'0') && !actual.contains(&'O'), "不该有 0 与 O");
+        // 长度对得上: 9 位数字 + 25 位字母 = 34
+        assert_eq!(actual.len(), 34);
+    }
+
+    /// 断言用的字符串视图 (常量本身是字节; 它是纯 ASCII, 所以转换不会失败).
+    fn alphabet_str() -> &'static str {
+        std::str::from_utf8(SEED_ALPHABET).expect("字母表是 ASCII")
+    }
+
+    #[test]
+    fn generated_seeds_have_the_game_shape_and_differ() {
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..64 {
+            let seed = generate_seed();
+            assert_eq!(seed.chars().count(), 8, "游戏生成的是八位: {seed}");
+            for ch in seed.chars() {
+                assert!(
+                    alphabet_str().contains(ch),
+                    "{seed} 里的 {ch} 不在游戏字母表里"
+                );
+            }
+            // 连着开两局不该撞 (时钟 + OS 熵都掺进去了)
+            seen.insert(seed);
+        }
+        assert!(seen.len() > 60, "64 次里撞了太多: {}", seen.len());
+    }
+
+    /// 种子大小写敏感: 大小写不同就是不同的字节序列, 引擎与游戏都按原样哈希.
+    #[test]
+    fn seed_case_is_significant() {
+        let recorded = Opening {
+            seed: "ALEEB".to_owned(),
+            deck: "RED".to_owned(),
+            stake: "WHITE".to_owned(),
+        };
+        // 大写相同 -> 不冲突 (这条不该退出, 用不 panic 的方式验: 直接比对规范化结果)
+        assert_eq!(session::deck_of("red"), session::deck_of("RED"));
+        assert_eq!(session::stake_of("1"), session::stake_of("WHITE"));
+        assert_ne!(recorded.seed, "aleeb");
+    }
+
+    #[test]
+    fn the_start_line_records_the_opening_and_parses_back() {
+        let opening = Opening {
+            seed: "5RSSBWA9".to_owned(),
+            deck: "RED".to_owned(),
+            stake: "WHITE".to_owned(),
+        };
+        let line = start_line(&opening);
+        let parsed = Json::parse(&line).expect("拼出来的要是合法 JSON");
+        assert_eq!(parsed.get("method").and_then(Json::as_str), Some("start"));
+        // 存回去能原样读出来 —— 下一次调用就靠它
+        let back = opening_from(&[parsed]).expect("要能读回来");
+        assert_eq!(back.seed, opening.seed);
+        assert_eq!(back.deck, opening.deck);
+        assert_eq!(back.stake, opening.stake);
+    }
+
+    /// 旧格式 (`{"method":"start"}` 不带 params) 读不到开局参数, 调用方据此要求补 `--seed`.
+    #[test]
+    fn an_old_style_start_line_has_no_opening() {
+        let old = Json::parse("{\"method\":\"start\"}").expect("合法 JSON");
+        assert!(opening_from(&[old]).is_none());
+        // 空文件同样读不到
+        assert!(opening_from(&[]).is_none());
+    }
 }

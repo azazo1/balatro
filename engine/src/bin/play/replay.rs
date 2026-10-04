@@ -112,7 +112,7 @@ fn snapshot_of(value: &Json) -> String {
     format!("{{{}}}", fields.join(","))
 }
 
-fn quote(text: &str) -> String {
+pub(crate) fn quote(text: &str) -> String {
     let mut out = String::with_capacity(text.len() + 2);
     out.push('"');
     for ch in text.chars() {

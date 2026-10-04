@@ -65,10 +65,14 @@ just macos replay-check-decks <种子> <赌注> [步数]    # 十五副牌组各
 agent 在引擎里走完一局, 再由游戏照着重放核对 (上面那条反向校验的路线).
 
 ```shell
-just play step --seed AGENT2 --deck RED --stake GOLD --actions .tmp/agent/AGENT2.actions.jsonl
-just play step --seed AGENT2 --deck RED --stake GOLD --actions .tmp/agent/AGENT2.actions.jsonl \
+# 开一局: 牌组与赌注必给, 种子不给就随机生成一个
+just play step --deck RED --stake GOLD --actions .tmp/agent/RUN.actions.jsonl
+just play step --seed ALEEB --deck RED --stake GOLD --actions .tmp/agent/RUN.actions.jsonl
+
+# 之后不用再给开局参数 (它们记在动作文件的第一行)
+just play step --actions .tmp/agent/RUN.actions.jsonl \
     --do '{"method":"play","params":{"cards":[1,2,3]}}'
-just play step ... --emit .tmp/agent/AGENT2.replay.json   # 交给 just macos replay 逐步对拍
+just play step --actions .tmp/agent/RUN.actions.jsonl --emit .tmp/agent/RUN.replay.json  # 交给 just macos replay 逐步对拍
 
 just play prompt                    # 系统提示词
 just play lookup j_odd_todd 奇数托德 # 查卡牌的中文名与效果
@@ -80,6 +84,24 @@ just play search 利息               # 全局搜子串
 每一步是一次**独立命令**: 每次调用把动作文件从头重放一遍再打印局面. 引擎是确定性的, 所以
 重放换来的是无状态 —— 不需要常驻进程, 中途断开也不怕. 动作**先执行, 成功了才写进文件**,
 所以被拒绝的动作不会留在历史里, agent 犯错不会把对局弄废.
+
+### 开局参数
+
+`--seed` / `--deck` / `--stake` 只在**新开一局**时给一次, 之后**记进动作文件的第一行**:
+
+```json
+{"method":"start","params":{"seed":"QSHVZSFR","deck":"RED","stake":"WHITE"}}
+```
+
+再给一遍就得与文件里记的一致, 不一致会报错而不是默默按其中一个走 —— 两者不一致时无论选哪个都是
+在打"另一局", 而文件里的历史是按原来那局记的. 想换参数就换一个 `--actions` 文件.
+
+不写 `--seed` 就**随机生成**一个, 形状与游戏"新开一局"时给的一样: 八位, 字母表是数字 `1-9`
+与字母 `A-N`, `P-Z` (没有 `0` 与 `O`, 游戏特意跳过它们以免与对方看混). 生成的种子写进文件,
+所以同一局能一直打下去, 也能交给游戏复现. 要复现别人的一局, 把 `--seed` 给它就行.
+
+老格式的动作文件 (第一行是不带 `params` 的 `{"method":"start"}`) 仍能跑, 但要显式给 `--seed`
+—— 文件里没记种子就无从推断, 随便生成一个就不是原来那一局了.
 
 ### 给 agent 的信息
 
