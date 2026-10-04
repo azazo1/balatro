@@ -60,6 +60,16 @@ pub struct RunState {
     pub modifiers: Modifiers,
     /// 本局是否已经给过第一次商店的基础小丑包, 对应 `G.GAME.first_shop_buffoon`.
     pub first_shop_buffoon: bool,
+    /// 本局是否已经**出现过商店**, 也就是 `G.shop_jokers` 是否已经被建出来过.
+    ///
+    /// 它是给摘要用的, 不是一个游戏机制: 游戏的 `G.UIDEF.shop()` 建出 `G.shop_jokers` /
+    /// `shop_vouchers` / `shop_booster` 之后**再没有把它们置回 nil**, 于是摘要里那三项
+    /// (`shop` / `vouchers` / `packs`) 从第一次进商店起就一直有, 只是不再逛商店时是空的;
+    /// 而第一次进商店**之前**那三项整段不出现.
+    ///
+    /// 这一点是反向对拍查出来的: 引擎原来不管在哪一阶段都把这三项写成空值, 于是回放第一步
+    /// (还没进过商店) 就被游戏判成"状态不一致". 见 `digest()` 里的说明.
+    pub shop_seen: bool,
     /// 本局已兑换的优惠券, 对应 `G.GAME.used_vouchers`.
     pub used_vouchers: HashSet<String>,
     /// 城堡那一回合盯的花色, 对应 `G.GAME.current_round.castle_card.suit`.
@@ -316,6 +326,7 @@ impl RunState {
             stake,
             modifiers: Modifiers::for_stake(stake),
             first_shop_buffoon: false,
+            shop_seen: false,
             used_vouchers: HashSet::new(),
             castle_suit: None,
             ancient_suit: None,

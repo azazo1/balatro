@@ -2178,6 +2178,9 @@ impl RunState {
             self.free_reroll = self.tags.iter().any(|t| t == "tag_d_six");
             self.shop_free = self.tags.iter().any(|t| t == "tag_coupon");
             self.shop = Some(super::shop::Shop::restock(self));
+            // 商店的区域在游戏里是 `G.UIDEF.shop()` 建出来的, 之后一直留着 —— 摘要里的
+            // `shop` / `vouchers` / `packs` 三项从此开始出现, 见 `RunState::shop_seen`.
+            self.shop_seen = true;
         }
         Ok(total)
     }

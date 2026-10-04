@@ -132,39 +132,52 @@ pub fn digest(run: &RunState) -> String {
             )
         ),
     ];
-    // 货架那三项**总是写出来**, 没有商店时写成空的 —— 游戏那边这三个区域一直都在,
-    // 只是没东西时是空表, digest 里就是 `shop=` (光秃秃一个等号).
-    let jokers = run.shop.as_ref().map(|shop| &shop.jokers);
-    let voucher = run.shop.as_ref().and_then(|shop| shop.voucher.as_ref());
-    let packs = run.shop.as_ref().map(|shop| &shop.packs);
-    parts.push(format!(
-        "shop={}",
-        joining(
-            jokers
-                .map(|list| list
-                    .iter()
-                    .map(|c| token_of(&c.key, c.edition, None, c.enhancement, c.eternal, c.rental))
-                    .collect())
+    // 货架那三项 (`shop` / `vouchers` / `packs`) **只在商店出现过之后才写**.
+    //
+    // 游戏那边的摘要是在遍历区域时"这个区域在就写它" (`format.lua` 的 `if state[name]`),
+    // 而 `G.shop_jokers` / `G.shop_vouchers` / `G.shop_booster` 是 `G.UIDEF.shop()` 里建的,
+    // 建出来之后**再没有置回 nil**: 于是第一次进商店**之前**这三项整段不出现, 之后一直出现,
+    // 只是不逛商店时是空的 (`shop=` 光秃秃一个等号).
+    //
+    // 原来这里不管阶段总是写出来, 注释里还写着"游戏那边这三个区域一直都在" —— 那是**错的**.
+    // 反向对拍第一步就撞上了: 游戏给的 diff 是
+    // `packs:  -> (none); shop:  -> (none); vouchers:  -> (none)`,
+    // 意思是文件里写了个空值而游戏那边压根没这个字段. 之所以一直没被发现, 是因为
+    // `tests/dump_replay.rs` 只做单向比较 ("记录里有的项都要对上, 引擎多出来的项不管"),
+    // 而游戏自己的 `format.diff` 是双向的.
+    if run.shop_seen {
+        let jokers = run.shop.as_ref().map(|shop| &shop.jokers);
+        let voucher = run.shop.as_ref().and_then(|shop| shop.voucher.as_ref());
+        let packs = run.shop.as_ref().map(|shop| &shop.packs);
+        parts.push(format!(
+            "shop={}",
+            joining(
+                jokers
+                    .map(|list| list
+                        .iter()
+                        .map(|c| token_of(&c.key, c.edition, None, c.enhancement, c.eternal, c.rental))
+                        .collect())
+                    .unwrap_or_default()
+            )
+        ));
+        parts.push(format!(
+            "vouchers={}",
+            voucher
+                .map(|c| token_of(&c.key, c.edition, None, c.enhancement, c.eternal, c.rental))
                 .unwrap_or_default()
-        )
-    ));
-    parts.push(format!(
-        "vouchers={}",
-        voucher
-            .map(|c| token_of(&c.key, c.edition, None, c.enhancement, c.eternal, c.rental))
-            .unwrap_or_default()
-    ));
-    parts.push(format!(
-        "packs={}",
-        joining(
-            packs
-                .map(|list| list
-                    .iter()
-                    .map(|c| token_of(&c.key, c.edition, None, c.enhancement, c.eternal, c.rental))
-                    .collect())
-                .unwrap_or_default()
-        )
-    ));
+        ));
+        parts.push(format!(
+            "packs={}",
+            joining(
+                packs
+                    .map(|list| list
+                        .iter()
+                        .map(|c| token_of(&c.key, c.edition, None, c.enhancement, c.eternal, c.rental))
+                        .collect())
+                    .unwrap_or_default()
+            )
+        ));
+    }
     if let Some(pack) = run.open_pack.as_ref() {
         parts.push(format!(
             "pack={}",
