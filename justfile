@@ -117,6 +117,20 @@ game-docs:
 check-game-docs:
     {{ python }} scripts/check-game-docs.py
 
+# just play <子命令> [参数]
+# 让 agent 在引擎里逐步对局与查规则, 不需要游戏与图形环境.
+# 子命令见 engine/README.md 的 "让 agent 玩" 一节.
+[positional-arguments]
+play *args:
+    #!{{ python_shebang }}
+    import subprocess
+    import sys
+    sys.exit(subprocess.run([
+        "cargo", "run", "--release", "--quiet",
+        "--manifest-path", "engine/Cargo.toml", "--bin", "play", "--",
+        *sys.argv[1:],
+    ]).returncode)
+
 # 删除打包产物 dist/.
 clean:
     {{ python }} scripts/clean.py
