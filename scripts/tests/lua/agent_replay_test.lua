@@ -43,6 +43,15 @@ do -- 摘要: 顺序和修饰都要区分, 否则下标错位或版本不同也�
   check("卡包种类不同仍算差异", Format.diff(packs, "packs=p_buffoon_normal_1,p_arcana_jumbo_4") ~= nil)
   check("卡包槽位顺序仍算差异", Format.diff(packs, "packs=p_arcana_normal_4,p_buffoon_normal_1") ~= nil)
   check("只差图案编号时返回 nil 而不是空串", Format.diff(a .. " " .. packs, a .. " packs=p_buffoon_normal_2,p_arcana_normal_4") == nil)
+  -- 非扑克牌卡原先把原型的 effect 名当成强化名写进摘要 (`c_sun~suit conversion`), 那些名字由
+  -- 卡牌键唯一决定, 还会因为带空格把摘要拆坏. bbcore 改成只对扑克牌填之后, 改动前录下的回放
+  -- 仍要能放, 所以比对时忽略这类尾巴 —— 但真强化必须仍然严格比.
+  check("effect 名尾巴不算差异", Format.diff("shop=c_temperance~joker payout,c_sun~suit conversion", "shop=c_temperance,c_sun") == nil)
+  check("尾巴带空格且后面还有牌", Format.diff("shop=c_saturn~hand upgrade,j_zany~type mult!e", "shop=c_saturn,j_zany!e") == nil)
+  check("尾巴里的永恒标记要保住", Format.diff("jokers=j_caino~!e", "jokers=j_caino!e") == nil)
+  check("真强化被删掉仍算差异", Format.diff("shop=H_8~mult", "shop=H_8") ~= nil)
+  check("真强化换了一种仍算差异", Format.diff("shop=H_8~mult", "shop=H_8~glass") ~= nil)
+  check("抹掉尾巴后仍比牌本身", Format.diff("shop=c_sun~suit conversion", "shop=c_moon~suit conversion") ~= nil)
   local todo_a = Format.digest(state({ card("S_A") }, { { key = "j_todo_list", to_do = "Full House" } }))
   local todo_b = Format.digest(state({ card("S_A") }, { { key = "j_todo_list", to_do = "Straight" } }))
   check("待办清单目标写入摘要", todo_a:find("todo=Full_House", 1, true) ~= nil)

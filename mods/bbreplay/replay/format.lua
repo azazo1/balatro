@@ -101,14 +101,28 @@ function M.digest(state)
   return table.concat(parts, " ")
 end
 
+--- 把摘要拆成 字段名 -> 值. 值按顺序拼回去, 因为**值本身可能含空格**.
+---
+--- 摘要用空格分隔字段, 所以取值时只能按空格切开. 但早先录下的摘要里, 非扑克牌卡的强化位
+--- 写的是原型的 `effect` 名, 而那个名字可能带空格 (`suit conversion`, `x1.5 mult`), 于是
+--- 一个字段被切成好几块, 后继的牌也跟着掉出字段 —— `shop=c_saturn~hand upgrade,j_zany~type
+--- mult!e` 里连 `j_zany` 都不在 `shop` 的值里了.
+---
+--- 这些碎片有个好认的特征: **没有 `=`**. 字段名与值的分隔必然是 `=`, 所以不带 `=` 的碎片
+--- 只可能是上一个值的续段 (值本身不会有空格, 除了这个来源). 按这个把它们并回去, 旧摘要就能
+--- 恢复成完整的一串, 后面抹尾巴时才有东西可抹.
 ---@param digest string
 ---@return table<string, string>
 local function split(digest)
   local fields = {}
+  local last = nil
   for part in digest:gmatch("%S+") do
     local key, value = part:match("^([^=]+)=(.*)$")
     if key then
       fields[key] = value
+      last = key
+    elseif last then
+      fields[last] = fields[last] .. " " .. part
     end
   end
   return fields
@@ -131,7 +145,54 @@ local function without_booster_art(value)
   return (value:gsub("(p_[%a%d_]+)_%d+", "%1"))
 end
 
---- 两个摘要字段是否相同. packs 里的卡包图案编号不算差异.
+-- 八种扑克牌强化. 摘要里 `~` 后面原本还有别的东西 (非扑克牌卡把原型的 `effect` 名当成强化名
+-- 写了进去, 例如 `c_sun~suit conversion`, `j_duo~x1.5 mult`), 那些名字由卡牌键唯一决定, 不携带
+-- 状态, 还会因为自身带空格把摘要拆坏. bbcore 已改成只对扑克牌填 `enhancement`, 这里为了让
+-- **改动之前录下**的回放仍能回放, 比对时把不在这个名单里的 `~` 尾巴一并忽略.
+--
+-- 名单是精确的, 不是"凡尾巴都放过": 真强化的增减仍然会被判成差异, 引擎把强化搞错跑不掉.
+local ENHANCEMENTS = {
+  bonus = true, mult = true, wild = true, glass = true,
+  steel = true, stone = true, gold = true, lucky = true,
+}
+
+--- 把一个尾巴拆成"名字"与末尾那几个贴纸 (`!e` 永恒 / `!r` 租赁).
+---
+--- 贴纸从末尾一个一个剥, 不用 `(![er])+` 这种写法 —— Lua 的**量词只能跟字符类**, 跟在捕获组
+--- 后面的 `+` 不起作用, 模式会静默地匹配不上 (写这条时踩过: 于是贴纸一个都没保住).
+---@param tail string
+---@return string name
+---@return string stickers
+local function split_stickers(tail)
+  local stickers = ""
+  while true do
+    local one = tail:match("(%![er])$")
+    if not one then
+      break
+    end
+    stickers = one .. stickers
+    tail = tail:sub(1, #tail - #one)
+  end
+  return tail, stickers
+end
+
+--- 抹掉字段值里"不是真强化"的 `~` 尾巴. 值形如 `c_sun~suit conversion,j_zany~type mult!e`.
+---
+--- 尾巴可以带空格 (`suit conversion`), 所以从 `~` 一直吃到下一个逗号为止, 不能按空格切.
+--- 尾巴里的 `!e` / `!r` 是状态, 要从吃掉的片段里捡回来.
+---@param value string
+---@return string
+local function without_effect_tails(value)
+  return (value:gsub("~([^,]*)", function(tail)
+    local name, stickers = split_stickers(tail)
+    if ENHANCEMENTS[name] then
+      return "~" .. tail
+    end
+    return stickers
+  end))
+end
+
+--- 两个摘要字段是否相同. 卡包图案编号与"非真强化"的 `~` 尾巴都不算差异.
 ---@param key string
 ---@param a string?
 ---@param b string?
@@ -140,10 +201,16 @@ local function same_field(key, a, b)
   if a == b then
     return true
   end
-  if key ~= "packs" or type(a) ~= "string" or type(b) ~= "string" then
+  if type(a) ~= "string" or type(b) ~= "string" then
     return false
   end
-  return without_booster_art(a) == without_booster_art(b)
+  if key == "packs" then
+    return without_booster_art(a) == without_booster_art(b)
+  end
+  if key ~= "jokers" and key ~= "consumables" and key ~= "shop" and key ~= "pack" then
+    return false
+  end
+  return without_effect_tails(a) == without_effect_tails(b)
 end
 
 --- 两个摘要不同的项, 例如 "money: 12 -> 9; hand: ... -> ...". 相同时返回 nil.

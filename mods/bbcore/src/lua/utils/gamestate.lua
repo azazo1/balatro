@@ -239,8 +239,22 @@ local function extract_card_modifier(card)
     modifier.edition = string.upper(card.edition.type)
   end
 
-  -- Enhancement (from ability.name for enhanced cards)
-  if card.ability and card.ability.effect and card.ability.effect ~= "Base" then
+  -- Enhancement: 只有**强化过的扑克牌**才有这一项.
+  --
+  -- 判据用 `ability.set == "Enhanced"`: 原版里正好八种强化牌 (奖励 / 倍率 / 万能 / 玻璃 /
+  -- 钢铁 / 石头 / 黄金 / 幸运) 是这个 set, 而别的东西都不是.
+  --
+  -- 原来这里只判 `effect ~= "Base"`, 于是**凡是带 effect 的卡**都被算成强化 —— 塔罗, 行星,
+  -- 幻灵, 小丑全都种进去: `c_sun` 变 `c_sun~suit conversion`, `j_duo` 变 `j_duo~x1.5 mult`.
+  -- 那些名字由卡牌键唯一决定 (原型表里的静态字段), 不携带任何状态, 却有两个害处:
+  --
+  -- 1. 回放逐步比对摘要时, 引擎必须一字不差复刻它们, 否则任何带塔罗或小丑的局面都报
+  --    "状态不一致", 真分歧会被淹掉.
+  -- 2. 它们**含空格** (例如 "Suit Conversion"), 而摘要是空格分隔的 key=value 列表, 两边
+  --    都按空格拆 —— 于是 `j_duo~x1.5 mult` 被拆成两截, `c_saturn~hand upgrade,j_zany~type
+  --    mult!e` 更是把 `j_zany` 整张牌连同它的 `!e` 从字段里撕了出去.
+  if card.ability and card.ability.set == "Enhanced" and card.ability.effect
+    and card.ability.effect ~= "Base" then
     modifier.enhancement = string.upper(card.ability.effect:gsub(" Card", ""))
   end
 
