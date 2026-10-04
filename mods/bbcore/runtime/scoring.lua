@@ -268,7 +268,7 @@ function M.new(deps)
   end
 
   --- 牌型与当前筹码倍率的变化 (update_hand_text 的参数).
-  --- 第一次带牌型的调用给的是牌型基础, 之后给的是加成后的当前值.
+  --- 带牌型的调用给的是**那个牌型**的基础值, 不带牌型的给的是加成后的当前值.
   ---@param vals table
   function self:hand_text(vals)
     if not self.on then
@@ -279,11 +279,16 @@ function M.new(deps)
       return
     end
     if type(vals.handname) == "string" and vals.handname ~= "" then
+      -- 牌型**换了**才重取基础. 不能只在第一次取 (原来那个 `not self.base` 的写法):
+      -- 出牌是逐张点选的 (`src/lua/endpoints/play.lua` 一张一个 click), 而每点一张都会重算
+      -- 当前牌型 —— 点第一张必然是"高牌", 于是基础被定死在高牌的 5x1, 之后真正的牌型
+      -- (两对 / 同花) 只覆盖了名字, 基础那一栏就永远对不上了.
+      local renamed = vals.handname ~= self.name
       self.name = vals.handname
       if type(vals.level) == "number" and vals.level > 0 then
         self.level = vals.level
       end
-      if not self.base and type(vals.chips) == "number" and type(vals.mult) == "number" then
+      if renamed and type(vals.chips) == "number" and type(vals.mult) == "number" then
         self.base = { chips = vals.chips, mult = vals.mult }
         self.pair = { chips = vals.chips, mult = vals.mult }
       end

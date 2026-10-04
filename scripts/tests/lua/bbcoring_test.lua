@@ -290,6 +290,59 @@ do -- 装钩子: 搭一个最小假游戏, 走一遍游戏侧的包装与命名
   check("读得回这份记录", Scoring.read(G.GAME) == record)
 end
 
+do -- 逐张点选时, 基础要跟着**最终**牌型走, 不能被第一张的"高牌"定死
+  -- 出牌是逐张 click 的 (play 端点), 而每点一张都会重算当前牌型: 点第一张必然是高牌.
+  -- 只在第一次取基础就会把它定在高牌的 5x1, 之后真正的牌型只覆盖了名字, 基础那一栏
+  -- 就永远对不上 (真游戏里观察到的就是"牌型写两对/同花, 基础却写 5x1").
+  local rec = harness()
+  local cards = { RED_K, RED_Q, BLACK_2 }
+  rec:begin()
+  rec:played_cards(cards)
+  rec:hand_text({ handname = "高牌", level = 1, chips = 5, mult = 1 })
+  rec:hand_text({ handname = "同花", level = 1, chips = 35, mult = 4 })
+  -- 真算分时游戏会再报一次同名牌型, 这时不该再改基础
+  rec:hand_text({ handname = "同花", level = 1, chips = 35, mult = 4 })
+  rec:hand_text({ chips = 45 })
+  rec:status(RED_K, "chips", 10)
+  rec:hand_text({ mult = 0, chips = 0, chip_total = 450, level = "", handname = "" })
+
+  local record = rec:value()
+  check(
+    "基础取最终牌型而不是第一张的高牌",
+    record.base.chips == 35 and record.base.mult == 4,
+    tostring(record.base.chips) .. "x" .. tostring(record.base.mult)
+  )
+  check("基础那一行也跟着对", record.text:find("基础 35x4", 1, true) ~= nil, tostring(record.text))
+end
+
+do -- 同名牌型再报一次时不重取基础, 但等级要跟上
+  local rec = harness()
+  rec:begin()
+  rec:played_cards({ RED_K })
+  rec:hand_text({ handname = "同花", level = 1, chips = 35, mult = 4 })
+  -- 游戏升级牌型时也会这样报 (同名, 但数值已经是升级后的)
+  rec:hand_text({ handname = "同花", level = 2, chips = 85, mult = 7 })
+  rec:hand_text({ mult = 0, chips = 0, chip_total = 85, level = "", handname = "" })
+  local record = rec:value()
+  check(
+    "同名牌型不重取基础",
+    record.base.chips == 35 and record.base.mult == 4,
+    tostring(record.base.chips) .. "x" .. tostring(record.base.mult)
+  )
+  check("但等级要跟着更新", record.level == 2, tostring(record.level))
+end
+
+do -- 背面朝上的牌报的是 '?' 而不是数字, 不该污染基础
+  local rec = harness()
+  rec:begin()
+  rec:played_cards({ RED_K })
+  rec:hand_text({ handname = "????", level = "?", chips = "?", mult = "?" })
+  -- 要冻结才拿得到记录 (没有总数时 `value()` 是 nil)
+  rec:hand_text({ mult = 0, chips = 0, chip_total = 0, level = "", handname = "" })
+  local record = rec:value()
+  check("非数字的基础不记", record.base == nil, record.base and tostring(record.base.chips))
+end
+
 if failures > 0 then
   print(failures .. " failed")
   os.exit(1)
