@@ -1,0 +1,8 @@
+[package]
+name = "balatro-engine"
+version = "0.1.0"
+edition = "2024"
+description = "Balatro 规则引擎: 原版规则的无界面重写, 只要 std."
+license = "MIT"
+
+[dependencies]

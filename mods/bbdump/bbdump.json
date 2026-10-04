@@ -1,0 +1,14 @@
+{
+  "id": "bbdump",
+  "name": "BB Dump",
+  "author": ["azazo1"],
+  "description": "Append every game action and the resulting full game state to a JSONL file for offline analysis and as a baseline for a rule engine rewrite. Observes BB Core only, never changes another mod.",
+  "prefix": "bbd",
+  "main_file": "main.lua",
+  "priority": 2,
+  "badge_colour": "607D8B",
+  "badge_text_colour": "FFFFFF",
+  "display_name": "BB Dump",
+  "version": "0.1.0",
+  "dependencies": ["Steamodded (>=1.~)", "bbcore (>=0.1.0)"]
+}

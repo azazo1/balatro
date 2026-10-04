@@ -1,0 +1,359 @@
+# 来自 records 的存档进度快照, 键与 flags 与 snapshot.uda 相同.
+# 重新生成: python3 -c "..." (见 docs/rewrite/README.md)
+Blue	
+Gold	
+Purple	
+Red	
+b_abandoned	a
+b_anaglyph	da
+b_black	a
+b_blue	uda
+b_challenge	ua
+b_checkered	a
+b_erratic	da
+b_ghost	a
+b_green	a
+b_magic	uda
+b_nebula	a
+b_painted	da
+b_plasma	da
+b_red	uda
+b_yellow	uda
+b_zodiac	da
+bl_arm	d
+bl_big	d
+bl_club	d
+bl_eye	
+bl_final_acorn	d
+bl_final_bell	
+bl_final_heart	
+bl_final_leaf	
+bl_final_vessel	d
+bl_fish	
+bl_flint	
+bl_goad	d
+bl_head	d
+bl_hook	
+bl_house	
+bl_manacle	d
+bl_mark	
+bl_mouth	
+bl_needle	
+bl_ox	
+bl_pillar	d
+bl_plant	
+bl_psychic	
+bl_serpent	
+bl_small	d
+bl_tooth	d
+bl_wall	
+bl_water	d
+bl_wheel	d
+bl_window	d
+c_ankh	
+c_aura	
+c_base	d
+c_black_hole	
+c_ceres	
+c_chariot	d
+c_cryptid	
+c_death	
+c_deja_vu	
+c_devil	
+c_earth	d
+c_ectoplasm	
+c_emperor	
+c_empress	
+c_eris	
+c_familiar	u
+c_fool	
+c_grim	u
+c_hanged_man	
+c_heirophant	
+c_hermit	d
+c_hex	
+c_high_priestess	d
+c_immolate	
+c_incantation	ud
+c_judgement	
+c_jupiter	d
+c_justice	
+c_lovers	
+c_magician	
+c_mars	d
+c_medium	
+c_mercury	d
+c_moon	
+c_neptune	
+c_ouija	u
+c_planet_x	
+c_pluto	
+c_saturn	d
+c_sigil	u
+c_soul	
+c_star	
+c_strength	u
+c_sun	
+c_talisman	
+c_temperance	
+c_tower	
+c_trance	
+c_uranus	d
+c_venus	d
+c_wheel_of_fortune	
+c_world	
+c_wraith	
+e_base	ud
+e_foil	u
+e_holo	u
+e_negative	u
+e_polychrome	u
+j_8_ball	u
+j_abstract	ud
+j_acrobat	
+j_ancient	u
+j_arrowhead	
+j_astronomer	
+j_banner	u
+j_baron	u
+j_baseball	ud
+j_blackboard	u
+j_bloodstone	
+j_blue_joker	ud
+j_blueprint	u
+j_bootstraps	
+j_brainstorm	
+j_bull	u
+j_burglar	ud
+j_burnt	
+j_business	u
+j_caino	
+j_campfire	u
+j_card_sharp	u
+j_cartomancer	
+j_castle	u
+j_cavendish	u
+j_ceremonial	u
+j_certificate	
+j_chaos	u
+j_chicot	
+j_clever	u
+j_cloud_9	u
+j_constellation	ud
+j_crafty	u
+j_crazy	u
+j_credit_card	u
+j_delayed_grat	u
+j_devious	u
+j_diet_cola	u
+j_dna	u
+j_drivers_license	
+j_droll	u
+j_drunkard	u
+j_duo	u
+j_dusk	u
+j_egg	u
+j_erosion	u
+j_even_steven	u
+j_faceless	u
+j_family	u
+j_fibonacci	u
+j_flash	u
+j_flower_pot	u
+j_fortune_teller	u
+j_four_fingers	u
+j_gift	u
+j_glass	
+j_gluttenous_joker	u
+j_golden	u
+j_greedy_joker	u
+j_green_joker	ud
+j_gros_michel	u
+j_hack	u
+j_half	u
+j_hallucination	u
+j_hanging_chad	u
+j_hiker	u
+j_hit_the_road	
+j_hologram	u
+j_ice_cream	u
+j_idol	
+j_invisible	u
+j_joker	uda
+j_jolly	u
+j_juggler	u
+j_loyalty_card	u
+j_luchador	u
+j_lucky_cat	u
+j_lusty_joker	u
+j_mad	u
+j_madness	u
+j_mail	u
+j_marble	ud
+j_matador	ud
+j_merry_andy	u
+j_midas_mask	u
+j_mime	u
+j_misprint	ud
+j_mr_bones	
+j_mystic_summit	ud
+j_obelisk	u
+j_odd_todd	u
+j_onyx_agate	
+j_oops	u
+j_order	u
+j_pareidolia	u
+j_perkeo	
+j_photograph	u
+j_popcorn	u
+j_raised_fist	u
+j_ramen	u
+j_red_card	ud
+j_reserved_parking	u
+j_ride_the_bus	u
+j_riff_raff	u
+j_ring_master	u
+j_rocket	u
+j_rough_gem	
+j_runner	u
+j_satellite	
+j_scary_face	u
+j_scholar	u
+j_seance	u
+j_seeing_double	
+j_selzer	u
+j_shoot_the_moon	
+j_shortcut	u
+j_sixth_sense	u
+j_sly	u
+j_smeared	
+j_smiley	u
+j_sock_and_buskin	
+j_space	u
+j_splash	u
+j_square	u
+j_steel_joker	u
+j_stencil	u
+j_stone	u
+j_stuntman	
+j_supernova	u
+j_superposition	u
+j_swashbuckler	
+j_throwback	
+j_ticket	
+j_to_the_moon	u
+j_todo_list	u
+j_trading	u
+j_tribe	u
+j_triboulet	
+j_trio	u
+j_troubadour	u
+j_trousers	u
+j_turtle_bean	u
+j_vagabond	u
+j_vampire	u
+j_walkie_talkie	u
+j_wee	u
+j_wily	u
+j_wrathful_joker	u
+j_yorick	
+j_zany	ud
+m_bonus	d
+m_glass	d
+m_gold	
+m_lucky	
+m_mult	
+m_steel	d
+m_stone	d
+m_wild	
+p_arcana_jumbo_1	
+p_arcana_jumbo_2	
+p_arcana_mega_1	
+p_arcana_mega_2	
+p_arcana_normal_1	
+p_arcana_normal_2	
+p_arcana_normal_3	
+p_arcana_normal_4	d
+p_buffoon_jumbo_1	d
+p_buffoon_mega_1	d
+p_buffoon_normal_1	d
+p_buffoon_normal_2	
+p_celestial_jumbo_1	d
+p_celestial_jumbo_2	
+p_celestial_mega_1	
+p_celestial_mega_2	
+p_celestial_normal_1	d
+p_celestial_normal_2	d
+p_celestial_normal_3	
+p_celestial_normal_4	d
+p_spectral_jumbo_1	d
+p_spectral_mega_1	
+p_spectral_normal_1	
+p_spectral_normal_2	
+p_standard_jumbo_1	
+p_standard_jumbo_2	
+p_standard_mega_1	
+p_standard_mega_2	
+p_standard_normal_1	
+p_standard_normal_2	
+p_standard_normal_3	
+p_standard_normal_4	
+soul	
+tag_boss	d
+tag_buffoon	d
+tag_charm	
+tag_coupon	d
+tag_d_six	d
+tag_double	d
+tag_economy	d
+tag_ethereal	
+tag_foil	
+tag_garbage	
+tag_handy	d
+tag_holo	
+tag_investment	d
+tag_juggle	
+tag_meteor	
+tag_negative	
+tag_orbital	
+tag_polychrome	
+tag_rare	
+tag_skip	d
+tag_standard	
+tag_top_up	
+tag_uncommon	d
+tag_voucher	
+undiscovered_joker	
+undiscovered_tarot	
+v_antimatter	
+v_blank	u
+v_clearance_sale	u
+v_crystal_ball	u
+v_directors_cut	ud
+v_glow_up	
+v_grabber	u
+v_hieroglyph	u
+v_hone	u
+v_illusion	
+v_liquidation	
+v_magic_trick	u
+v_money_tree	
+v_nacho_tong	
+v_observatory	
+v_omen_globe	
+v_overstock_norm	ud
+v_overstock_plus	
+v_paint_brush	u
+v_palette	
+v_petroglyph	
+v_planet_merchant	u
+v_planet_tycoon	
+v_recyclomancy	
+v_reroll_glut	
+v_reroll_surplus	u
+v_retcon	
+v_seed_money	u
+v_tarot_merchant	u
+v_tarot_tycoon	
+v_telescope	u
+v_wasteful	u

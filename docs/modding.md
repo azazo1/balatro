@@ -66,12 +66,14 @@ Steamodded 默认用 nativefs 相对路径写这个文件, 打包后会跟进程
 | bbcore | 本仓库, 由 [balatrobot v1.5.2](https://github.com/coder/balatrobot/releases/tag/v1.5.2) 拆出 | 游戏动作端点, 弹窗拦截, 决策消息, 选项菜单入口. 本身不开端口, 供下面两个 mod 共用 |
 | balatrobot | [v1.5.2](https://github.com/coder/balatrobot/releases/tag/v1.5.2) 改写, 依赖 bbcore | 供 agent 游玩的 HTTP 接口与内置 agent, 默认关闭, 见 [agent-api.md](agent-api.md) |
 | bbreplay | 本仓库, 依赖 bbcore | 按局录像与回放, 不依赖 balatrobot, 见 [recording.md](recording.md) 与 [replay.md](replay.md) |
+| bbdump | 本仓库, 依赖 bbcore | 把每步动作与完整游戏状态追加写成 JSONL, 供离线分析或给重写实现当基准. 默认关闭, 见 [rewrite](<rewrite/README.md>) |
 | smods-fixes | 本仓库 | Steamodded 自身问题的修复补丁, 与游戏版本无关, 不改玩法 |
 | vanilla-ui | 本仓库 | 沿用原版的选牌组开局界面和 Run Info 的 Stake 页 |
 
-bbcore, balatrobot, bbreplay 的关系:
+bbcore, balatrobot, bbreplay, bbdump 的关系:
 
-- 加载顺序按 priority: bbcore (-50) -> balatrobot (0) -> bbreplay (1). 后两个都只依赖 bbcore, 可以单独装.
+- 加载顺序按 priority: bbcore (-50) -> balatrobot (0) -> bbreplay (1) -> bbdump (2). 后三个都只依赖
+  bbcore, 可以单独装.
 - bbcore 提供全局 `BB_DISPATCHER` (执行端点), `BB_TRANSPORT` (端点结果的出口, HTTP 服务与内置 loop
   从这里取结果), `BB_CONTROL` (谁在操作游戏: 回放进行时登记独占, 内置 agent 运行时登记为忙,
   两者互斥), `BB_MENU` (选项菜单里的按钮入口), `BB_HUD` (右上角竖排控制按钮), `BB_INPUT` (输入门),
@@ -89,6 +91,9 @@ bbcore, balatrobot, bbreplay 的关系:
   触摸以 `mousepressed(..., istouch)` 进来 (原版主循环不分发 `touchpressed`), 所以不包 `touch*` 回调.
 - balatrobot 在 bbcore 上加 HTTP 服务, 手册查询端点与内置 agent; bbreplay 加录像, 回放文件与回放.
   装了 balatrobot 时 bbreplay 会跟随 agent 的暂停与停止切分录像段.
+- bbdump 只订阅 bbcore 的活动事件 (`BB_ACTIVITY` 的 `response`), 不拦不改任何请求或响应, 也不依赖
+  bbreplay: 外部 HTTP 调用, 内置 loop 的本地调用与游戏内回放都经过那个事件, 所以三种玩法都录得到.
+  开启方式是环境变量 `BBDUMP=1`, 输出目录用 `BBDUMP_DIR` 指定.
 - 各自的配置分开存: `config/balatrobot.jkr` (agent 模式与内置 agent), `config/bbreplay.jkr` (录像).
   bbreplay 第一次加载时把旧版写在 balatrobot 配置里的录像设置搬过来.
 - 目录: bbcore 的 `src/lua/` 是从 upstream 搬来的代码, `runtime/` 与 `ui/` 是本仓库新增的;
