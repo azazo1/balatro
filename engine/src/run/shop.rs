@@ -117,8 +117,8 @@ pub fn poll_edition(run: &mut RunState, key: &str, rate: f64, negative_ok: bool)
 /// `create_card_for_shop`: 决定这一格摆什么, 然后生成它.
 ///
 /// `area_is_shop_jokers` 对应 `area == G.shop_jokers`, 影响后续的永恒 / 易腐 / 租赁抽签.
-/// 目前只实现小丑这一条分支: 其余类型 (塔罗, 行星, 基础牌, 幻灵) 的生成还没做, 遇到就报错,
-/// 不要静默给一个错的结果.
+/// 五种类型都有各自的分支: 小丑 (`create_joker`), 塔罗 / 行星 / 幻灵 (各自的池),
+/// 以及"基础牌 / 强化牌"(`playing_card_for_shop`).
 pub fn create_card_for_shop(run: &mut RunState, rates: &ShopRates) -> ShopCard {
     // 有几个标签会强行指定这一格放什么: "罕见 / 稀有标签"换成那个稀有度的小丑,
     // 紧接着"版本标签"再给它加个版本. 没有这类标签时下面照常按权重抽.

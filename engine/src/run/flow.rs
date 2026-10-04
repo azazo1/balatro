@@ -9,7 +9,8 @@
 //! - 所以发牌与补抽都从牌堆末尾拿, 手牌是"牌堆末 n 张的倒序".
 //! - 每次抽牌之后 `draw_card` 的 `sort` 参数会让手牌按 `get_nominal` 降序重排一遍.
 //!
-//! 盲注目标与结算还没接进来, 这一层的出牌只累计本回合分数, 不判断胜负.
+//! 盲注的目标分数在 `blind.rs`, 出牌本身只累计本回合分数; 判胜负与领钱走 `end_round`
+//! 与 `cash_out`, 商店与开包在 `shop.rs`, 快照与回滚在 `snapshot.rs`.
 
 use crate::cards::{CardInstance, Enhancement, PlayingCard, Rank, Seal, Suit, standard_deck};
 use crate::jokers::TriggerContext;

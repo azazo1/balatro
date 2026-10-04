@@ -3,16 +3,15 @@
 //! 抄自 `game/functions/state_events.lua` 的 `G.FUNCS.evaluate_play` (L571 起) 与
 //! `game/back.lua` 的 `Back:trigger_effect` (L108 起).
 //!
-//! 完整的出牌顺序有八段 (见 `docs/game/rules/scoring.md`), 这里先做**没有小丑也没有增强**的那部分:
+//! 完整的出牌顺序有八段 (见 `docs/game/rules/scoring.md`):
 //!
 //! 1. 识别牌型, 取计分名单;
 //! 2. 筹码与倍率先取牌型当前等级的基础值;
 //! 3. 每张计分牌加上自己的点数筹码;
 //! 4. 牌背的最终处理 (等离子把两者平均).
 //!
-//! 小丑的 `before` / 逐卡 / `joker_main` / `after` 与增强, 蜡封, 版本都还没接进来, 所以这一层
-//! 只对"手牌全是普通牌, 且没有小丑"的局给出正确结果. 这个限制是刻意的: 先让最短的一条链
-//! 对上真游戏, 再往上加.
+//! 小丑的 `before` / 逐卡 / `joker_main` / `after` 与增强, 蜡封, 版本都接在下面:
+//! 四段小丑钩子按游戏里的先后依次跑, 逐张牌的增强与版本在 `card_contributions` 里算.
 
 use super::hand_levels::HandTable;
 use super::poker_hand::{EvalEnv, HandCard, PokerHand, evaluate_poker_hand};

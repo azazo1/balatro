@@ -161,7 +161,9 @@ impl CardInstance {
             mult_bonus,
             x_mult,
             h_x_mult,
-            // 红封让这张牌再算一遍, 其余蜡封走的是回合结算那条路 (还没做).
+            // 红封让这张牌再算一遍. 其余蜡封不在**计分**这一层, 走的是各自那条路:
+            // 金封的钱与紫封的塔罗都在回合结算 (`flow.rs` 的 `end_of_round_effect` 那一段),
+            // 蓝封的行星在出牌之后 (`Card:calculate_seal`).
             repetitions: if self.seal == Some(Seal::Red) { 2 } else { 1 },
             gold_seal: self.seal == Some(Seal::Gold),
             lucky: self.enhancement == Some(Enhancement::Lucky),
