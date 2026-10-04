@@ -295,6 +295,11 @@ fn shop_card_from_tags(run: &mut RunState, _rates: &ShopRates) -> Option<ShopCar
         "tag_rare" => Some((3, "rta")),
         _ => None,
     })?;
+    // **用掉的标签要离场** —— 游戏里 `Tag:yep` 与 `Tag:nope` 两条路都会 `self:remove()`,
+    // 也就是"触发一次就没了". 少了这一步, 它会在**之后每一格**货架上继续生效:
+    // 一张"罕见标签"会把整面货架全变成稀有二的小丑.
+    // (整局对拍里 `LG7RIX92` 那份第 26 步就是这么差的: 引擎连着两格都出了稀有二.)
+    run.tags.retain(|tag| tag != "tag_uncommon" && tag != "tag_rare");
 
     // 画一张那个稀有度的小丑. 这里不走 `create_joker` 的主路径, 因为它会先掷一次稀有度 ——
     // 而标签已经指定了, 再掷一次就把随机数序列带偏了. 过滤本身仍然是共用那一份.
@@ -302,6 +307,7 @@ fn shop_card_from_tags(run: &mut RunState, _rates: &ShopRates) -> Option<ShopCar
     let mut card = ShopCard::plain(key);
 
     // `store_joker_modify`: 第一个版本标签给它加版本. 它原本没有版本才加.
+    // 它同样是"触发一次就离场" —— 否则之后每一格商店小丑都会白带一个版本.
     let edition = run.tags.iter().find_map(|tag| match tag.as_str() {
         "tag_foil" => Some(Edition::Foil),
         "tag_holo" => Some(Edition::Holo),
@@ -309,6 +315,10 @@ fn shop_card_from_tags(run: &mut RunState, _rates: &ShopRates) -> Option<ShopCar
         "tag_negative" => Some(Edition::Negative),
         _ => None,
     });
+    if edition.is_some() {
+        run.tags
+            .retain(|tag| !matches!(tag.as_str(), "tag_foil" | "tag_holo" | "tag_polychrome" | "tag_negative"));
+    }
     card.edition = edition;
     card.cost = shop_cost(
         base_cost_of(&card.key),
@@ -648,7 +658,9 @@ impl Shop {
         // `pseudorandom` 决定, 而 `get_pack` 第一次调用会用全局的 `math.random(1, 2)` 挑那个
         // 白送的小人包 —— 所以券抽在包后面还是前面, 决定了赠包是 `_1` 还是 `_2`.
         // 整局对拍里 133 步那份第 4 步的赠包就是这么差的 (引擎 `_2`, 记录 `_1`).
-        if run.shop_vouchers.is_empty() {
+        // 券已经买走的那一底不再摆券 (`voucher_spent`), 而不是"空着就再抽一张" ——
+        // 这两种情形在下面那句注释说的时机之外还得分开, 见 `RunState::voucher_spent`.
+        if run.shop_vouchers.is_empty() && !run.voucher_spent {
             let key = run.next_voucher_key();
             run.shop_vouchers.push(key);
         }
@@ -700,6 +712,13 @@ impl Shop {
 
     /// 重抽小丑那两格. 优惠券与补充包不动 —— 游戏里 `reroll_shop` 只清 `shop_jokers`.
     pub fn reroll_jokers(&mut self, run: &mut RunState) {
+        // 旧的这几张**先被收走** (游戏里是 `remove_card` 加 `c:remove()` 那两句),
+        // 所以它们的"用过"记录要按"手里还有没有同名卡"清掉 —— 清完再抽新的, 顺序与游戏一致.
+        // 少了这一步, 被抽掉的那些小丑会一直占着池子里的格子, 之后抽出来的都会偏.
+        let old: Vec<String> = self.jokers.iter().map(|card| card.key.clone()).collect();
+        for key in old {
+            run.forget_used_if_gone(&key);
+        }
         let rates = super::voucher::rates_of(run);
         self.jokers = (0..JOKER_SLOTS + run.shop_size_bonus)
             .map(|_| create_card_for_shop(run, &rates))

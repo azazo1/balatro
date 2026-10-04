@@ -25,10 +25,10 @@ fn play_along(run: &mut RunState) -> usize {
                 }
             }
             balatro_engine::run::Phase::RoundEval => {
-                run.cash_out();
+                let _ = run.cash_out();
             }
             balatro_engine::run::Phase::Shop => {
-                run.next_round();
+                run.next_round().expect("这一回合有商店");
             }
             _ => break,
         }

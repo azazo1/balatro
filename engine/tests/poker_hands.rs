@@ -35,6 +35,7 @@ fn card(code: &str) -> HandCard {
         suit,
         rank,
         sort_id: 0,
+        original_suit: suit,
     })
 }
 

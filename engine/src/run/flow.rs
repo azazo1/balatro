@@ -11,7 +11,7 @@
 //!
 //! 盲注目标与结算还没接进来, 这一层的出牌只累计本回合分数, 不判断胜负.
 
-use crate::cards::{CardInstance, Enhancement, Rank, Seal, Suit, standard_deck};
+use crate::cards::{CardInstance, Enhancement, PlayingCard, Rank, Seal, Suit, standard_deck};
 use crate::jokers::TriggerContext;
 use crate::scoring::{
     BackEffect, EvalEnv, PokerHand, ScoreResult, evaluate_poker_hand,
@@ -64,25 +64,105 @@ pub enum ActionError {
     NoRoom { what: &'static str, slots: usize },
     /// 认不出的原型键.
     UnknownCard(String),
+    /// 规则上不允许这么做 —— 这是**游戏本身**禁止的, 不是"引擎还不会".
+    ///
+    /// 与 [`ActionError::NotImplemented`] 分开是必要的: 混在一起时调用方 (批量跑对局的策略)
+    /// 会把"这一步本来就非法"当成"引擎有缺口", 于是走上完全不同的分支 ——
+    /// 前者重试多少次都一样, 后者换个实现就能做.
+    NotAllowed(&'static str),
     /// 这条路还没实现. 引擎不做静默降级, 遇到就明说.
     NotImplemented(&'static str),
 }
 
 impl RunState {
-    /// 建标准牌堆 (52 张) 并按 `sort_id` 排好. 对应开局 `card_from_control` 那一段.
+    /// 建开局那副牌堆. 对应游戏里 `card_protos` 那一段 (`game/game.lua` L2338 起) 与随后的
+    /// `card_from_control`.
+    ///
+    /// 形状是三步, 顺序不能换:
+    ///
+    /// 1. **列出这副牌有哪些牌面**. 无面牌组 (`remove_faces`) 在这一步把 K/Q/J 剔掉;
+    ///    错乱牌组 (`randomize_rank_suit`) 则在这一步把**每一次**都换成随机抽来的一张 ——
+    ///    注意它抽的是 `P_CARDS`, 也就是"52 张里随便挑", 所以同一张牌面会出现多次,
+    ///    而张数仍然是 52.
+    /// 2. **按 `花色..点数` 排序**. 这一步决定了 `sort_id` 的分配顺序, 而 `sort_id` 是
+    ///    洗牌前的定序依据, 所以它不是装饰. 排序键是拼接后的字符串 (`'C'..'2'` = `"C2"`),
+    ///    于是点数按**字符码**排 —— `2..9` 之后是 `A/J/K/Q/T`, 而不是 A 到 K 的通常顺序.
+    /// 3. **棋盘牌组换花色**: 梅花改黑桃, 方块改红桃. 它在游戏里挂在事件上 (建堆之后才跑),
+    ///    作用在整副牌上, 所以是一个后置步骤.
     pub fn build_deck(&mut self) {
-        self.deck = standard_deck()
-            .into_iter()
-            .map(CardInstance::plain)
+        let config = self.deck_config.clone();
+        let flag = |field: &str| {
+            config
+                .get(field)
+                .and_then(crate::data::json::Json::as_bool)
+                .unwrap_or(false)
+        };
+        let no_faces = flag("remove_faces");
+        let erratic = flag("randomize_rank_suit");
+
+        let mut faces = standard_deck();
+        if no_faces {
+            faces.retain(|card| !card.rank.is_face());
+        }
+        if erratic {
+            // 每一次都**重掷一张牌面**, 键是 `erratic` (游戏那行是
+            // `pseudorandom_element(G.P_CARDS, pseudoseed('erratic'))`).
+            // `pseudorandom_element` 收的是哈希表, 会先按**键的字符串升序**排好再取下标,
+            // 所以候选表就是那 52 个键按升序 —— 这也是本引擎 `standard_deck` 已经排好的顺序.
+            let pool: Vec<PlayingCard> = standard_deck();
+            faces = (0..faces.len())
+                .map(|_| {
+                    let seed = self.rng.pseudoseed("erratic");
+                    let index = self.rng.pick_index(pool.len(), seed);
+                    pool[index]
+                })
+                .collect();
+        }
+        // 排序键与游戏一致: 花色字符接点数字符.
+        faces.sort_by_key(|card| card.key());
+        // 取名字与花色都全新的引用 (重复抽到的牌面会共用同一个原型, 所以要各自造一份).
+        self.deck = faces
+            .iter()
+            .enumerate()
+            .map(|(index, face)| {
+                let mut card = CardInstance::plain(*face);
+                card.card.sort_id = index as u32 + 1;
+                card
+            })
             .collect();
+
+        // 棋盘牌组: 梅花 -> 黑桃, 方块 -> 红桃, 于是这副牌只有黑红两种花色.
+        if self.deck_key == "b_checkered" {
+            for card in self.deck.iter_mut() {
+                match card.card.suit {
+                    Suit::Clubs => card.change_suit(Suit::Spades),
+                    Suit::Diamonds => card.change_suit(Suit::Hearts),
+                    _ => {}
+                }
+            }
+        }
+
         // 记下开局那副牌有多少张 —— 侵蚀那类"比开局少了几张"的小丑要看它
         // (`G.GAME.starting_deck_size`). 它在建堆之后就不变了.
         self.starting_deck_size = self.deck.len();
+        // 建牌序号从这里往上数, 之后每造一张牌都加一 (见 `next_sort_id`).
+        self.next_card_id = self
+            .deck
+            .iter()
+            .map(|card| card.card.sort_id)
+            .max()
+            .unwrap_or(0);
     }
 
     /// 按 `sort_id` 排序, 对应 `pseudoshuffle` 开头那一次 `table.sort`.
+    ///
+    /// 这里用同一份 Lua 排序: 建牌序号在正常路径上互不相同 (排序结果与算法无关), 但少了
+    /// "万一有重号"这条兜底时, 差异会以"整副牌洗完对不上"的形式出现, 很难追. 统一用一份实现,
+    /// 就不必再分情况判断.
     fn sort_deck_by_sort_id(&mut self) {
-        self.deck.sort_unstable_by_key(|c| c.card.sort_id);
+        crate::lua::table_sort::sort_by(&mut self.deck, |a, b| {
+            a.card.sort_id < b.card.sort_id
+        });
     }
 
     /// 开局那次洗牌 (`self.deck:shuffle()`).
@@ -134,10 +214,16 @@ impl RunState {
 
         // 琥珀橡果 (决战 Boss): 把小丑的顺序**洗三次** (键 `aajk`). 小丑的先后会影响计分
         // (先算谁、谁给谁加成), 所以这不是"看不见的效果".
+        //
+        // 每一次洗牌之前都要**按建牌序号排一遍**, 因为游戏的 `pseudoshuffle` 开头就有那一次
+        // `table.sort` (`if list[1] and list[1].sort_id then ... end`) —— 小丑也是 `Card`,
+        // 所以也有 `sort_id`. 少了这一步, 三次洗牌会**层层叠加** (第二次洗的是第一次的结果),
+        // 而游戏每次都是从"按序号排好"的队形重新开始; 同样的随机数作用在不同队形上, 结果不同.
         if self.blind.as_ref().is_some_and(|b| b.key == "bl_final_acorn" && !b.disabled)
             && self.jokers.len() > 1
         {
             for _ in 0..3 {
+                crate::lua::table_sort::sort_by(&mut self.jokers, |a, b| a.sort_id < b.sort_id);
                 self.rng.pseudoshuffle(&mut self.jokers, "aajk");
             }
         }
@@ -229,18 +315,18 @@ impl RunState {
             };
         }
 
-        // 奇可 (传奇): 手里有它的时候, **Boot 盲注的效果整条不生效** ——
+        // 奇可 (传奇): 手里有它的时候, **Boss 盲注的效果整条不生效** ——
         // 游戏里是在 `setting_blind` 那个时机调 `G.GAME.blind:disable()`, 之后所有 Boss 效果
         // 都看 `blind.disabled`. 少了这一条, Boss 那一回合的分数会整块算错.
+        //
+        // 注意这里调的是 `disable_blind` 而不是直接置标志: 停用同时要**撤销盲注自己做过的
+        // 改动** (墙 / 紫瓶改过目标分数). 详见 `RunState::disable_blind`.
         let chicot = self
             .jokers
             .iter()
             .any(|joker| joker.key == "j_chicot" && !joker.debuffed);
-        if chicot
-            && let Some(blind) = self.blind.as_mut()
-            && blind.kind == BlindKind::Boss
-        {
-            blind.disabled = true;
+        if chicot && self.blind.as_ref().is_some_and(|b| b.kind == BlindKind::Boss) {
+            self.disable_blind();
         }
 
         // 有几个 Boss 直接改这一回合的次数与手牌上限, 照 `Blind:get_type` 里那几支.
@@ -325,7 +411,7 @@ impl RunState {
                 if let Some(key) = super::shop::pick_joker_of_rarity(self, 1, "rif", false)
                     && let Some(joker) = Joker::new(&key)
                 {
-                    self.jokers.push(joker);
+                    self.add_joker(joker);
                 }
             }
         }
@@ -425,9 +511,7 @@ impl RunState {
                     let mut card = self.random_playing_card("cert_fr", None);
                     card.seal = Some(self.random_seal("certsl"));
                     self.hand.push(card);
-                    // `CardArea:sort('desc')` 是 `a:get_nominal() > b:get_nominal()`, 也就是按点数降序.
-                    self.hand
-                        .sort_by(|a, b| b.card.nominal().total_cmp(&a.card.nominal()));
+                    self.sort_hand();
                 }
                 _ => {}
             }
@@ -474,6 +558,11 @@ impl RunState {
     /// 发牌要等玩家选了盲注才做 (游戏里那一步是 `select`), 所以第一个盲注也**可以跳过**.
     pub fn start_run(&mut self) {
         self.build_deck();
+        // 牌组自带的消耗牌与券要在**开局洗牌之前**做完: 游戏那边它们挂在事件上, 而 `start_run`
+        // 自己也是个协程 —— 它在 `delay(0.5)` 处让出, 带 0.4 秒延迟的"造消耗牌"那段就在这个
+        // 缝里跑完了, 之后才轮到 `G.deck:shuffle()`. 而造牌会掷一次版本, 所以这一步
+        // **动的是随机数序列**, 顺序反了整副牌的洗牌结果都会不同.
+        self.apply_starting_deck_extras();
         self.shuffle_opening();
         // 开局就把这一底的 Boss 抽好, 对应 `Game:start_run` 里那次 `get_new_boss()`.
         self.boss_key = Some(self.next_boss());
@@ -510,6 +599,8 @@ impl RunState {
         // 只**作废**这一格, 键留到 `restock` 里真正摆货架时再抽 —— 因为抽券要消耗随机数,
         // 而游戏那边券是夹在"卡"与"包"之间抽的. 在这里抽就等于抽早了 (见 `restock` 的注释).
         self.shop_vouchers.clear();
+        // 新底注 = 新的一张券, 所以"这一底已经买过券"这件事也跟着清掉.
+        self.voucher_spent = false;
     }
 
     /// `get_new_boss()`: 抽这一底的 Boss.
@@ -528,7 +619,7 @@ impl RunState {
         let once = self.used_vouchers.contains("v_directors_cut");
         if !unlimited && !(once && !self.boss_rerolled) {
             // 没有这张券 (或者这一底已经用过了) 就没得重掷.
-            return Err(ActionError::NotImplemented("重掷 Boss 的权利 (要买对应优惠券)"));
+            return Err(ActionError::NotAllowed("重掷 Boss: 没有那张优惠券, 或者这一底已经用过"));
         }
         if self.dollars - self.bankrupt_at < COST {
             return Err(ActionError::NotEnoughMoney {
@@ -543,6 +634,34 @@ impl RunState {
     }
 
 
+    /// 把一张小丑放进持有区, 顺手给它发一个建牌序号.
+    ///
+    /// 游戏里小丑也是 `Card`, 走 `Card:init` 时会把全局的 `G.sort_id` 加一 ——
+    /// 所以小丑与扑克牌**共用同一个计数器**, 而它们的序号相对大小只取决于"谁先造出来".
+    /// 引擎这边共用 `next_card_id` 就够了 (只有小丑之间的相对顺序会被用到).
+    ///
+    /// 收成一个入口是为了不再出现"某个新加的小丑忘了发号"—— 那种漏发的表现是
+    /// 洗小丑时它的位置与游戏不同, 而中间隔着好几层, 很难追回来.
+    pub fn add_joker(&mut self, mut joker: Joker) -> usize {
+        joker.sort_id = self.next_sort_id();
+        let is_chicot = joker.key == "j_chicot";
+        self.jokers.push(joker);
+        // 奇可进队时立刻停用当前的 Boss 盲注 —— 对应 `Card:add_to_deck` 里那一支:
+        // 游戏里除了"摆盲注时"那一次, 还有**中途拿到它**这一条路 (在盲注内用审判开出奇可
+        // 就属于这种情况). 少接这一条, 那一整局的 Boss 效果会照常生效到回合结束.
+        // 在 `BLIND_SELECT` 阶段拿到它也无妨: 此时 `self.blind` 还是上一个盲注, 而
+        // `select_blind` 会重建一个 (那时 `disabled` 是新的 false, 再由它自己那一处判一次).
+        if is_chicot
+            && self
+                .blind
+                .as_ref()
+                .is_some_and(|blind| blind.kind == BlindKind::Boss && !blind.disabled)
+        {
+            self.disable_blind();
+        }
+        self.jokers.len() - 1
+    }
+
     /// 往牌堆里加一张**扑克牌**, 顺手喂全息图 (它按"每加一张牌"涨 0.25 乘倍率).
     ///
     /// 游戏钩的是 `context.playing_card_added` —— 也就是"牌进了牌堆"这件事本身,
@@ -552,8 +671,22 @@ impl RunState {
         for joker in self.jokers.iter_mut() {
             if joker.key == "j_hologram" && !joker.debuffed {
                 joker.x_mult += 0.25;
-            }
-        }
+            }        }
+    }
+
+    /// 复制一张牌, 给它**新的建牌序号** —— 对应游戏的 `copy_card`.
+    ///
+    /// 游戏那边复制出来的是一张**新建的 `Card`**, 所以它走一遍 `Card:init`, 拿到一个新的
+    /// `G.sort_id` (最新的那个). 引擎里 `CardInstance` 是 `Copy`, 直接拷会连 `sort_id` 一起拷过去,
+    /// 于是复制品与原牌**同号** —— 而两张同号的牌在洗牌前排序时的先后是随机的 (Lua 那套快排不定),
+    /// 表现成"下一回合发出来的牌对不上", 与真实原因隔得很远.
+    ///
+    /// 凡是"游戏里会新建一张牌"的地方都要走这里: 死神 (把最右的复制给其余选中的),
+    /// DNA (复制打出的那张), 神秘生物 (复制第一张选中的若干份).
+    fn duplicate_card(&mut self, source: &crate::cards::CardInstance) -> crate::cards::CardInstance {
+        let mut copy = *source;
+        copy.card.sort_id = self.next_sort_id();
+        copy
     }
 
     /// 手里有没有帕瑞多利亚 (它让所有牌都当人头牌).
@@ -584,7 +717,17 @@ impl RunState {
     /// 小 -> 大 -> Boss -> 下一个底注的小盲注. 与底注有关的那一笔 (底注加一, 重抽券与标签,
     /// 抽下一底的 Boss) **不在这里** —— 它在 `end_round` 里打赢 Boss 那一刻就做掉了,
     /// 见那边的注释.
-    pub fn next_round(&mut self) {
+    ///
+    /// **只在商店里能做**: 包还开着 (或者正打牌) 的时候这一步是非法的, 游戏那边会拒绝 ——
+    /// 一份真实录像里就有这种尝试 (bot 开了包又想直接走人). 半路放行的话, 引擎会带着
+    /// 一个开着的包进入下一个盲注, 后面的每一步都对不上.
+    pub fn next_round(&mut self) -> Result<(), ActionError> {
+        if self.phase != Phase::Shop {
+            return Err(ActionError::NotInPhase {
+                expected: Phase::Shop,
+                actual: self.phase,
+            });
+        }
         // 珀克奥 (传奇): **离店时**从消耗槽里随机复制一张, 给它负片.
         // 注意它**不受槽位上限限制** (游戏那边用的是 `emplace`), 所以 3 张挤在 2 格里是正常的.
         // 触发时机是 `context.ending_shop`, 也就是这一步.
@@ -607,7 +750,8 @@ impl RunState {
         }
         // 离开商店就把货架收掉: 回放 digest 里这一格的 `shop` / `vouchers` / `packs` 都是空的,
         // 而下一次进商店时会重新铺一遍 (`cash_out` -> `restock`).
-        self.shop = None;
+        // 收掉的时候顺手清"用过"的记录 —— 游戏里那些牌是被 `Card:remove()` 收走的.
+        self.clear_shelf();
         self.blind_on_deck = match self.blind_on_deck {
             // Boss 的底注已经在 `end_round` 里提过了, 这里只把盲注轮到下一个小盲注.
             BlindKind::Boss => BlindKind::Small,
@@ -615,6 +759,7 @@ impl RunState {
             BlindKind::Big => BlindKind::Boss,
         };
         self.phase = Phase::BlindSelect;
+        Ok(())
     }
 
     /// 收下一个标签: 记进持有列表, 并跑一遍它"到位就生效"的那部分.
@@ -688,7 +833,7 @@ impl RunState {
                     if let Some(picked) = super::shop::pick_joker_of_rarity(self, 1, "top", false)
                         && let Some(joker) = Joker::new(&picked)
                     {
-                        self.jokers.push(joker);
+                        self.add_joker(joker);
                     }
                 }
             }
@@ -730,13 +875,13 @@ impl RunState {
         let index = match self.blind_on_deck {
             BlindKind::Small => 0,
             BlindKind::Big => 1,
-            BlindKind::Boss => return Err(ActionError::NotImplemented("跳过 Boss")),
+            BlindKind::Boss => return Err(ActionError::NotAllowed("Boss 不能跳过")),
         };
         let tag = self
             .blind_tags
             .get_mut(index)
             .and_then(|slot| slot.take())
-            .ok_or(ActionError::NotImplemented("这个盲注的标签已经拿过了"))?;
+            .ok_or(ActionError::NotAllowed("这个盲注的标签已经拿过了"))?;
         self.skips += 1;
         // 双倍标签的语义是"**持有它时**, 之后拿到的标签来两份" —— 复制的是这一次拿到的那个,
         // 而不是它自己被拿到时生效. 它自己不会再被复制 (源码里那条 `~= 'tag_double'`).
@@ -774,9 +919,23 @@ impl RunState {
         self.hand.remove(index);
     }
 
-    /// 给新加进手牌的牌发一个建牌序号, 与 `build_deck` 用的是同一套.
+    /// 给新造出来的牌发一个建牌序号, 与 `build_deck` 用的是同一套.
+    ///
+    /// 游戏那边就是全局计数器 `G.sort_id`, 每造一张牌自增一次 (`Card:init` 里那一句),
+    /// 所以它的值**与造牌顺序一致**, 而且永不重复. 这个序号有两处用:
+    ///
+    /// 1. 洗牌前按它排序 (`pseudoshuffle` 开头那一次 `table.sort`);
+    /// 2. 手牌排序时的**兜底比较项** —— `Card:get_nominal` 最后加的是
+    ///    `0.000001 * (1 - Card.ID/1603301)`, 而 `Card.ID` 是**另一条**全局计数器 (`Node:init`),
+    ///    它在造牌顺序上单调递减, 所以作用等价于"**先造的排前面**".
+    ///
+    /// 所以这个值必须是**单调递增的计数器**, 不能写成"当前牌堆里最大的那个加一":
+    /// 那样一遇到"最大的那张正拿在手里"就会发出一个比它小的号, 于是两张牌的先后关系
+    /// 与造牌顺序相反 —— 而后果是*整副牌洗完的顺序都不一样*, 表现成"某一手发出的牌对不上",
+    /// 与真实原因隔得很远. (第 89 步那两张 S_K 的先后就是这么来的.)
     fn next_sort_id(&mut self) -> u32 {
-        self.deck.iter().map(|card| card.card.sort_id).max().unwrap_or(0) + 1
+        self.next_card_id += 1;
+        self.next_card_id
     }
 
     /// 手牌上限, 对应 `starting_params.hand_size` 减去 Boss 的临时扣减.
@@ -784,6 +943,37 @@ impl RunState {
     /// 基础值是 8, 镣铐 (The Manacle) 那一类会把它压低, 最低不会低过 1.
     pub fn hand_size(&self) -> usize {
         (8 + self.hand_size_bonus - self.hand_size_sub).max(1) as usize
+    }
+
+    /// 把这个盲注**停用并且把它留下的痕迹擦掉** —— 对应 `Blind:disable()`.
+    ///
+    /// 两条进入路径: 奇可 (摆盲注时的 `setting_blind`) 与翠叶 (卖掉一张小丑).
+    /// 三件事一件都不能少, 理由写在 [`crate::run::blind::Blind::disable`] 上, 这里做的是
+    /// "改分数" 之外的那两件 —— **把削掉的牌恢复, 把锁住的牌解锁**:
+    /// 游戏那个函数结尾对所有牌与小丑重跑一遍 `debuff_card`, 而那时 `disabled` 已为真,
+    /// 于是每条 Boss 分支都跳过, 落到最后那句 `card:set_debuff(false)`.
+    ///
+    /// 只置一个标志而不清削弱的话, "卖掉小丑解除翠叶"就只剩个说法 ——
+    /// 卖完这一回合剩下的手牌仍然一分不出.
+    fn disable_blind(&mut self) {
+        let Some(blind) = self.blind.as_mut() else {
+            return;
+        };
+        if blind.disabled {
+            return;
+        }
+        blind.disable();
+        // 所有区域的牌都要恢复: 游戏遍历的是 `G.playing_cards` (全文那一整份).
+        for card in self
+            .deck
+            .iter_mut()
+            .chain(self.hand.iter_mut())
+            .chain(self.play_area.iter_mut())
+            .chain(self.discard_pile.iter_mut())
+        {
+            card.debuffed = false;
+            card.forced_selection = false;
+        }
     }
 
     /// 从牌堆末尾抽一张到手牌. 牌堆空了返回 `false`.
@@ -799,20 +989,41 @@ impl RunState {
 
     /// 补满手牌. 对应 `draw_from_deck_to_hand`, 每次抽牌之后都重排.
     pub fn draw_to_hand(&mut self) {
-        // 猩红之心 (决战 Boss): **每次发牌**换一个随机小丑失效 —— 先全部恢复, 再挑一个.
-        // 键是 `crimson_heart` (游戏在 `Blind:drawn_to_hand` 里掷).
+        // 猩红之心 (决战 Boss): **每次发牌**换一个随机小丑失效, 键 `crimson_heart`.
+        //
+        // 候选名单**不含当前正失效的那一张**, 这一条容易看漏, 因为它是写在同一个循环里的:
+        //
+        // ```lua
+        // for i = 1, #G.jokers.cards do
+        //   if not G.jokers.cards[i].debuff or #G.jokers.cards < 2 then jokers[#jokers+1] = ... end
+        //   G.jokers.cards[i]:set_debuff(false)          -- 清在**收集之后**
+        // end
+        // ```
+        //
+        // 两点都要照做: 判据读的是**清之前**的状态 (所以只有一张小丑时才允许它自己再被抽中),
+        // 而"清"发生在**收集之后**. 名单长度因此是 `N-1` 而不是 `N` —— 而名单长度会改变
+        // `pick_index` 的结果, 于是**抽到的是哪张也会不同**. 照"从全部里抽"写会连着两次
+        // 抽中同一张, 而游戏不会.
         if self
             .blind
             .as_ref()
             .is_some_and(|b| b.key == "bl_final_heart" && !b.disabled)
             && !self.jokers.is_empty()
         {
+            let single = self.jokers.len() < 2;
+            let candidates: Vec<usize> = self
+                .jokers
+                .iter()
+                .enumerate()
+                .filter(|(_, joker)| single || !joker.debuffed)
+                .map(|(index, _)| index)
+                .collect();
             for joker in self.jokers.iter_mut() {
                 joker.debuffed = false;
             }
             let seed = self.rng.pseudoseed("crimson_heart");
-            let index = self.rng.pick_index(self.jokers.len(), seed);
-            self.jokers[index].debuffed = true;
+            let pick = self.rng.pick_index(candidates.len(), seed);
+            self.jokers[candidates[pick]].debuffed = true;
         }
 
         // 蛇 (The Serpent): 出过牌或弃过牌之后, 每次都**只抽三张** (牌堆不够就抽多少算多少),
@@ -855,10 +1066,74 @@ impl RunState {
 
     }
 
-    /// 手牌按牌面大小降序重排, 对应 `CardArea:sort('desc')`.
+    /// 手牌重排, 对应 `CardArea:sort(...)` —— **按这一区记下的排序方式**.
+    ///
+    /// 用的是**Lua 的 `table.sort`** (不是 Rust 的排序): 两张同点数的牌之间谁在前, 由那一份
+    /// 不稳定快排的交换过程决定, 而手牌顺序会影响后面每一步用的下标.
+    /// 整局对拍里 133 步那份第 89 步就是两张 K 的先后反了 —— 见 [`crate::lua::table_sort`].
+    ///
+    /// 游戏那边这一步是 `to:sort()` (不带参数), 于是沿用 `config.sort`; 所以这里也要看
+    /// [`crate::run::state::HandSort`], 而不是永远按点数排.
     fn sort_hand(&mut self) {
-        self.hand
-            .sort_by(|a, b| b.card.nominal().total_cmp(&a.card.nominal()));
+        match self.hand_sort {
+            crate::run::state::HandSort::Value => {
+                crate::lua::table_sort::sort_by(&mut self.hand, |a, b| {
+                    a.card.nominal_with_stone(a.is_stone())
+                        > b.card.nominal_with_stone(b.is_stone())
+                });
+            }
+            crate::run::state::HandSort::Suit => {
+                crate::lua::table_sort::sort_by(&mut self.hand, |a, b| {
+                    a.card.nominal_suit_with_stone(a.is_stone())
+                        > b.card.nominal_suit_with_stone(b.is_stone())
+                });
+            }
+        }
+    }
+
+    /// 手牌按**花色**降序重排, 对应 `G.FUNCS.sort_hand_suit` 里的 `G.hand:sort('suit desc')`.
+    ///
+    /// 它会**把这一区的排序方式改成按花色** —— 之后每次发牌都照这个排, 直到再按另一个按钮.
+    pub fn sort_hand_by_suit(&mut self) {
+        self.hand_sort = crate::run::state::HandSort::Suit;
+        self.sort_hand();
+    }
+
+    /// 手牌按点数降序重排 —— 对应 `G.FUNCS.sort_hand_value` 里的 `G.hand:sort('desc')`,
+    /// 同样会把这一区的排序方式改回按点数.
+    pub fn sort_hand_by_value(&mut self) {
+        self.hand_sort = crate::run::state::HandSort::Value;
+        self.sort_hand();
+    }
+
+    /// 手动调换手牌顺序, 对应 `bbcore` 的 `rearrange` 端点.
+    ///
+    /// `order[k]` 说的是"新顺序里的第 k 张, 来自原来的第几张". 顺序本身**就是状态**:
+    /// 出牌与弃牌用的都是下标, 所以这一步不能当成没发生 —— 少了它, 后面每一步都会指到别的牌上.
+    ///
+    /// 游戏那边是直接换掉 `G.hand.cards` 这个数组, 所以**不做排序**; 下一次发牌 (`sort('desc')`)
+    /// 才会把它按牌面重排.
+    pub fn rearrange_hand(&mut self, order: &[usize]) -> Result<(), ActionError> {
+        check_permutation(order, self.hand.len())?;
+        let old = std::mem::take(&mut self.hand);
+        self.hand = order.iter().map(|&from| old[from]).collect();
+        Ok(())
+    }
+
+    /// 同上, 但调换的是小丑的顺序 (`order[k]` 同样表示来自原来的第几张).
+    pub fn rearrange_jokers(&mut self, order: &[usize]) -> Result<(), ActionError> {
+        check_permutation(order, self.jokers.len())?;
+        let old = std::mem::take(&mut self.jokers);
+        self.jokers = order.iter().map(|&from| old[from].clone()).collect();
+        Ok(())
+    }
+
+    /// 同上, 但调换的是消耗牌的顺序.
+    pub fn rearrange_consumables(&mut self, order: &[usize]) -> Result<(), ActionError> {
+        check_permutation(order, self.consumables.len())?;
+        let old = std::mem::take(&mut self.consumables);
+        self.consumables = order.iter().map(|&from| old[from].clone()).collect();
+        Ok(())
     }
 
     /// 校验一组手牌下标.
@@ -1112,7 +1387,10 @@ impl RunState {
                 .iter()
                 .any(|joker| joker.key == "j_dna" && !joker.debuffed)
         {
-            self.add_playing_card_to_deck(taken[0]);
+            // DNA: **这一回合的第一手**如果只打出一张牌, 就复制一张永久加进牌堆.
+            // 复制出来的是**新造的牌** (`copy_card`), 所以先给它新号再加 (见 `duplicate_card`).
+            let copy = self.duplicate_card(&taken[0]);
+            self.add_playing_card_to_deck(copy);
         }
 
         let views: Vec<_> = taken.iter().map(CardInstance::to_hand_card).collect();
@@ -1179,19 +1457,35 @@ impl RunState {
         // 眼 (The Eye) 与嘴 (The Mouth) 限的是"这一回合打什么牌型", 违规时**整手不计分**:
         // 游戏里 `debuff_hand` 返回真就跳过算分那一整段 (连玻璃碎裂也在那一段里), 但这一手
         // 照样算打过了 —— `played` 是在 `debuff_hand` **之前**加的.
+        //
+        // **停用的 Boss 整条不生效**: 游戏那两个入口 (`Blind:debuff_hand` 与 `Blind:press_play`)
+        // 开头都是 `if self.disabled then return end`, 而希科 (传奇) 正是在 `setting_blind`
+        // 那一刻把这一底的 Boss 停用掉. 少了这个判断, 拿着希科照样会被 Boss 削手 ——
+        // 整局对拍里 133 步那份第 72 步就是这么差的: 引擎把这手同花判成"嘴不允许的第二种牌型"
+        // 而不计分, 于是回合没打掉, 而游戏那边打赢了 (它是同一手同花过的关).
+        let boss_active = self.blind.as_ref().is_some_and(|blind| !blind.disabled);
+        let banned_hand = if boss_active {
+            match self.blind.as_ref().map(|blind| blind.key.as_str()) {
+                Some("bl_eye") => {
+                    played_hand.is_some_and(|hand| self.round_hand_types.contains(&hand))
+                }
+                Some("bl_mouth") => matches!(
+                    (self.round_hand_types.first(), played_hand),
+                    (Some(first), Some(now)) if *first != now
+                ),
+                _ => false,
+            }
+        } else {
+            false
+        };
+
         // 斗牛士: 这一手正好是 Boss **削弱**的牌型时给 8 块.
         // 游戏判据是 `G.GAME.blind.triggered`, 也就是"这个 Boss 把这一手削了" ——
-        // 引擎里与之对应的就是下面那个 `blocked` (眼 / 嘴那两个"整手不计分"的 Boss),
-        // 以及按牌面削的那类 Boss 都不属于这里 (它们削的是牌, 不是牌型).
-        let matador_pays = match self.blind.as_ref().map(|blind| blind.key.as_str()) {
-            Some("bl_eye") => played_hand.is_some_and(|hand| self.round_hand_types.contains(&hand)),
-            Some("bl_mouth") => matches!(
-                (self.round_hand_types.first(), played_hand),
-                (Some(first), Some(now)) if *first != now
-            ),
-            _ => false,
-        };
-        if matador_pays
+        // 引擎里与之对应的就是上面那个 `banned_hand` (眼 / 嘴那两个"整手不计分"的 Boss),
+        // 而按牌面削的那类 Boss 不属于这里 (它们削的是牌, 不是牌型).
+        // 停用的 Boss 不会把 `triggered` 置上 (`debuff_hand` 提前返回了), 所以这里跟着
+        // `banned_hand` 走就够了 —— 它已经被停用标志挡过一道.
+        if banned_hand
             && self
                 .jokers
                 .iter()
@@ -1200,14 +1494,7 @@ impl RunState {
             self.dollars += 8.0;
         }
 
-        let blocked = match self.blind.as_ref().map(|blind| blind.key.as_str()) {
-            Some("bl_eye") => played_hand.is_some_and(|hand| self.round_hand_types.contains(&hand)),
-            Some("bl_mouth") => matches!(
-                (self.round_hand_types.first(), played_hand),
-                (Some(first), Some(now)) if *first != now
-            ),
-            _ => false,
-        };
+        let blocked = banned_hand;
         if let Some(hand) = played_hand {
             self.round_hand_types.push(hand);
         }
@@ -1215,23 +1502,26 @@ impl RunState {
         // Boss 那几笔都记在**算分之前** (游戏里分别在 `press_play` 与 `debuff_hand` 两步):
         // 牙按打出的**张数**扣钱, 臂把这一手的等级降一级, 牛在打到最常用牌型时把钱清零.
         // 顺序要紧 —— 斗牛那类小丑算分时读的是**改过之后**的现金.
-        match self.blind.as_ref().map(|blind| blind.key.as_str()) {
-            Some("bl_tooth") => self.dollars -= taken.len() as f64,
-            Some("bl_arm") => {
-                if let Some(hand) = played_hand
-                    && self.hands.get(hand).level > 1
-                {
-                    self.hands.level_up(hand, -1);
+        // 同样受"停用的 Boss 整条不生效"约束 (那几笔都在 `Blind:press_play` 里).
+        if boss_active {
+            match self.blind.as_ref().map(|blind| blind.key.as_str()) {
+                Some("bl_tooth") => self.dollars -= taken.len() as f64,
+                Some("bl_arm") => {
+                    if let Some(hand) = played_hand
+                        && self.hands.get(hand).level > 1
+                    {
+                        self.hands.level_up(hand, -1);
+                    }
                 }
-            }
-            Some("bl_ox") => {
-                if let Some(hand) = played_hand
-                    && hand == self.hands.most_played()
-                {
-                    self.dollars = 0.0;
+                Some("bl_ox") => {
+                    if let Some(hand) = played_hand
+                        && hand == self.hands.most_played()
+                    {
+                        self.dollars = 0.0;
+                    }
                 }
+                _ => {}
             }
-            _ => {}
         }
 
         // 被眼或嘴拦下时整手不计分: 算分那一整段都不进, 所以什么都没得 ——
@@ -1601,6 +1891,19 @@ impl RunState {
             }
         }
 
+        // **通关判定要排在底注递增之前**: 游戏判的是"刚打完的那一底的底注 == 通关底注",
+        // 而 `ease_ante` 在那个判定之后才跑 (`end_round` 与 `cash_out` 是两段).
+        //
+        // 这一笔原来**漏了** —— `RunState::won` 声明了却从没被赋过值, 于是批量对局的
+        // `RunOutcome.won` 永远是假: 一个跑完八个底注、赢下决战 Boss 的流程, 在结果里
+        // 看起来和"半路输掉"一模一样. 是接口文档 (`/// 通关了没有`) 与实现不一致,
+        // 而这种不一致不会报错, 只会让所有基于它的统计整体偏.
+        //
+        // 判据里的"盲注是 Boss"用 `blind_on_deck` 而不是 `blind`: 与上面那句递增同一个依据.
+        if self.blind_on_deck == BlindKind::Boss && self.ante == self.win_ante {
+            self.won = true;
+        }
+
         // 打赢 **Boss** 就在**这里**进下一底, 而不是等离开商店再进.
         //
         // 这一点很要紧: 商店的货架是用**当时的底注**生成出来的 (键里都带底注, 例如
@@ -1628,7 +1931,13 @@ impl RunState {
             blind_reward,
             hand_bonus: self.hands_left.max(0) as f64 * self.money_per_hand,
             discard_bonus: self.discards_left.max(0) as f64 * self.money_per_discard,
-            interest: interest(self.dollars, self.interest_rate, self.interest_cap),
+            // 绿色牌组没有利息 (`G.GAME.modifiers.no_interest`) —— 游戏那边判的是
+            // `G.GAME.dollars >= 5 and not modifiers.no_interest`, 也就是**连本金门槛一起跳过**.
+            interest: if self.no_interest {
+                0.0
+            } else {
+                interest(self.dollars, self.interest_rate, self.interest_cap)
+            },
             card_bonus: hand_dollars,
         };
         self.round_eval = Some(eval);
@@ -1749,12 +2058,35 @@ impl RunState {
     ///
     /// 进商店的同时铺一次货架, 所以调用方不用自己排列顺序 —— 货架的顺序会影响后面所有的
     /// 随机数 (两张小丑先后用同一个键递推, 卡包又吃它们的残留), 顺序错了整局都会偏.
-    pub fn cash_out(&mut self) -> f64 {
+    /// 收结算栏进商店.
+    ///
+    /// **只在这一回合结算时能做** —— 这一条不能省成"不在结算阶段就什么都不做":
+    /// 那样它会返回成功, 而游戏那边(`bbcore` 的 `cash_out` 端点)会拒绝, 于是对拍里
+    /// "游戏拒绝了、引擎却接受了". 一份真实录像里本来就包含这种重复的尝试
+    /// (bot 在商店或输局之后又点了一次), 引擎得照同样的规矩拒绝.
+    pub fn cash_out(&mut self) -> Result<f64, ActionError> {
+        if self.phase != Phase::RoundEval {
+            return Err(ActionError::NotInPhase {
+                expected: Phase::RoundEval,
+                actual: self.phase,
+            });
+        }
         let total = self.round_eval.map(|e| e.total()).unwrap_or(0.0);
         self.dollars += total;
         self.round_eval = None;
-        if self.phase == Phase::RoundEval {
-            self.phase = Phase::Shop;
+        self.phase = Phase::Shop;
+        {
+            // 结算屏上那一下会**先洗一次牌** (`G.FUNCS.cash_out` 开头那句
+            // `G.deck:shuffle('cashout'..底注)`), 键是 `cashout{底注}`.
+            //
+            // 这一步对牌堆的**顺序**是隐形的 —— `pseudoshuffle` 开头会按 `sort_id` 排序,
+            // 所以洗之前那堆怎么摊着都一样, 下一轮开局 (`nr{底注}`) 那次洗牌自然也照旧.
+            // 但店里的**秘术包与幽灵包开的时候要补一手牌** (见 `deal_for_pack`), 那一手是从
+            // 牌堆顶上抽的: 少了这次洗牌, 那份牌面就对不上, 后面"包里用塔罗指定手牌目标"
+            // 那几步会指到别的牌上.
+            self.sort_deck_by_sort_id();
+            let key = format!("cashout{}", self.ante);
+            self.rng.pseudoshuffle(&mut self.deck, &key);
             // 重抽的涨价计数与新一底的免费次数都从零开始.
             self.rerolls = 0;
             // 标签给的那两个"这一轮商店"的优惠也在这里开, 上一次的作废.
@@ -1762,7 +2094,7 @@ impl RunState {
             self.shop_free = self.tags.iter().any(|t| t == "tag_coupon");
             self.shop = Some(super::shop::Shop::restock(self));
         }
-        total
+        Ok(total)
     }
 
     /// 重抽小丑那两格, 返回花掉的钱. 对应 `reroll` 端点.
@@ -1889,12 +2221,28 @@ impl RunState {
                     });
                 }
                 let source = *targets.iter().max().expect("上面判过至少两张");
-                // `CardInstance` 是 `Copy`, 所以直接拷贝而不是 `clone`.
-                let copied = self.hand[source];
+                let source_card = self.hand[source];
+                // **序号保留目标牌自己的** —— 这一处与 DNA / 神秘生物不一样, 别一起改.
+                //
+                // 游戏那行是 `copy_card(rightmost, G.hand.highlighted[i])`: `copy_card` 收两个参数,
+                // 第二个是"要写进哪张牌", 给了它就 `local new_card = new_card or Card(...)` 里的
+                // **前一支** —— 复用的是**目标牌那个对象**, 只把牌面与能力写过去 (`set_ability` /
+                // `set_base`), `sort_id` 从头到尾没动过. 而那两处传的是 `nil`, 才真的新建一张牌,
+                // 才吃掉一个新的 `G.sort_id`.
+                //
+                // 写成"给复制品发一个新号"会把这副牌洗乱: 那张牌的号从它原来在牌堆里的位置
+                // 跳到**最新**, 于是排序后整副牌的顺序都变了 —— 表现成"下一回合发出来的牌几乎
+                // 全不对", 与真实原因隔得很远.
+                let mut copies: Vec<(usize, crate::cards::CardInstance)> = Vec::new();
                 for &target in targets {
                     if target != source {
-                        self.hand[target] = copied;
+                        let mut copy = source_card;
+                        copy.card.sort_id = self.hand[target].card.sort_id;
+                        copies.push((target, copy));
                     }
+                }
+                for (target, copy) in copies {
+                    self.hand[target] = copy;
                 }
             }
             // 魔术师, 皇后, 教皇那八张: 换一种强化.
@@ -1926,7 +2274,7 @@ impl RunState {
                 if self.jokers.len() < self.joker_slots {
                     let new = self.create_joker_of_rarity(rarity, append);
                     if let Some(joker) = new {
-                        self.jokers.push(joker);
+                        self.add_joker(joker);
                     }
                 }
             }
@@ -1957,17 +2305,23 @@ impl RunState {
                     .collect();
                 // 复制品排在最后, 顺序与"留下的那些"一致.
                 if self.jokers.len() < self.joker_slots {
-                    self.jokers.push(copy);
+                    self.add_joker(copy);
                 }
             }
             // 妖法与灵质: 从"还没有版本"的小丑里随机挑一个, 给它加版本.
             // 一个都没有就什么也不做 (游戏那边会把牌退回来).
+            // 妖法 (给一张小丑加多彩, **其余全部销毁**) 与灵质 (给一张加负片, 并永久减手牌上限).
+            //
+            // 三处都得照原文:
+            // 1. 掷的**键按牌分**: 妖法是 `hex`, 灵质是 `ectoplasm`, 命运之轮才是
+            //    `wheel_of_fortune`. 用同一个键会让抽到的是另一张 (键不同, 抽出的下标就不同).
+            // 2. **妖法要销毁其余的**: `for k, v in pairs(G.jokers.cards) do if v ~= eligible_card
+            //    and (not v.ability.eternal) then v:start_dissolve() end end` ——
+            //    永恒的那张留着. 少了这一条, 用完妖法手里会凭空多留一堆小丑.
+            // 3. **灵质每次永久减手牌上限**, 而且减得越来越多: 先减 1, 再减 2, 再减 3...
+            //    (`ecto_minus` 从 1 起, 每用一次加一).
             "c_hex" | "c_ectoplasm" => {
-                let edition = if key == "c_ectoplasm" {
-                    crate::cards::Edition::Negative
-                } else {
-                    crate::cards::Edition::Polychrome
-                };
+                let hex = key == "c_hex";
                 let pool: Vec<usize> = self
                     .jokers
                     .iter()
@@ -1978,9 +2332,40 @@ impl RunState {
                 if pool.is_empty() {
                     return Ok(());
                 }
-                let roll = self.rng.pseudorandom("wheel_of_fortune");
+                let seed_key = if hex { "hex" } else { "ectoplasm" };
+                let roll = self.rng.pseudorandom(seed_key);
                 let index = pool[(roll * pool.len() as f64) as usize % pool.len()];
-                self.jokers[index].edition = Some(edition);
+                self.jokers[index].edition = Some(if hex {
+                    crate::cards::Edition::Polychrome
+                } else {
+                    crate::cards::Edition::Negative
+                });
+                if hex {
+                    // 销毁其余的小丑, **永恒的除外** —— 抽中的那一张当然也留着
+                    // (`if v ~= eligible_card and (not v.ability.eternal)`).
+                    //
+                    // 按**下标从后往前**删: 直接 `retain` 会连抽中的那一张一起删掉 (它未必是永恒的),
+                    // 而按下标删能明确地把那一个下标排除在外.
+                    let victims: Vec<usize> = (0..self.jokers.len())
+                        .filter(|other| *other != index && !self.jokers[*other].eternal)
+                        .collect();
+                    let doomed: Vec<String> = victims
+                        .iter()
+                        .map(|other| self.jokers[*other].key.clone())
+                        .collect();
+                    for other in victims.into_iter().rev() {
+                        self.jokers.remove(other);
+                    }
+                    // 被销毁的要从池子的"用过"记录里清掉 —— 游戏那边是 `Card:remove()` 干的,
+                    // 判据是持有区里还有没有同名卡.
+                    for dead in doomed {
+                        self.forget_used_if_gone(&dead);
+                    }
+                } else {
+                    let minus = self.ecto_minus.max(1);
+                    self.hand_size_bonus -= minus;
+                    self.ecto_minus = minus + 1;
+                }
             }
             // 幻灵里"销毁一张再补新牌"的四张: 使魔 / 严峻 / 咒语 / 火祭.
             //
@@ -2073,7 +2458,9 @@ impl RunState {
                     .cloned()
                     .ok_or(ActionError::BadIndex(targets[0]))?;
                 for _ in 0..count {
-                    self.hand.push(source);
+                    // 每一份都是新造的牌, 各拿一个新号 (游戏的 `copy_card`) —— 见 `duplicate_card`.
+                    let copy = self.duplicate_card(&source);
+                    self.hand.push(copy);
                 }
             }
             // 符印: 整手牌换成同一个**随机**花色.
@@ -2120,7 +2507,7 @@ impl RunState {
                 if self.jokers.len() < self.joker_slots {
                     let key = super::shop::create_card(self, "Joker", "jud");
                     if let Some(joker) = Joker::new(&key) {
-                        self.jokers.push(joker);
+                        self.add_joker(joker);
                     }
                 }
             }
@@ -2195,10 +2582,44 @@ impl RunState {
         self.last_tarot_planet = Some(used.key.clone());
         // 用掉之后要把"用过"的记录清掉 —— 游戏在 `Card:remove()` 里做这件事, 条件是
         // **场上没有同名卡**. 所以灵魂 / 黑洞用掉之后, 后面还能再刷到 (那一骰也会重新掷).
-        if !self.consumables.iter().any(|card| card.key == used.key) {
-            self.used_jokers.remove(&used.key);
-        }
+        self.forget_used_if_gone(&used.key);
         Ok(())
+    }
+
+    /// 一张牌离场之后, 把"本局用过它"的记录清掉 —— 判据是**持有区里还有没有同名卡**.
+    ///
+    /// 游戏在 `Card:remove()` 里做这件事, 而它查的是 `find_joker(名字)`, 那个函数只搜
+    /// **持有区** (`G.jokers` 与 `G.consumeables`), **不搜牌堆, 也不搜货架** ——
+    /// 所以货架上那张被收走时, 只要手上没有第二张同名卡, 记录就该清掉.
+    ///
+    /// 少了这一步, 那张牌会一直占着池子里的一个格子 (`get_current_pool` 把用过的键换成
+    /// `UNAVAILABLE` 占位, 抽中它要重抽). 整局对拍里 133 步那份第 75 步的天体包第三张
+    /// 就是这么偏的: 货架上那张行星牌在第 64 步生成、第 67 步随商店一起收走, 而引擎没清记录.
+    pub(crate) fn forget_used_if_gone(&mut self, key: &str) {
+        if !self.jokers.iter().any(|joker| joker.key == key)
+            && !self.consumables.iter().any(|card| card.key == key)
+        {
+            self.used_jokers.remove(key);
+        }
+    }
+
+    /// 把货架上的东西**收走**, 顺手按上面的规矩清掉"用过"的记录.
+    fn clear_shelf(&mut self) {
+        let Some(shop) = self.shop.take() else {
+            return;
+        };
+        let mut keys: Vec<String> = Vec::new();
+        keys.extend(shop.jokers.iter().map(|card| card.key.clone()));
+        keys.extend(shop.packs.iter().map(|card| card.key.clone()));
+        if let Some(voucher) = &shop.voucher {
+            keys.push(voucher.key.clone());
+        }
+        if let Some(extra) = &shop.extra_voucher {
+            keys.push(extra.key.clone());
+        }
+        for key in keys {
+            self.forget_used_if_gone(&key);
+        }
     }
 
     /// 券把货架变大了之后, 立刻把缺的那几格补上.
@@ -2227,14 +2648,23 @@ impl RunState {
     ///
     /// 这条是量出来的: 两份记录里 `BOOSTER_OPENED` 那几步的手牌**不一致** ——
     /// 小人包 (小丑) 那几步是"牌堆 52 / 手牌 0", 而秘术包那几步是"牌堆 44 / 手牌 8".
-    /// 只有装消耗牌的包才发: 塔罗要**指定手牌目标**, 没有手牌就没得指.
+    ///
+    /// **只有秘术包与幽灵包发牌**, 不是"凡是装消耗牌的包都发": 天体包 (行星) 与标准包、
+    /// 小人包一样不发手牌. 这一点直接写在游戏里 —— 秘术包与幽灵包那两条开包路径各自有一句
+    /// `G.FUNCS.draw_from_deck_to_hand()` (Steamodded 那侧对应的开关是 `Booster.draw_hand`,
+    /// 也只有这两类包被置成 `true`), 天体包那条路径没有.
+    /// 按"装消耗牌就发"来判会把天体包也算进去, 于是商店里每开一次天体包就凭空多一手牌,
+    /// 整局对拍里 133 步那份第 75 步就是这么差的.
+    ///
     /// 关包时收回 (`end_consumeable` 里那句 `draw_from_hand_to_deck`), 所以有借有还、净效果为零,
     /// 但那一手在包里那几步是真实存在的 —— 整局对拍里第 34 步那张 `c_strength` 就靠它.
     fn deal_for_pack(&mut self) {
-        let needs_hand = self
-            .open_pack
-            .as_ref()
-            .is_some_and(|pack| pack.contents.iter().any(|card| is_consumable(&card.key)));
+        let needs_hand = self.open_pack.as_ref().is_some_and(|pack| {
+            matches!(
+                super::shop::pack_kind_of(&pack.key),
+                Some("Tarot") | Some("Spectral")
+            )
+        });
         if needs_hand {
             self.draw_to_hand();
         }
@@ -2293,6 +2723,51 @@ impl RunState {
     /// 挑完 `choose` 张就回商店, 包里剩下的牌直接弃掉 —— 它们在开包那一刻就已经消耗过随机数,
     /// 所以弃掉不影响后面的序列.
     pub fn pick_from_pack(&mut self, index: usize) -> Result<String, ActionError> {
+        let key = self.take_from_pack(index)?;
+        self.close_pack_if_done();
+        Ok(key)
+    }
+
+    /// 从包里取一张**并当场用掉**, 返回取到的键 (本仓库 `bbcore` 的 `pack` 端点那条路).
+    ///
+    /// 顺序是这条路径的要点, 而且**顺序反了就会静默出错**:
+    /// 游戏那边是"把牌从包里拿出来 -> 立刻用在**手牌**上 -> 用完再看包是不是取够了",
+    /// 而取够的那一刻关包会把整手牌收回牌堆 (`draw_from_hand_to_deck`). 塔罗改的正是手牌,
+    /// 所以先后必须是"先用手牌, 再收牌", 改过的牌才会带着强化回到牌堆 ——
+    /// 整局对拍里第 41 步那张圣职者(给两张牌加强化)就是这么落在 `S_4` 上的, 而那一张
+    /// 下一回合发牌时又回到了手里.
+    ///
+    /// 先关包再用的写法在这一处会**报错** (手牌已经空了, 目标下标越界), 但那是运气:
+    /// 目标下标若恰好落在空手牌范围内, 就会安静地什么都不做.
+    pub fn take_and_use_from_pack(
+        &mut self,
+        index: usize,
+        targets: &[usize],
+    ) -> Result<String, ActionError> {
+        // **先在副本上做, 成了才落到自己身上.**
+        //
+        // 这一步不能省: 游戏拒绝了这次尝试时 (选中张数不对, 那张牌的"使用"按钮是灰的),
+        // 局面必须**一点没动** —— 牌还在包里, 可取的张数也没减, 包也还开着.
+        // 直接在身上做的话, `take_from_pack` 已经把可取的张数减了, 用不成再补回去也补不回
+        // "取了几张"这件事, 而且最后那句 `close_pack_if_done` 会把包关掉 ——
+        // 表现成"下一步又说不在包里了", 与真实原因隔得很远.
+        let mut trial = self.clone();
+        let key = trial.take_from_pack(index)?;
+        // 只有**消耗牌**走"取出来直接用"这条路; 小丑与扑克牌取出来就是收下, 没有"用"这一步.
+        if is_consumable(&key) {
+            // 取出来的消耗牌放在槽的最后, 就是刚取出来的那张.
+            let slot = trial.consumables.len() - 1;
+            // 关包由下面那句负责, 所以这里阶段还在包里, 手牌也还在.
+            trial.use_consumable(slot, targets)?;
+        }
+        trial.close_pack_if_done();
+        *self = trial;
+        Ok(key)
+    }
+
+    /// 从开着的包里取一张放好, 并把可取的张数减一. **不管关包** —— 关包由调用方决定时机,
+    /// 因为"什么时候关"决定了手牌还在不在 (见 `take_and_use_from_pack`).
+    fn take_from_pack(&mut self, index: usize) -> Result<String, ActionError> {
         if self.phase != Phase::BoosterOpened {
             return Err(ActionError::NotInPhase {
                 expected: Phase::BoosterOpened,
@@ -2334,7 +2809,7 @@ impl RunState {
                 joker.perish_tally = PERISHABLE_ROUNDS;
             }
             let current = joker.extra;
-            self.jokers.push(joker);
+            self.add_joker(joker);
             // 占卜师: 它算的是"本赛局用过几张塔罗", 所以进队时要取全局现值, 而不是从 0 起.
             if key == "j_fortune_teller"
                 && let Some(last) = self.jokers.last_mut()
@@ -2356,15 +2831,41 @@ impl RunState {
             card.edition = picked.edition;
             card.seal = picked.seal;
             card.enhancement = picked.enhancement;
-            self.deck.push(card);
+            // **建牌序号必须发一个**: 游戏里每造一张牌都会把全局计数器加一 (`Card:init` 里
+            // `G.sort_id = (G.sort_id or 0) + 1`), 所以从包里取出的这张是**最新**的, 洗牌前
+            // 按序号排序时排在**最后**. `CardInstance::from_key` 给的是 0 (那是给"只用牌面"的
+            // 场合准备的), 照 0 排它就跑到最前面, 整副牌洗完的顺序全变 ——
+            // 整局对拍里 133 步那份第 59 步那手牌就是这么差的 (张数一样, 牌面全不同).
+            card.card.sort_id = self.next_sort_id();
+            // 进牌堆的位置: 游戏那边是 `G.deck:emplace(card)`, 而 `CardArea:emplace` 对
+            // **牌堆**是插到数组**第 1 位** —— 牌堆的取牌端在数组**末尾** (`remove_card` 取
+            // `_cards[#_cards]`), 所以插第 1 位就是"塞到最底下".
+            // 用 `push` 反而是塞到**顶上**, 会先被发出来 —— 洗牌前的排序能抹平这个差别,
+            // 但**同一个底注里**再开一次发牌的包 (秘术 / 幽灵包) 时, 那时牌堆还没排序,
+            // 差别就直接显出来了.
+            self.deck.insert(0, card);
         }
 
         let pack = self.open_pack.as_mut().expect("刚刚还在这里");
+        // **取走的那张要从包里拿掉** —— 记录里的 `pack=` 记的是包里**还剩**什么,
+        // 不拿掉就一直是原来那几张. 巨型包 (取完一次还开着) 会当场露出来:
+        // 引擎那边用掉一张之后包里还留着它, 与记录只差一张.
+        if index < pack.contents.len() {
+            pack.contents.remove(index);
+        }
         pack.choices_left -= 1;
-        if pack.choices_left == 0 {
+        Ok(key)
+    }
+
+    /// 包里的张数取够了就关包 (没取够就继续开着).
+    fn close_pack_if_done(&mut self) {
+        if self
+            .open_pack
+            .as_ref()
+            .is_some_and(|pack| pack.choices_left == 0)
+        {
             self.close_pack();
         }
-        Ok(key)
     }
 
     /// 这一手重抽商店要花多少, 对应 `calculate_reroll_cost`.
@@ -2442,7 +2943,7 @@ impl RunState {
                     copy.chips = source.chips;
                     copy.mult = source.mult;
                     copy.x_mult = source.x_mult;
-                    self.jokers.push(copy);
+                    self.add_joker(copy);
                 }
             }
         }
@@ -2468,18 +2969,18 @@ impl RunState {
                 .blind
                 .as_ref()
                 .is_some_and(|blind| blind.kind == BlindKind::Boss && !blind.disabled)
-            && let Some(blind) = self.blind.as_mut()
         {
-            blind.disabled = true;
+            self.disable_blind();
         }
         // 翠叶: 卖掉一张小丑就把这个盲注的效果关掉 (它的说明就是"直到卖掉一张小丑").
+        // 游戏那边这一步是 `G.GAME.blind:disable()`, 而那里面会**把整副牌恢复** ——
+        // 所以卖完小丑之后剩下的手牌立刻又能得分了. 见 `disable_blind`.
         if self
             .blind
             .as_ref()
             .is_some_and(|b| b.key == "bl_final_leaf" && !b.disabled)
-            && let Some(blind) = self.blind.as_mut()
         {
-            blind.disabled = true;
+            self.disable_blind();
         }
         // 卖掉之后它带来的规则变化也要撤掉.
         apply_joker_on_loss(self, &key, current_extra);
@@ -2519,6 +3020,64 @@ impl RunState {
     /// 照 `G.FUNCS.buy_from_shop` 的顺序: 先看有没有空位, 扣钱, 再把卡从货架上挪进持有区.
     /// 钱不够或没空位就报错, 不做静默降级 —— 引擎是拿来做基准的, 悄悄放过一笔坏账比报错更糟.
     pub fn buy(&mut self, card: &ShopCard) -> Result<f64, ActionError> {
+        // **先在副本上做, 成了才落到自己身上** —— 与 `take_and_use_from_pack` 同一个道理.
+        //
+        // 这里踩过的坑更具体: 下面把"那一格从货架上拿掉"排在各项校验**之前**, 于是钱不够
+        // 或者持有区没空位时, 那一格照样没了 —— 引擎拒绝了这次购买, 货架却被改了.
+        // 一份真实录像里就有这种尝试 (消耗槽满了还想买第三张塔罗), 于是下一步的 digest
+        // 里少了一件商品. 与其把校验一条条往前挪 (以后加一条就可能再错), 不如整段放在副本上.
+        let mut trial = self.clone();
+        let cost = trial.take_from_shelf_for_purchase(card)?;
+        let price = trial.place_purchase(card, cost)?;
+        *self = trial;
+        Ok(price)
+    }
+
+    /// 买下一张消耗牌并**当场用掉** —— 对应商店里那个"买并使用"按钮 (`buy_and_use`).
+    ///
+    /// 与"买下来放进消耗槽"是**两条不同的规矩**, 差别不只是省一步:
+    ///
+    /// - 它**不占消耗牌格子**, 所以槽满的时候照样能买 (端点 `buy.lua` 里那句
+    ///   "Pass use=true to buy and use it immediately without taking a slot").
+    ///   这一条最容易写漏, 写漏了就是"引擎说没空位, 游戏却买成了".
+    /// - **那张牌本身不留在场上**: 它直接生效, 留下的是它的产物 (高等女祭司爆出两张行星牌).
+    /// - 用不成的时候整笔不算 (端点先查 `can_use_consumeable` 再动手), 钱与货架都不动.
+    ///
+    /// 商店阶段手牌是空的, 所以需要指定手牌目标的塔罗在这里本来就用不成 (端点也会先拒掉),
+    /// 于是这里不接 `targets`.
+    pub fn buy_and_use(&mut self, card: &ShopCard) -> Result<f64, ActionError> {
+        let mut trial = self.clone();
+        let cost = trial.buy_and_use_inner(card)?;
+        *self = trial;
+        Ok(cost)
+    }
+
+    fn buy_and_use_inner(&mut self, card: &ShopCard) -> Result<f64, ActionError> {
+        if !is_consumable(&card.key) {
+            return Err(ActionError::NotAllowed("只有消耗牌能'买并使用'"));
+        }
+        // 付钱与离架那一半与普通购买完全一样, 但**槽位检查要跳过** ——
+        // 所以不能直接借 `buy_on_shelf` (它把检查带在里边).
+        let cost = self.take_from_shelf_for_purchase(card)?;
+        // 临时放进最后一格再用掉: 商店那张牌本身并不真的占格子.
+        //
+        // **用完不用自己撤** —— `use_consumable` 结尾会 `remove(index)` 把那一格拿掉,
+        // 而且它排在"造产物"之后, 所以下标仍然指着这张牌 (产物都追加在它后面).
+        // 这里再撤一次就会删掉一张**刚造出来的**产物: 女祭司该爆两张行星牌, 结果只剩一张.
+        self.consumables
+            .push(super::consumable::Consumable::with_edition(
+                card.key.clone(),
+                card.edition,
+            ));
+        let slot = self.consumables.len() - 1;
+        self.use_consumable(slot, &[])?;
+        Ok(cost)
+    }
+
+    /// `buy` 的前半段: 查阶段, 算价 (含免费的那些), 查钱, 把那一格**从货架上拿掉**.
+    ///
+    /// 单独抽出来是因为"买并使用"要走同一半, 但它**不能**带走后半段里的槽位检查.
+    fn take_from_shelf_for_purchase(&mut self, card: &ShopCard) -> Result<f64, ActionError> {
         if self.phase != Phase::Shop {
             return Err(ActionError::NotInPhase {
                 expected: Phase::Shop,
@@ -2560,13 +3119,26 @@ impl RunState {
                 shop.voucher = None;
             }
         }
+        Ok(cost)
+    }
 
+    /// `buy` 的后半段: 按类型把买下的东西落位 (含各项空位检查).
+    fn place_purchase(&mut self, card: &ShopCard, cost: f64) -> Result<f64, ActionError> {
         match card.key.as_str() {
             // 优惠券买下就生效, 不进持有区.
             // **记下买了哪张券**与**施加它的效果**是两件事: 只记不施加的话, 券就是白买的.
             key if key.starts_with("v_") => {
                 self.used_vouchers.insert(key.to_owned());
                 super::voucher::apply(self, key);
+                // 券那一格是**这一底**的: 买下之后它就空着, 这一底剩下的商店里都不会再摆券,
+                // 直到下一个底注开局才换新 (`Card:redeem` 里那两句
+                // `G.GAME.current_round.voucher = nil`, 而铺货时"没有键就不摆券").
+                // 只清货架上那张 (`shop.voucher`) 是不够的 —— 键还在 `shop_vouchers` 里,
+                // 下一次铺货会照着它把**已经买过**的那张又摆回去.
+                // 清空之后还要立个"这一底买过了"的标志, 否则铺货会当成"还没摆券"再抽一张新的.
+                // 整局对拍里第 52 步买完券、第 57 步进商店时就是这么差的.
+                self.shop_vouchers.clear();
+                self.voucher_spent = true;
                 // "库存过剩"这类券会**当场**把货架多摆一件出来 (游戏里 `shop.joker_max` 加一之后,
                 // 商店立刻补一张). 少了这一步, 买完之后货架还是原来那两格 ——
                 // 整局对拍里第 52 步就是这么差的.
@@ -2612,13 +3184,17 @@ impl RunState {
                     // 商店免费时这一份记 0, 卖掉也就不值钱 —— 与游戏的 `set_cost` 一致.
                     joker.cost = cost;
                     // 商店给的三个标记要带到买下来的那张上, 否则之后没人知道它是租赁还是易腐的.
+                    // **版本也要带** —— 货架上那张是闪箔 / 镭射 / 多彩 / 负片的时候, 买下来
+                    // 就是那张带版本的 (引擎原来漏了这一项, 于是版本在买的那一刻凭空消失,
+                    // 整局对拍里 133 步那份第 74 步买的那张 `j_droll+f!e` 就是这么差的).
+                    joker.edition = card.edition;
                     joker.eternal = card.eternal;
                     joker.rental = card.rental;
                     if card.perishable {
                         joker.perish_tally = PERISHABLE_ROUNDS;
                     }
                     let current = joker.extra;
-                    self.jokers.push(joker);
+                    self.add_joker(joker);
             // 占卜师: 它算的是"本赛局用过几张塔罗", 所以进队时要取全局现值, 而不是从 0 起.
             if key == "j_fortune_teller"
                 && let Some(last) = self.jokers.last_mut()
@@ -2840,4 +3416,22 @@ fn mod_conv_of(key: &str) -> Option<String> {
         .and_then(|config| config.get("mod_conv"))
         .and_then(crate::data::json::Json::as_str)
         .map(str::to_owned)
+}
+
+/// 校验 `order` 是 `0..len` 的一个排列: 长度对得上, 下标都在范围内, 且不重复.
+///
+/// 端点那边就是这么查的 (长度 / 范围 / 重复各报一种错), 这里照做 —— 少查一项就会出现
+/// "同一张牌被排进两次, 另一张凭空消失"这种安静的状态损坏.
+fn check_permutation(order: &[usize], len: usize) -> Result<(), ActionError> {
+    if order.len() != len {
+        return Err(ActionError::BadIndex(order.len()));
+    }
+    let mut seen = vec![false; len];
+    for &index in order {
+        if index >= len || seen[index] {
+            return Err(ActionError::BadIndex(index));
+        }
+        seen[index] = true;
+    }
+    Ok(())
 }

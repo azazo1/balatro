@@ -9,7 +9,9 @@
 mod common;
 
 use balatro_engine::jokers::Joker;
-use balatro_engine::scoring::{BackEffect, EvalEnv, HandTable, PokerHand, score_play};
+use balatro_engine::scoring::{
+    BackEffect, EvalEnv, HandTable, PokerHand, evaluate_poker_hand, score_play,
+};
 use common::{card, hand};
 
 fn table() -> HandTable {
@@ -1979,49 +1981,127 @@ fn reserved_parking_rolls_for_held_face_cards() {
 /// `config.type` 加上 `t_mult` / `t_chips` / `Xmult`, 走的是**通用分支** ——
 /// 所以按名字搜源码是搜不到它们的, 但它们本来就该生效.
 ///
-/// 这里用"葫芦"来验: 葫芦**包含**一对, 所以那十五张里的"包含一对"的几张都该给.
+/// 这里**遍历全部十五张**, 预期值**从各自的 `config` 现算** (读 `t_mult` / `t_chips` /
+/// `Xmult` 与 `type`) —— 抄一遍数字的话, 以后原型改了数值测试还会照旧通过,
+/// 那就变成在验"我抄得对不对"了.
+///
+/// 每一张都要验**两面**: 打出的牌型包含它指定的那一种时确实生效; 不包含时**一点也不能给**.
+/// 只验正面的话, "无条件生效"也能过.
+///
+/// 用哪副牌**不写死**: 手边准备一小把各不相同的牌型, 交给 `evaluate_poker_hand` 判,
+/// 由它说"这副牌包含哪些"再挑一副合适的. 写死的话, 一旦牌型判定有偏差,
+/// 这个测试会跟着一起错, 而不是把它揭出来.
 #[test]
 fn the_contain_family_works_through_the_generic_branch() {
-    let full_house = [card("S_K"), card("H_K"), card("S_5"), card("H_5"), card("C_5")];
+    let env = EvalEnv::default();
 
-    let score = |key: &str| -> (f64, f64) {
-        let mut jokers = [Joker::new(key).expect("有这张")];
-        let result = score_play(
-            &full_house,
-            &table(),
-            &EvalEnv::default(),
-            BackEffect::Plain,
-            &mut jokers,
-        )
-        .expect("能识别牌型");
-        (result.chips, result.mult)
+    // 手边这副牌里能凑出的各种牌型. 挑的时候只看"包含哪些", 不看"最高是哪一种".
+    let hand_of = |codes: [&str; 5]| -> [balatro_engine::scoring::HandCard; 5] {
+        [
+            card(codes[0]),
+            card(codes[1]),
+            card(codes[2]),
+            card(codes[3]),
+            card(codes[4]),
+        ]
+    };
+    let pool: Vec<(&str, [balatro_engine::scoring::HandCard; 5])> = vec![
+        // 高牌: 不成对, 不同花, 连不成顺.
+        ("高牌", hand_of(["C_2", "D_7", "S_9", "H_J", "C_K"])),
+        // 一对.
+        ("一对", hand_of(["C_2", "D_2", "S_7", "H_9", "C_J"])),
+        // 两对.
+        ("两对", hand_of(["C_2", "D_2", "S_7", "H_7", "C_J"])),
+        // 三条.
+        ("三条", hand_of(["C_2", "D_2", "S_2", "H_7", "C_J"])),
+        // 四条.
+        ("四条", hand_of(["C_2", "D_2", "S_2", "H_2", "C_J"])),
+        // 顺子 (不同花).
+        ("顺子", hand_of(["C_5", "D_6", "S_7", "H_8", "C_9"])),
+        // 同花.
+        ("同花", hand_of(["C_2", "C_7", "C_9", "C_J", "C_K"])),
+        // 葫芦 (同时包含一对 / 两对 / 三条).
+        ("葫芦", hand_of(["S_K", "H_K", "S_5", "H_5", "C_5"])),
+        // 同花顺 (包含顺子与同花).
+        ("同花顺", hand_of(["S_5", "S_6", "S_7", "S_8", "S_9"])),
+    ];
+    let contains = |cards: &[balatro_engine::scoring::HandCard], hand: PokerHand| -> bool {
+        evaluate_poker_hand(cards, &env).has(hand)
     };
 
-    // 先跑一遍不带小丑的: 底数里除了牌型本身的 40 筹码, 还有**手牌自身的筹码**
-    // (两张 K 各 10, 三张 5 各 5) —— 所以别写死数字, 直接拿它当基准.
-    let (base_chips, base_mult) = {
+    let baseline = |cards: &[balatro_engine::scoring::HandCard]| -> (f64, f64) {
         let mut jokers: [Joker; 0] = [];
-        let result = score_play(
-            &full_house,
-            &table(),
-            &EvalEnv::default(),
-            BackEffect::Plain,
-            &mut jokers,
-        )
-        .expect("能识别牌型");
+        let result = score_play(cards, &table(), &env, BackEffect::Plain, &mut jokers)
+            .expect("能识别牌型");
         (result.chips, result.mult)
     };
-    // 快活 (包含一对 +8 倍率).
-    let (_, mult) = score("j_jolly");
-    assert_eq!(mult, base_mult + 8.0, "快活给 +8 倍率");
+    let score = |key: &str, cards: &[balatro_engine::scoring::HandCard]| -> (f64, f64) {
+        let mut jokers = [Joker::new(key).expect("有这张")];
+        let result = score_play(cards, &table(), &env, BackEffect::Plain, &mut jokers)
+            .expect("能识别牌型");
+        (result.chips, result.mult)
+    };
 
-    // 双胞胎 (包含一对 ×2 倍率).
-    let (_, mult) = score("j_duo");
-    assert_eq!(mult, base_mult * 2.0, "双胞胎给 ×2");
+    // 十五张全在原版里, 而且都能造出来 —— 少一张说明原型表或构造函数有问题.
+    let family = [
+        "j_jolly", "j_zany", "j_mad", "j_crazy", "j_droll", "j_sly", "j_wily", "j_clever",
+        "j_devious", "j_crafty", "j_duo", "j_trio", "j_family", "j_order", "j_tribe",
+    ];
+    assert_eq!(family.len(), 15, "这一族是十五张");
 
-    // 狡猾 (包含一对 +50 筹码).
-    let (chips, _) = score("j_sly");
-    assert_eq!(chips, base_chips + 50.0, "狡猾给 +50 筹码");
+    let mut checked = 0;
+    for key in family {
+        let proto = balatro_engine::data::catalog::Catalog::get()
+            .record(key)
+            .expect("在原型表里");
+        let config = proto.config.clone().expect("这一族都带 config");
+        let number = |field: &str| config.get(field).and_then(|v| v.as_f64());
+        let hand = config
+            .get("type")
+            .and_then(|v| v.as_str())
+            .expect("这一族都带 type");
+        let wanted = PokerHand::from_key(hand)
+            .unwrap_or_else(|| panic!("{key} 的 type `{hand}` 认不出来"));
+        // 三种加成里恰好写一种 —— 多一种就说明这一族变了, 该回来看这段.
+        assert_eq!(
+            [number("t_mult"), number("t_chips"), number("Xmult")]
+                .iter()
+                .filter(|x| x.is_some())
+                .count(),
+            1,
+            "{key} 该恰好写一种加成"
+        );
+
+        // 正面: 从手边挑一副**包含**它要求的那种牌型的.
+        let (名, hit) = pool
+            .iter()
+            .find(|(_, cards)| contains(cards, wanted))
+            .unwrap_or_else(|| panic!("手边这副牌里凑不出 {hand}"));
+        let (base_chips, base_mult) = baseline(hit);
+        let (chips, mult) = score(key, hit);
+        if let Some(value) = number("t_mult") {
+            assert_eq!(mult, base_mult + value, "{key} 在{名}上该给 +{value} 倍率");
+        } else if let Some(value) = number("t_chips") {
+            assert_eq!(chips, base_chips + value, "{key} 在{名}上该给 +{value} 筹码");
+        } else if let Some(value) = number("Xmult") {
+            assert_eq!(mult, base_mult * value, "{key} 在{名}上该给 x{value} 倍率");
+        }
+
+        // 反面: 挑一副**不包含**的那种, 一点加成也不能给.
+        let miss = pool
+            .iter()
+            .find(|(_, cards)| !contains(cards, wanted))
+            .unwrap_or_else(|| panic!("手边这副牌全都包含 {hand}"));
+        let (want_chips, want_mult) = baseline(&miss.1);
+        assert_eq!(
+            score(key, &miss.1),
+            (want_chips, want_mult),
+            "{key} 在{}上不该给任何加成 (那一手不包含 {hand})",
+            miss.0
+        );
+        checked += 1;
+    }
+    assert_eq!(checked, 15, "十五张都要跑到");
 }
 
 /// 星座: 每用一张行星牌给 0.1 倍率 (涨在它自己的 `x_mult` 上, 靠通用分支付账).

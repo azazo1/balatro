@@ -2,6 +2,7 @@
 
 pub mod blind;
 pub mod consumable;
+pub mod digest;
 pub mod flow;
 pub mod pool;
 pub mod shop;
@@ -12,6 +13,7 @@ pub mod voucher;
 pub use blind::{
     Blind, BlindKind, RoundEval, blind_amount, interest, make_blind, scaling_for_stake,
 };
+pub use digest::{digest, diff, state_name};
 pub use flow::{ActionError, Phase};
 pub use pool::{tag_pool, voucher_pick_index, voucher_pool};
 pub use shop::{

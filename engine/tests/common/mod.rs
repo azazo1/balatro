@@ -76,6 +76,7 @@ pub fn instance(code: &str) -> PlayingCard {
         suit,
         rank,
         sort_id: 0,
+        original_suit: suit,
     }
 }
 

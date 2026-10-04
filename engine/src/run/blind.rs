@@ -137,6 +137,40 @@ pub fn make_blind(
     }
 }
 
+impl Blind {
+    /// 停用这个盲注, **并把它自己做过的改动撤掉** —— 对应 `Blind:disable()`.
+    ///
+    /// 两条进入路径 (游戏里都是这一个函数):
+    /// - **奇可 (传奇)**: 摆盲注时的 `setting_blind` 钩子, 于是这个 Boss 整条不生效;
+    /// - **翠叶**: 卖掉一张小丑 (`Card:get_price` 那段里那句 `G.GAME.blind:disable()`).
+    ///
+    /// 它做的事按"有没有留下痕迹"分三类, 三样都得做:
+    ///
+    /// 1. **改过目标分数的要改回去**: 墙 (`mult = 4`) 除以 2, 紫瓶 (`mult = 6`) 除以 3 ——
+    ///    两处都落回 Boss 的常规倍数 2. 这不是"凑数": 游戏里 `set_blind` 先按 `mult` 算出
+    ///    目标分数, 而 `disable()` 里就写着 `self.chips = self.chips/2` 与 `/3`.
+    ///    少了这一步, 手里有奇可时墙与紫瓶的目标分数会是**两倍与三倍**, 一个本来打得过的
+    ///    盲注会直接判负.
+    /// 2. **削过的牌要恢复**: `disable()` 结尾对**所有**牌与小丑重跑一遍 `debuff_card`,
+    ///    而那时 `disabled` 已经是真, 于是每个分支都跳过, 落到最后那句 `card:set_debuff(false)`.
+    ///    所以"卖小丑解除翠叶"这件事的实质就是**把整副牌的削弱清掉** —— 只置一个标志而
+    ///    不清削弱, 卖完小丑这一回合剩下的手牌仍然一分不出.
+    /// 3. **锁过的牌要解锁**: 蓝铃的 `forced_selection` 也在 `disable()` 里清掉.
+    pub fn disable(&mut self) {
+        if self.disabled {
+            return;
+        }
+        self.disabled = true;
+        // 1. 撤销对目标分数的改动.
+        match self.key.as_str() {
+            "bl_wall" => self.chips /= 2.0,
+            "bl_final_vessel" => self.chips /= 3.0,
+            _ => {}
+        }
+        // 2 / 3 由调用方负责清牌上的标志 (这里只有盲注自己, 拿不到牌).
+    }
+}
+
 
 /// 非 Boss 的盲注键.
 pub fn plain_blind_key(kind: BlindKind) -> &'static str {

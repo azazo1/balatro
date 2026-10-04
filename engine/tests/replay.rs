@@ -30,11 +30,11 @@ fn first_ante_can_be_replayed_step_by_step() {
     assert_eq!(score.total, 1369.0);
     assert_eq!(run.phase, Phase::RoundEval);
 
-    run.cash_out();
+    run.cash_out().expect("这一回合在结算");
     assert_eq!(run.dollars, 7.0, "小盲注之后");
 
     // --- 大盲注 (step 6-12) ---
-    run.next_round();
+    run.next_round().expect("这一回合有商店");
     run.select_blind();
     assert_eq!(hand_keys(&run), "D_A,S_K,H_K,C_Q,C_9,H_8,H_6,D_5");
 
@@ -61,7 +61,7 @@ fn first_ante_can_be_replayed_step_by_step() {
     assert_eq!(run.phase, Phase::RoundEval);
 
     let eval = run.round_eval.expect("结算栏");
-    let cashed = run.cash_out();
+    let cashed = run.cash_out().expect("这一回合在结算");
 
     // 小盲注的结算: 红注以上小盲注没有固定奖金, $4 现金也够不到利息的第一档,
     // 所以那 $3 全部来自剩下的三次出牌.
@@ -113,13 +113,13 @@ fn manual_run_replays_step_by_step() {
     assert_eq!(eval.blind_reward, 3.0, "白赌注的小盲注照发奖金");
     assert_eq!(eval.hand_bonus, 2.0);
     assert_eq!(eval.interest, 0.0);
-    assert_eq!(run.cash_out(), 5.0);
+    assert_eq!(run.cash_out().expect("在结算"), 5.0);
     assert_eq!(run.dollars, 9.0, "回放里这一步是 money 4 -> 9");
     assert_eq!(run.phase, Phase::Shop);
 
     // step 4-9 是商店里的买与开包, 那一段还没实现, 所以这里跳过, 直接进下一个盲注.
     // 商店操作不牵动洗牌用的 `nr1` 键, 所以跳过不影响后面的牌序.
-    run.next_round();
+    run.next_round().expect("这一回合有商店");
     run.select_blind();
 
     // step 10: 大盲注的发牌, 与回放一致.
@@ -152,8 +152,8 @@ fn ante_promotion_keeps_the_deal_on_track() {
         if index > 0 {
             run.chips = 99_999.0;
             run.end_round();
-            run.cash_out();
-            run.next_round();
+            run.cash_out().expect("这一回合在结算");
+            run.next_round().expect("这一回合有商店");
             run.select_blind();
         }
         assert_eq!(hand_keys(&run), *want, "第 {} 回合的发牌", index + 1);
@@ -202,8 +202,8 @@ fn manual_run_deals_match_the_verified_rounds() {
             // 直接判过关, 省掉回合内的出牌; 分数不影响洗牌.
             run.chips = 99_999.0;
             run.end_round();
-            run.cash_out();
-            run.next_round();
+            run.cash_out().expect("这一回合在结算");
+            run.next_round().expect("这一回合有商店");
             run.select_blind();
         }
         assert_eq!(hand_keys(&run), *want, "第 {} 回合的发牌", index + 1);
@@ -227,8 +227,8 @@ fn strength_tarot_restores_the_third_ante_deal() {
     for _ in 0..5 {
         run.chips = 99_999.0;
         run.end_round();
-        run.cash_out();
-        run.next_round();
+        run.cash_out().expect("这一回合在结算");
+        run.next_round().expect("这一回合有商店");
         run.select_blind();
     }
     assert_eq!(run.ante, 2, "走完五个回合之后站在底注 2 的 Boss 上");
@@ -246,8 +246,8 @@ fn strength_tarot_restores_the_third_ante_deal() {
     // 进底注 3.
     run.chips = 99_999.0;
     run.end_round();
-    run.cash_out();
-    run.next_round();
+    run.cash_out().expect("这一回合在结算");
+    run.next_round().expect("这一回合有商店");
     run.select_blind();
 
     assert_eq!(run.ante, 3);
@@ -310,8 +310,8 @@ fn another_seed_and_stake_deals_the_same_cards() {
     ] {
         run.chips = 99_999.0;
         run.end_round();
-        run.cash_out();
-        run.next_round();
+        run.cash_out().expect("这一回合在结算");
+        run.next_round().expect("这一回合有商店");
         run.select_blind();
         assert_eq!(hand_keys(&run), want, "{label} 的发牌");
         assert_eq!(run.deck.len(), 44);
@@ -345,8 +345,8 @@ fn blue_deck_run_replays_its_early_rounds() {
     ] {
         run.chips = 999_999.0;
         run.end_round();
-        run.cash_out();
-        run.next_round();
+        run.cash_out().expect("这一回合在结算");
+        run.next_round().expect("这一回合有商店");
         run.select_blind();
         assert_eq!(hand_keys(&run), want, "{label} 的发牌");
         assert_eq!(run.hands_left, 5, "{label} 的出牌次数");

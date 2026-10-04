@@ -262,7 +262,7 @@ fn cash_out_stocks_the_shelf_and_reroll_only_touches_jokers() {
         BackEffect::Plasma,
     )
     .expect("出顺子");
-    run.cash_out();
+    run.cash_out().expect("这一回合在结算");
 
     let before = run.shop.clone().expect("进商店就铺好了货架");
     assert_eq!(before.jokers.len(), 2, "两格小丑");
@@ -368,7 +368,7 @@ fn coupon_tag_makes_the_shop_free() {
     // 进商店那一步会把它打开.
     run.phase = Phase::RoundEval;
     run.round_eval = Some(balatro_engine::run::RoundEval::default());
-    run.cash_out();
+    run.cash_out().expect("这一回合在结算");
     assert!(run.shop_free, "进商店时标记上");
 
     let before = run.dollars;
@@ -385,7 +385,7 @@ fn coupon_tag_makes_the_shop_free() {
     run.tags.retain(|t| t != "tag_coupon");
     run.phase = Phase::RoundEval;
     run.round_eval = Some(balatro_engine::run::RoundEval::default());
-    run.cash_out();
+    run.cash_out().expect("这一回合在结算");
     assert!(!run.shop_free, "标签用掉之后就没了");
 }
 
@@ -396,7 +396,7 @@ fn d6_tag_makes_the_first_shop_reroll_free() {
     run.tags.push("tag_d_six".to_owned());
     run.phase = Phase::RoundEval;
     run.round_eval = Some(balatro_engine::run::RoundEval::default());
-    run.cash_out();
+    run.cash_out().expect("这一回合在结算");
     assert!(run.free_reroll, "进商店时标记上");
     assert_eq!(run.reroll_cost(), 0.0, "重抽不要钱");
 

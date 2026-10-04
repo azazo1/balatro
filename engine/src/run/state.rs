@@ -15,6 +15,18 @@ use super::shop::{OpenPack, Shop};
 use crate::jokers::Joker;
 use crate::scoring::{HandTable, PokerHand};
 
+/// 手牌这一区的排序方式, 对应 `CardArea:sort` 支持的那两种.
+///
+/// 游戏那边存的是个字符串 (`'desc'` / `'suit desc'`), 这里只列真正会用到的两种 ——
+/// 手牌区只有"按点数"与"按花色"两个按钮能改它.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum HandSort {
+    /// `desc`: 按 `get_nominal()` 降序 (默认).
+    Value,
+    /// `suit desc`: 按 `get_nominal('suit')` 降序, 也就是先看花色再看点数.
+    Suit,
+}
+
 /// 按赌注与挑战来的一局修饰, 只放货架抽取读到的几项.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Modifiers {
@@ -75,6 +87,12 @@ pub struct RunState {
     pub pool_flags: HashSet<String>,
     /// 当前商店在售的优惠券键, 对应 `G.shop_vouchers.cards`.
     pub shop_vouchers: Vec<String>,
+    /// **这一底的券已经用掉了** —— 买下之后那一格就空着, 直到下个底注换新.
+    ///
+    /// 单看 `shop_vouchers` 空不空分不出两种情形: "这一底还没摆券" 与 "券已经被买走".
+    /// 游戏那边靠 `G.GAME.current_round.voucher` 是不是 `nil` 来分 (`Card:redeem` 会把它清成
+    /// `nil`, 而铺货时"没有键就不摆券"), 这里用一个标志位表达.
+    pub voucher_spent: bool,
     /// 已经拿到手的标签, 对应 `G.GAME.tags`.
     pub tags: Vec<String>,
     /// 优惠券标签额外摆出来的那张券的键.
@@ -139,6 +157,32 @@ pub struct RunState {
     pub scaling: i64,
     /// 牌组的 `ante_scaling`. 等离子牌组是 2, 所以它的盲注目标是别人的两倍.
     pub ante_scaling: f64,
+    /// 这一局用的是哪副牌组 (`b_plasma` 这种), 开局时由 [`RunState::with_deck`] 记下.
+    ///
+    /// 有几个牌组的效果**不是开局那一次就能做完的** —— 例如字谜牌组是"打赢 Boss 时双倍标签",
+    /// 那要等到回合结算. 所以键本身要留着, 不能只把 `config` 读出来就丢掉.
+    pub deck_key: String,
+    /// 牌组原型的 `config`, 与 [`RunState::deck_key`] 一起记.
+    ///
+    /// 留原始那一份而不是把每项都摊成字段, 是因为有几个牌组的效果只在**建堆**那一次用
+    /// (无面牌删掉 K/Q/J, 错乱牌组重掷点数花色), 摊成字段反而多出一批"建完堆就没人再看"的状态.
+    pub deck_config: crate::data::json::Json,
+    /// 绿色牌组的"没有利息". 对应 `G.GAME.modifiers.no_interest`, 默认假.
+    pub no_interest: bool,
+    /// 手牌这一区当前的排序方式, 对应 `G.hand.config.sort`.
+    ///
+    /// 它是**长期设置**, 不是一次性动作: 右上角那两个按钮 (`sort_hand_value` / `sort_hand_suit`)
+    /// 会把它改掉并排一次, 而之后**每次发牌**都照它排 —— 游戏里 `draw_card` 结尾那句
+    /// `to:sort()` 不带参数, 于是 `CardArea:sort` 沿用 `config.sort`.
+    ///
+    /// 少了这一项, 按过一次"按花色排"之后引擎仍然按点数排: 手上的牌一模一样, 只是顺序不同,
+    /// 而顺序本身是状态 (出牌与弃牌都按下标).
+    pub hand_sort: HandSort,
+    /// 下一次用**灵质**要永久减掉多少手牌上限, 对应 `G.GAME.ecto_minus`.
+    ///
+    /// 它从 1 起, **每用一次加一** —— 所以第一次减 1 张, 第二次减 2 张, 第三次减 3 张,
+    /// 累计是 1, 3, 6... 而不是每次都减 1. 这是原版灵质真正的代价, 减出来的量永久保留.
+    pub ecto_minus: i64,
     /// 小盲注是否不发固定奖金 (赌注 2 起).
     pub no_blind_reward: bool,
     /// 每剩一次出牌给多少钱, 默认 1. 绿色牌组会改成 2.
@@ -193,6 +237,11 @@ pub struct RunState {
     ///
     /// 侵蚀那类"比开局少了几张"的小丑要比它, 所以建堆之后就记下来.
     pub starting_deck_size: usize,
+    /// 建牌序号的计数器, 对应游戏里那个全局的 `G.sort_id`.
+    ///
+    /// 每造一张牌就加一 (`next_sort_id`), 所以它既给洗牌前的排序用, 也给手牌排序当兜底比较项.
+    /// **必须单调递增**: 详见 `RunState::next_sort_id` 的说明.
+    pub next_card_id: u32,
     /// 上一手打出的牌型, 供蓝封在回合末决定生成哪张行星牌.
     pub last_hand_played: Option<PokerHand>,
     /// 小丑槽位上限, 默认 5.
@@ -236,6 +285,7 @@ impl RunState {
             banned_keys: HashSet::new(),
             pool_flags: HashSet::new(),
             shop_vouchers: Vec::new(),
+            voucher_spent: false,
             tags: Vec::new(),
             extra_voucher_key: None,
             skips: 0,
@@ -264,6 +314,11 @@ impl RunState {
             round_eval: None,
             scaling: scaling_for_stake(stake),
             ante_scaling: 1.0,
+            deck_key: String::new(),
+            deck_config: crate::data::json::Json::Null,
+            no_interest: false,
+            ecto_minus: 1,
+            hand_sort: HandSort::Value,
             no_blind_reward: stake >= 2,
             money_per_hand: 1.0,
             money_per_discard: 0.0,
@@ -297,6 +352,7 @@ impl RunState {
             planets_used: 0,
             tarots_used: 0,
             starting_deck_size: 0,
+            next_card_id: 0,
             last_hand_played: None,
             hands: HandTable::new(),
             won: false,
@@ -355,28 +411,126 @@ impl RunState {
 
     /// 按牌组的 `config` 调参数.
     ///
-    /// 目前认两项: `ante_scaling` (等离子牌组的盲注目标是别人的两倍) 与 `hands`
-    /// (蓝色牌组多给一次出牌). 认不出来的牌子原样返回, 不报错 —— 牌组只会多给好处,
-    /// 漏认一项会让对拍失败, 但不会让引擎算错别的东西.
+    /// 逐个对应 `Back:apply_to_run` (`game/back.lua` L174) 里的各支. 契约是: **原型里写了什么,
+    /// 这里就认什么** —— 漏认一项不会报错, 只会让那一局悄悄少一个效果 (绿色牌组少了那两笔
+    /// 余手/弃牌钱, 或者画师牌组没多那两张手牌), 而且只有对拍时才会以"分数对不上"的形式露出来.
+    ///
+    /// 有两支**不能在这里做完**, 留给后面的步骤:
+    /// - `consumables` / `voucher` / `vouchers`: 游戏里它们挂在 `E_MANAGER` 的事件上, 在建堆
+    ///   之后才执行, 而且要消耗随机数 (造消耗牌会掷一次版本) —— 所以顺序不能提前. 见
+    ///   [`RunState::apply_starting_deck_extras`].
+    /// - `remove_faces` / `randomize_rank_suit` 与棋盘牌组的花色替换都作用在**牌堆内容**上,
+    ///   那时还没有牌堆. 见 [`RunState::build_deck`].
     pub fn with_deck(mut self, deck_key: &str) -> Self {
         let config = crate::data::catalog::Catalog::get()
             .record(deck_key)
             .and_then(|proto| proto.config.clone())
             .unwrap_or(crate::data::json::Json::Null);
-        if let Some(scaling) = config.get("ante_scaling").and_then(crate::data::json::Json::as_f64)
-        {
+        self.deck_key = deck_key.to_owned();
+        self.deck_config = config.clone();
+        let number = |field: &str| config.get(field).and_then(crate::data::json::Json::as_f64);
+        if let Some(scaling) = number("ante_scaling") {
             self.ante_scaling = scaling;
         }
-        if let Some(hands) = config.get("hands").and_then(crate::data::json::Json::as_f64) {
+        if let Some(hands) = number("hands") {
             self.hands_per_round += hands as i64;
         }
-        if let Some(discards) = config
-            .get("discards")
-            .and_then(crate::data::json::Json::as_f64)
-        {
+        if let Some(discards) = number("discards") {
             self.discards_per_round += discards as i64;
         }
+        if let Some(dollars) = number("dollars") {
+            self.dollars += dollars;
+        }
+        if let Some(slots) = number("joker_slot") {
+            self.joker_slots = (self.joker_slots as i64 + slots as i64).max(0) as usize;
+        }
+        if let Some(slots) = number("consumable_slot") {
+            self.consumable_slots = (self.consumable_slots as i64 + slots as i64).max(0) as usize;
+        }
+        if let Some(size) = number("hand_size") {
+            self.hand_size_bonus += size as i64;
+        }
+        if let Some(rate) = number("spectral_rate") {
+            self.spectral_rate = rate;
+        }
+        // 绿色牌组那两笔: 每剩一次出牌给两块, 每剩一次弃牌给一块.
+        if let Some(bonus) = number("extra_hand_bonus") {
+            self.money_per_hand = bonus;
+        }
+        if let Some(bonus) = number("extra_discard_bonus") {
+            self.money_per_discard = bonus;
+        }
+        if config
+            .get("no_interest")
+            .and_then(crate::data::json::Json::as_bool)
+            .unwrap_or(false)
+        {
+            self.no_interest = true;
+        }
         self
+    }
+
+    /// 牌组自带的消耗牌与券 —— 对应 `Back:apply_to_run` 里挂在事件上的那几支.
+    ///
+    /// 由 [`RunState::start_run`] 在**建堆之后**调用, 顺序与游戏一致: 建堆 -> 开局的额外东西.
+    ///
+    /// 券要**两件事都做**: 记进 `used_vouchers` (于是池子里不再出它, 而且它的"解锁后续券"
+    /// 关系成立) 与**施加它的效果** (`voucher::apply`). 只记不施加的话, 字谜牌组那三张券
+    /// 就等于白送 —— 货架仍然是按没买券的权重抽的.
+    pub fn apply_starting_deck_extras(&mut self) {
+        let list = |field: &str| -> Vec<String> {
+            match self.deck_config.get(field) {
+                Some(crate::data::json::Json::Array(items)) => items
+                    .iter()
+                    .filter_map(|item| item.as_str().map(str::to_owned))
+                    .collect(),
+                _ => Vec::new(),
+            }
+        };
+        // 券: `voucher` 是单张 (魔术 / 星云牌组), `vouchers` 是一组 (字谜牌组).
+        // 单张那一支排在前面, 与 `Back:apply_to_run` 里那两段代码的先后一致.
+        // 注意 `voucher` 在原型里是**裸字符串**而不是数组, 与 `vouchers` 的形态不同 ——
+        // 只按数组解析的话它会被静静地当成"没有券", 而后果是整副货架的权重都偏了.
+        let mut vouchers: Vec<String> = match self.deck_config.get("voucher") {
+            Some(crate::data::json::Json::String(key)) => vec![key.clone()],
+            _ => Vec::new(),
+        };
+        vouchers.extend(list("vouchers"));
+        // 消耗牌的清单先取出来: 后面 `list` 还要借 `self`, 而循环体里要可变借.
+        let consumables = list("consumables");
+        for key in vouchers {
+            self.used_vouchers.insert(key.clone());
+            super::voucher::apply(self, &key);
+        }
+        // 消耗牌: 游戏那边是逐张 `create_card('Tarot', …, 强制键, 'deck')`.
+        // 即使给了强制键, **版本那一掷照样要掷** (`poll_edition` 在强制分支之外),
+        // 所以这里必须走造牌那条路, 不能直接往槽里塞一个键.
+        for key in consumables {
+            let created = super::shop::create_card_inner(
+                self,
+                "Tarot",
+                "deck",
+                true,
+                Some(key.as_str()),
+            );
+            self.consumables
+                .push(super::consumable::Consumable::plain(created));
+        }
+    }
+
+    /// 这副牌背后面的计分效果, 对应游戏里的 `G.GAME.selected_back`.
+    ///
+    /// 现在只有等离子牌组有: 它把筹码与倍率**都换成两者的平均值**.
+    ///
+    /// 之所以做成"从牌组现算"而不是让调用方自己传: 这是同一副牌的两个说法, 而分开传的时候
+    /// **没有东西会报错** —— 选了等离子牌组却按普通牌背算, 表现成"分数差一截",
+    /// 与"牌组选错了"隔得很远. 计分那一层仍然收一个 `BackEffect` 参数 (它在计分中途拿不到
+    /// 整个局面), 但手上已经有运行状态的调用方应当用它.
+    pub fn back_effect(&self) -> crate::scoring::BackEffect {
+        match self.deck_key.as_str() {
+            "b_plasma" => crate::scoring::BackEffect::Plasma,
+            _ => crate::scoring::BackEffect::Plain,
+        }
     }
 
     /// 原型此刻是否"解锁".

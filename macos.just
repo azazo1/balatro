@@ -73,6 +73,31 @@ replay file pacing="tight": dist-modded
     # 退出码: 0 回放完成, 1 跑偏, 2 中止, 3 文件无法回放
     dist/macos/Balatro-Modded.app/Contents/MacOS/love 2>&1 | tee "$log"
 
+# just macos replay-check <seed> <deck> <stake> [步数]
+# 引擎先跑一局并写下每一步的预测状态, 再让真游戏照着重放逐步核对.
+# 退出码 0 = 引擎全程预测正确; 1 = 在第 N 步跑偏 (日志里打印差在哪一项).
+# 覆盖哪条路径由参数决定, 不再受已有录像限制; 换一副牌组/赌注就是一条新路径.
+replay-check seed deck stake steps="240":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    root="{{ invocation_directory() }}"
+    # 注意这几个参数是 **just** 的, 不是 shell 变量 —— 在脚本里要用插值拿到值.
+    out="$root/.tmp/replay-check/{{ seed }}-{{ deck }}-{{ stake }}"
+    mkdir -p "$out"
+    # 模板: 借一份真实录像的 snapshot (存档进度 / 解锁 / 发现). 那是 LÖVE 自己的序列化格式,
+    # 引擎造不出来, 而它与种子 / 牌组 / 赌注都无关 (录像那份是全解锁的).
+    template=$(ls -d "$root"/recordings/*/*.replay.json 2>/dev/null | head -1)
+    if [ -z "$template" ]; then
+        echo "recordings/ 里没有可当模板的录像 (只需要其中的 snapshot 段)" >&2
+        exit 2
+    fi
+    cargo run --quiet --release --manifest-path "$root/engine/Cargo.toml" --example gen_replay -- \
+        --seed {{ quote(seed) }} --deck {{ quote(deck) }} --stake {{ quote(stake) }} \
+        --template "$template" --out "$out/replay.json" --steps {{ quote(steps) }}
+    # 重放. 退出码就是结论, 日志里带每步的 digest 差异.
+    just --justfile {{ quote(source_file()) }} replay "$out" tight
+    echo "引擎预测与真游戏逐步一致: {{ seed }} / {{ deck }} / {{ stake }}"
+
 # just macos recordings-recover [--run] [--clean] [录像目录]
 # 扫描 recordings/ 里崩溃后残留的中间文件并补做合成, 默认只列出,
 # --run 执行, --clean 成功后删中间文件.

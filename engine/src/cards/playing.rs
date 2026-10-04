@@ -230,6 +230,16 @@ pub struct PlayingCard {
     pub suit: Suit,
     pub rank: Rank,
     pub sort_id: u32,
+    /// `base.suit_nominal_original`: 这张牌**最初**是什么花色.
+    ///
+    /// 换过花色的牌会一直留着最初的那个值 —— 游戏那边是 `Card:set_base` 里那句
+    /// `suit_nominal_original = suit_base_nominal_original or 0.00x`: 它把**上一次**的值带过来,
+    /// 而 `self.base` 只在建牌那一次是空的.
+    ///
+    /// 它不是装饰: [`PlayingCard::nominal`] 里有它一份, 而两张**点数与当前花色都相同**的牌
+    /// (例如同一张牌被复制出来的两份, 或者两张被改成同花色的 K) 正是靠这一份分出先后.
+    /// 少了它, 那一对决不出胜负, 于是落到最后的"建牌序号"那一项上 —— 顺序会与游戏不同.
+    pub original_suit: Suit,
 }
 
 impl PlayingCard {
@@ -240,13 +250,51 @@ impl PlayingCard {
 
     /// `Card:get_nominal(mod=nil)`: 手牌默认按它降序排列.
     ///
-    /// 游戏里最后一项是 `0.000001 * (1 - Card.ID/1603301)`, `Card.ID` 来自全局 Node 计数器,
-    /// 夹着界面元素一起增长, 无法独立复刻. 这里用建牌序号代替: 两者的相对大小一致, 而这一项
-    /// 只在点数, 花色, 人头加成全都相同时才参与比较, 所以不影响这一层的结论.
+    /// 最后那一项是"建牌序号"的替身: 游戏里写的是 `0.000001 * (1 - Card.ID/1603301)`,
+    /// 而 `Card.ID` 是全局 Node 计数器 (界面元素也在数), 无头环境复刻不出来.
+    /// 它的作用是"造得越早排得越前", 建牌序号 (`G.sort_id`) 恰好也满足这一点, 所以借它代替.
+    ///
+    /// 注意这一项在**这一串里是最小的**: 点数 / 人头加成 / 当前花色 / 最初花色 都比它大,
+    /// 所以它只在"前面四项全都一样"时才说话 —— 也就是同一张牌面被造出来的几份之间.
     pub fn nominal(self) -> f64 {
+        self.nominal_with(false, false)
+    }
+
+    /// 按**花色**排时用的那份 (`get_nominal('suit')`): 花色那一项的权重被抬到 1000 倍,
+    /// 于是"先看花色, 再看点数". 手牌右上角那个按花色排序的按钮走这条.
+    pub fn nominal_suit(self) -> f64 {
+        self.nominal_with(true, false)
+    }
+
+    /// `Card:get_nominal(mod = nil | 'suit')`.
+    ///
+    /// `mod = 'suit'` 把花色那两项乘 1000; `stone` 则是**石头牌**: 它的 `mult` 是 **-1000**,
+    /// 于是花色那一项变成一个极大的负数, 石头牌被推到**最后** —— 这不是随手写的, 石头牌本来
+    /// 就没有花色与点数 (`ability.effect == 'Stone Card'`), 排序时它不该挤在中间.
+    ///
+    /// 石头那一支要调用方告诉它, 因为"是不是石头"记在牌实例的强化上, 而 [`PlayingCard`]
+    /// 只管牌面本身.
+    /// 同上, 但由调用方告诉它"这张是不是石头牌" (石头牌排到最后).
+    pub fn nominal_with_stone(self, stone: bool) -> f64 {
+        self.nominal_with(false, stone)
+    }
+
+    /// 按花色排的那一份, 石头牌同样排到最后.
+    pub fn nominal_suit_with_stone(self, stone: bool) -> f64 {
+        self.nominal_with(true, stone)
+    }
+
+    fn nominal_with(self, by_suit: bool, stone: bool) -> f64 {
+        let mult = if stone {
+            -1000.0
+        } else if by_suit {
+            1000.0
+        } else {
+            1.0
+        };
         self.rank.nominal()
-            + self.suit.suit_nominal()
-            + self.suit.suit_nominal_original() * 0.0001
+            + self.suit.suit_nominal() * mult
+            + self.original_suit.suit_nominal_original() * 0.0001 * mult
             + self.rank.face_nominal()
             + 0.000001 * self.unique_val()
     }
@@ -272,6 +320,7 @@ pub fn standard_deck() -> Vec<PlayingCard> {
                 suit,
                 rank,
                 sort_id,
+                original_suit: suit,
             });
             sort_id += 1;
         }
@@ -282,8 +331,10 @@ pub fn standard_deck() -> Vec<PlayingCard> {
 /// 按 `sort_id` 排序, 对应 `pseudoshuffle` 开头那一次 `table.sort`.
 ///
 /// 牌本来就在这个顺序上时是空操作, 洗过一次之后才起作用, 所以每次洗牌之前都要调一次.
+/// 用的是 Lua 那一份 `table.sort` (见 [`crate::lua::table_sort`]): 建牌序号正常都不同, 但"重号"
+/// 这种情况在 Lua 那边是**顺序不定**的, 统一用一份实现才不用分情况判断.
 pub fn sort_by_sort_id(deck: &mut [PlayingCard]) {
-    deck.sort_unstable_by_key(|c| c.sort_id);
+    crate::lua::table_sort::sort_by(deck, |a, b| a.sort_id < b.sort_id);
 }
 
 /// 按牌面大小降序排列, 对应 `CardArea:sort('desc')`.
@@ -291,5 +342,5 @@ pub fn sort_by_sort_id(deck: &mut [PlayingCard]) {
 /// 手牌默认就是这个顺序 (`CardArea:init` 里 `config.sort or 'desc'`), 而 `draw_card` 每抽一张
 /// 都会排一次, 所以发完牌的结果与"抽完再排一次"相同.
 pub fn sort_by_nominal_desc(deck: &mut [PlayingCard]) {
-    deck.sort_by(|a, b| b.nominal().total_cmp(&a.nominal()));
+    crate::lua::table_sort::sort_by(deck, |a, b| a.nominal() > b.nominal());
 }

@@ -117,7 +117,7 @@ fn first_round_settles_and_cashes_out_like_the_replay() {
     assert_eq!(eval.interest, 0.0, "现金 $4 不到第一档 $5");
     assert_eq!(eval.total(), 3.0);
 
-    let cashed = run.cash_out();
+    let cashed = run.cash_out().expect("这一回合在结算");
     assert_eq!(cashed, 3.0);
     assert_eq!(run.dollars, 7.0, "与 digest 的 money=7 一致");
     assert_eq!(run.phase, Phase::Shop);
@@ -156,10 +156,10 @@ fn second_round_deal_matches_the_replay() {
     run.discard(&[5, 6, 7]).expect("先弃掉三张");
     run.play(&[5, 4, 3, 2, 0], &EvalEnv::default(), BackEffect::Plasma)
         .expect("可以出这手牌");
-    run.cash_out();
+    run.cash_out().expect("这一回合在结算");
 
     // 回放第 6 步 (next_round) 的 digest: state=BLIND_SELECT ante=1 round=1 money=3 deck=52.
-    run.next_round();
+    run.next_round().expect("这一回合有商店");
     assert_eq!(run.phase, Phase::BlindSelect);
     assert_eq!(run.round, 1, "离开商店还不算进入下一个回合");
     assert_eq!(run.blind_on_deck, BlindKind::Big);
@@ -194,8 +194,14 @@ fn boss_and_next_ante_match_the_replay() {
     assert_eq!(run.boss_key.as_deref(), Some("bl_window"));
 
     // 小盲注 -> 大盲注 -> Boss.
+    //
+    // 每一步都要**先打完再走**: `next_round` 是"离开商店", 而离开商店之前必然是打完了
+    // 这一回合 (`end_round` -> `cash_out` -> 商店). 以前这里直接调 `next_round` 是因为
+    // 引擎当时没查阶段; 现在它查了 (游戏那边这一步在别的阶段是非法的), 所以这里把
+    // "这一回合打完了" 摆出来 —— 这条测试关心的是**底注与 Boss 的推算**, 不是打牌本身.
     for _ in 0..2 {
-        run.next_round();
+        run.phase = balatro_engine::run::Phase::Shop;
+        run.next_round().expect("在商店里, 走得成");
         run.select_blind();
     }
     assert_eq!(run.round, 3);
@@ -211,7 +217,9 @@ fn boss_and_next_ante_match_the_replay() {
     run.end_round();
     assert_eq!(run.ante, 2, "打赢 Boss 当场进下一底");
     assert_eq!(run.blind_on_deck, BlindKind::Boss, "盲注指针留在 Boss, 由 next_round 拨到小盲注");
-    run.next_round();
+    // 离开商店前要先领结算 (`end_round` 把阶段放在结算屏上), 而 `next_round` 只认商店.
+    run.cash_out().expect("刚结算完, 领得成");
+    run.next_round().expect("在商店里, 走得成");
     assert_eq!(run.blind_on_deck, BlindKind::Small);
     assert_eq!(run.ante, 2, "next_round 不再提底注");
     assert_eq!(
@@ -762,8 +770,8 @@ fn blind_tags_are_drawn_once_per_ante() {
     // 底注之内推进不重抽: 走过这一底的第一个盲注, 两个标签保持不变.
     run.chips = 99_999.0;
     run.end_round();
-    run.cash_out();
-    run.next_round();
+    run.cash_out().expect("这一回合在结算");
+    run.next_round().expect("这一回合有商店");
     run.select_blind();
     assert_eq!(run.blind_tags[0].as_deref(), Some(small.as_str()));
     assert_eq!(run.blind_tags[1].as_deref(), Some(big.as_str()));
@@ -782,8 +790,8 @@ fn skipping_a_blind_advances_without_counting_a_round() {
     // 打完小盲注, 回到"选盲注".
     run.chips = 99_999.0;
     run.end_round();
-    run.cash_out();
-    run.next_round();
+    run.cash_out().expect("这一回合在结算");
+    run.next_round().expect("这一回合有商店");
     assert_eq!(run.phase, balatro_engine::run::Phase::BlindSelect);
     assert_eq!(run.blind_on_deck, BlindKind::Big);
 
@@ -798,11 +806,9 @@ fn skipping_a_blind_advances_without_counting_a_round() {
     assert_eq!(run.skips, 1);
     assert_eq!(run.tags, vec![first.clone()], "标签进了持有列表");
 
-    // Boss 不能跳.
-    assert_eq!(
-        run.skip_blind(),
-        Err(ActionError::NotImplemented("跳过 Boss"))
-    );
+    // Boss 不能跳 —— 这是**规则不允许**, 不是"引擎还没做", 所以报的是 `NotAllowed`:
+    // 混用 `NotImplemented` 会让调用方把"这一步本来就非法"当成"引擎有缺口".
+    assert_eq!(run.skip_blind(), Err(ActionError::NotAllowed("Boss 不能跳过")));
 
     // 选下去打 Boss, 这一格真打完了才会推进回合数.
     run.select_blind();
@@ -898,8 +904,8 @@ fn juggle_tag_raises_the_hand_limit_for_good() {
     // 打完这一格, 下一格仍然是十一张 —— 是永久改动而不是只算本回合.
     run.chips = 99_999.0;
     run.end_round();
-    run.cash_out();
-    run.next_round();
+    run.cash_out().expect("这一回合在结算");
+    run.next_round().expect("这一回合有商店");
     run.select_blind();
     assert_eq!(run.hand_size(), 11, "下一回合还是十一张");
     assert_eq!(run.hand.len(), 11);
@@ -1075,7 +1081,7 @@ fn voucher_tag_adds_a_second_voucher() {
     run.play(&[0], &balatro_engine::scoring::EvalEnv::default(), balatro_engine::scoring::BackEffect::Plain)
         .expect("能出牌");
     if run.phase == Phase::RoundEval {
-        run.cash_out();
+        run.cash_out().expect("这一回合在结算");
     }
     assert_eq!(run.phase, Phase::Shop, "进商店了");
 
@@ -1625,9 +1631,11 @@ fn a_long_run_survives_many_antes() {
                 let _ = run.play(&cards, &env, BackEffect::Plasma);
             }
             balatro_engine::run::Phase::RoundEval => {
-                run.cash_out();
+                run.cash_out().expect("这一回合在结算");
             }
-            balatro_engine::run::Phase::Shop => run.next_round(),
+            balatro_engine::run::Phase::Shop => {
+                run.next_round().expect("这一回合有商店");
+            }
             balatro_engine::run::Phase::BoosterOpened => {
                 let _ = run.pick_from_pack(0);
             }
@@ -1639,6 +1647,151 @@ fn a_long_run_survives_many_antes() {
         highest_ante >= 10,
         "这条跑下来至少该过十个底注 (含一次决战底), 实际只到 {highest_ante}"
     );
+    // 它在底注 8 的决战 Boss 上过了关, 所以通关标志该是开的 —— 而且**过了关还能接着跑到 10**,
+    // 那正是无尽模式: 通关不是结束.
+    assert!(run.won, "过了决战底该记成通关");
+    assert!(
+        run.phase != balatro_engine::run::Phase::GameOver,
+        "通关之后对局不该被判结束"
+    );
+}
+
+/// 无尽模式的**机械终点**: 底注 39 起目标分数是 `nan`, 于是那一底永远打不过.
+///
+/// 这不是引擎的病, 是**游戏本身的指数溢出** —— 目标分数的算式是 `a*(b+(kc)^d)^c`,
+/// 底注 38 还是 `4.5e288` (双精度能表示), 39 就超出 `1.797e308` 了. 真 Lua 算出来也是 `nan`
+/// (见 `blind_amount_parity` 那份逐位对拍), 所以这里**必须照实复刻**:
+/// 拿 `nan` 去比大小的结果是"永远不大于", 于是一个分数高到离谱的引擎也会在这一底判负.
+///
+/// 值得专门验的是**它怎么收场**: 应当是干净地判负 (`GAME_OVER`), 而不是崩掉或者把
+/// `nan` 误判成过关. 后者会安静地让对局"穿"过终点线, 一路跑到无穷远, 而统计上看起来像
+/// 有人打通了 40 底. 顺带一提: 相同处境下游戏本体是有崩溃风险的 —— 它会把 `nan` 存进
+/// 存档里的最高分, 再拿它去比大小 (那是**存档展示层**的问题, 与规则无关, 引擎里没有那一层).
+#[test]
+fn endless_mode_ends_at_ante_39_and_loses_cleanly() {
+    use balatro_engine::run::{ActionError, BlindKind, Phase, RunState};
+    use balatro_engine::scoring::{BackEffect, EvalEnv};
+
+    /// 直接站到底注 `ante` 的小盲注面前.
+    fn at_ante(ante: i64) -> RunState {
+        let mut run = RunState::new("ALEEB", 8);
+        run.start();
+        run.ante = ante;
+        run.blind_on_deck = BlindKind::Small;
+        run.select_blind();
+        run
+    }
+
+    // 38 底还是正常的有限数, 而且打得过 (把它压低就能过).
+    let last_playable = at_ante(38);
+    let target = last_playable.blind.as_ref().expect("有盲注").chips;
+    assert!(
+        target.is_finite() && target > 0.0,
+        "底注 38 该还是有限数, 实际 {target}"
+    );
+
+    // 39 底起是 nan —— 三个赌注档都一样, 小盲 / 大盲 / Boss 也一样 (倍率乘 nan 还是 nan).
+    for ante in [39, 40, 60] {
+        let run = at_ante(ante);
+        let target = run.blind.as_ref().expect("有盲注").chips;
+        assert!(target.is_nan(), "底注 {ante} 的目标该是 nan, 实际 {target}");
+    }
+
+    // 收场方式: 分数一直在涨, 但**永远够不着**, 于是把手数耗完就干净地判负.
+    //
+    // 注意"出一次牌就结束"是**错的预期**: 回合本来就该在"够了"或者"没次数了"时才收尾,
+    // 而 `nan` 让"够了"永远不成立, 所以要打到手数为零. 这一条正好也说明
+    // "打不过"不等于"崩在这里" —— 中间那几手是照常进行的.
+    let mut run = at_ante(39);
+    assert!(
+        run.blind.as_ref().is_some_and(|blind| blind.chips.is_nan()),
+        "前提: 这一底的目标是 nan"
+    );
+    let hands = run.hands_left;
+    assert!(hands > 1, "前提: 本来该有好几次出牌机会, 实际 {hands}");
+    for played in 0..hands {
+        assert_eq!(run.phase, Phase::SelectingHand, "第 {played} 手之前该还在选牌");
+        let hand: Vec<usize> = (0..run.hand.len().min(5)).collect();
+        match run.play(&hand, &EvalEnv::default(), BackEffect::Plain) {
+            // 出牌本身是合法的 (牌没毛病), 输是输在"目标分数不是一个数".
+            Ok(_) => {}
+            Err(error) => panic!("第 {played} 手不该被拒, 实际 {error:?}"),
+        }
+        assert!(run.chips > 0.0, "分数确实在涨, 只是够不着");
+    }
+    assert_eq!(
+        run.phase,
+        Phase::GameOver,
+        "手数耗完就该判负 —— 不能因为目标是 nan 就'穿'过去"
+    );
+    assert!(!run.won, "打不过就不可能是通关");
+    let _ = ActionError::NoCards;
+
+    // 反过来确认"不是引擎在这一带对所有盲注都判负": 同一个局面把目标换成一个正常的数就该过.
+    let mut sane = at_ante(39);
+    if let Some(blind) = sane.blind.as_mut() {
+        blind.chips = 1.0;
+    }
+    let hand: Vec<usize> = (0..sane.hand.len().min(5)).collect();
+    sane.play(&hand, &EvalEnv::default(), BackEffect::Plain)
+        .expect("出牌");
+    assert!(
+        sane.phase != Phase::GameOver,
+        "目标换成正常的数就该过 —— 否则上面那条断言等于在测'引擎整体坏了'"
+    );
+}
+
+/// 打完底注 8 的决战 Boss 要**记成通关**, 而且对局**不停** —— 那就是无尽模式的入口.
+///
+/// 这一笔原来漏了: `RunState::won` 声明了却从没被赋过值, 于是批量对局的 `RunOutcome.won`
+/// 永远是假 —— 一个跑完八个底注、赢下决战 Boss 的流程, 在结果里与"半路输掉"一模一样.
+/// 接口文档写着"通关了没有", 实现却恒定给假, 而这种事不会报错, 只会让所有基于它的统计整体偏.
+///
+/// 三件事一起验, 缺一条都可能是"碰巧对了":
+/// 1. 通关标志被置上;
+/// 2. 底注**继续往上加** (9), 而不是停在 8 或跳到结束 —— 无尽模式就是"赢了之后还能接着打";
+/// 3. 该局的阶段**不是** `GameOver`: 通关不是结束.
+#[test]
+fn winning_the_final_boss_marks_the_run_won_and_keeps_going() {
+    use balatro_engine::run::{BlindKind, Phase, RunState};
+    use balatro_engine::scoring::{BackEffect, EvalEnv};
+
+    /// 把一局推到"底注 8 的 Boss 面前", 目标分数压到 1, 于是随便出一张牌就过.
+    ///
+    /// `win_ante` 是 8, 所以 `ante == win_ante` 就是决战底.
+    fn at_final_boss() -> RunState {
+        let mut run = RunState::new("ALEEB", 8);
+        run.start();
+        run.ante = run.win_ante;
+        run.blind_on_deck = BlindKind::Boss;
+        run.boss_key = Some("bl_final_vessel".to_owned());
+        run.select_blind();
+        run
+    }
+
+    let mut won = at_final_boss();
+    if let Some(blind) = won.blind.as_mut() {
+        blind.chips = 1.0;
+    }
+    won.play(&[0], &EvalEnv::default(), BackEffect::Plain)
+        .expect("这一手该打得出去");
+
+    assert!(won.won, "打完决战 Boss 该记成通关");
+    assert_eq!(won.ante, 9, "通关之后该进到下一底 (无尽模式), 而不是停在 8");
+    assert_ne!(won.phase, Phase::GameOver, "通关不是结束, 对局要能接着打");
+    // 结算栏照常发得出来: 通关不跳过结算那一段.
+    assert!(won.round_eval.is_some(), "通关那一回合也要有结算栏");
+
+    // 对照组: 同一套操作但目标分数压到不可能达到 —— 输了就不该被记成通关.
+    // 没有这一条的话, "只要打完这一手就置真"也能过上面那几句.
+    let mut lost = at_final_boss();
+    if let Some(blind) = lost.blind.as_mut() {
+        blind.chips = 1e18;
+    }
+    lost.hands_left = 1;
+    let _ = lost.play(&[0], &EvalEnv::default(), BackEffect::Plain);
+    assert!(!lost.won, "没打赢就不该记成通关");
+    assert!(!lost.won || lost.ante == 9, "输局不该推进底注");
 }
 
 /// 三个"决战 Boss" (底注 8 及以上才出现的 `showdown` 那批) 的效果.
@@ -1707,37 +1860,197 @@ fn verdant_leaf_turns_off_when_a_joker_is_sold() {
         run.blind.as_ref().is_some_and(|blind| blind.disabled),
         "卖掉一张小丑之后翠叶就关了"
     );
+    // 关掉不只是"改一个标志": 游戏的 `Blind:disable()` 结尾会把**整副牌的削弱清掉**
+    // (那时 `disabled` 已为真, 每条 Boss 分支都跳过, 落到最后那句 `card:set_debuff(false)`).
+    // 少了这一步, 卖完小丑这一回合剩下的手牌**仍然一分不出**, 而它的说明写着"直到卖掉一张小丑".
+    assert!(
+        run.hand.iter().all(|card| !card.debuffed),
+        "卖掉一张小丑之后手里的牌该恢复, 而不是还全失效"
+    );
 }
 
-/// 琥珀橡果: 开局把小丑的顺序洗三次 —— 小丑的先后会影响计分, 所以顺序必须真的变.
+/// 停用盲注必须**把它自己做过的改动撤掉**: 墙与紫瓶的目标分数是按 `mult` 一次算出来的,
+/// 而 `Blind:disable()` 里写着 `self.chips = self.chips/2` 与 `/3`.
+///
+/// 少了这一步, 拿着奇可 (它正是靠 `disable()` 生效) 打墙时目标分数会是**两倍** ——
+/// 一个本来打得过的盲注直接判负. 这类"改过了但没撤"的错误在短对局里根本碰不到.
 #[test]
-fn amber_acorn_shuffles_the_joker_order() {
+fn disabling_a_blind_undoes_its_target_score() {
     use balatro_engine::jokers::Joker;
     use balatro_engine::run::{BlindKind, RunState};
 
-    let mut changed = 0;
-    for seed in ["ALEEB", "SEED1", "SEED2", "SEED3", "SEED4"] {
-        let mut run = RunState::new(seed, 8);
+    let with_boss = |key: &str, chicot: bool| -> f64 {
+        let mut run = RunState::new("ALEEB", 8);
         run.start();
-        for key in ["j_joker", "j_duo", "j_trio", "j_family"] {
-            run.jokers.push(Joker::new(key).expect("有这张"));
+        if chicot {
+            run.jokers.push(Joker::new("j_chicot").expect("有这张"));
         }
-        let before: Vec<String> = run.jokers.iter().map(|j| j.key.clone()).collect();
+        run.boss_key = Some(key.to_owned());
+        run.blind_on_deck = BlindKind::Boss;
+        run.select_blind();
+        run.blind.as_ref().expect("有盲注").chips
+    };
+
+    // 水是普通的 Boss (倍率 2), 拿它当"常规目标分数"的尺子.
+    let plain = with_boss("bl_water", false);
+    assert_eq!(
+        with_boss("bl_water", true),
+        plain,
+        "奇可不改常规 Boss 的分数"
+    );
+
+    // 墙的倍率是 4, 停用之后该落回 2.
+    assert_eq!(
+        with_boss("bl_wall", false),
+        plain * 2.0,
+        "墙本来是两倍"
+    );
+    assert_eq!(
+        with_boss("bl_wall", true),
+        plain,
+        "停用之后墙的目标分数该除回 2"
+    );
+
+    // 紫瓶 (决战) 的倍率是 6, 停用之后该落回 2.
+    assert_eq!(
+        with_boss("bl_final_vessel", false),
+        plain * 3.0,
+        "紫瓶本来是三倍"
+    );
+    assert_eq!(
+        with_boss("bl_final_vessel", true),
+        plain,
+        "停用之后紫瓶的目标分数该除回 3"
+    );
+}
+
+/// 猩红之心抽小丑时, **候选名单不含当前正失效的那一张** —— 名单长度因此是 `N-1`.
+///
+/// 这一条藏在同一个循环的两句话里: 判据 (`if not ...debuff`) 读的是**清之前**的状态,
+/// 而 `set_debuff(false)` 写在**收集之后**. 照"从全部里抽"写, 名单长度变成 `N`,
+/// `pick_index` 于是抽到另一张 —— 而且会连着两次抽中同一张, 游戏不会.
+#[test]
+fn crimson_heart_never_redebuffs_the_same_joker() {
+    use balatro_engine::jokers::Joker;
+    use balatro_engine::run::{BlindKind, RunState};
+
+    let mut run = RunState::new("ALEEB", 8);
+    run.start();
+    run.boss_key = Some("bl_final_heart".to_owned());
+    run.blind_on_deck = BlindKind::Boss;
+    run.select_blind();
+    for key in ["j_joker", "j_duo", "j_trio", "j_family", "j_sly"] {
+        run.jokers.push(Joker::new(key).expect("有这张"));
+    }
+
+    run.draw_to_hand();
+    let mut previous = run
+        .jokers
+        .iter()
+        .position(|joker| joker.debuffed)
+        .expect("发完牌该有一张失效");
+    for round in 0..30 {
+        run.draw_to_hand();
+        let now = run
+            .jokers
+            .iter()
+            .position(|joker| joker.debuffed)
+            .expect("每次发牌都该有一张失效");
+        assert_eq!(
+            run.jokers.iter().filter(|joker| joker.debuffed).count(),
+            1,
+            "第 {round} 次发牌之后不该有第二张失效"
+        );
+        assert_ne!(
+            now, previous,
+            "第 {round} 次发牌又选中了上一次那张 —— 候选名单没有排掉当前失效的那张"
+        );
+        previous = now;
+    }
+}
+
+/// 琥珀橡果洗小丑时, **每一次洗牌都从"按建牌序号排好"的队形重新开始**.
+///
+/// 游戏的 `pseudoshuffle` 开头有一次 `table.sort` (`if list[1] and list[1].sort_id then ...`),
+/// 而小丑也是 `Card`, 所以小丑也有 `sort_id`. 少了那次排序, 三次洗牌会**层层叠加**
+/// (第二次洗的是第一次的结果) —— 同样的随机数作用在不同队形上, 洗出来的顺序就不同.
+///
+/// 验法要挑得准一点: 光断言"顺序变了"抓不到这个错 (少了排序顺序也照样会变).
+/// 这里拿**两次运行**对比 —— 它们的随机数状态一模一样, 只有**当前队形**不同
+/// (其中一次先手动调换了小丑). 每次洗牌都从排好序的队形出发的话, 两次的结果必然相同;
+/// 少了那次排序, 两次会从不同队形出发, 结果就分岔.
+#[test]
+fn amber_acorn_sorts_the_jokers_before_each_shuffle() {
+    use balatro_engine::jokers::Joker;
+    use balatro_engine::run::{BlindKind, RunState};
+
+    let setup = |reversed: bool| -> RunState {
+        let mut run = RunState::new("ALEEB", 8);
+        run.start();
+        let keys = ["j_joker", "j_duo", "j_trio", "j_family", "j_sly"];
+        for (index, key) in keys.iter().enumerate() {
+            run.jokers.push(Joker::new(key).expect("有这张"));
+            // 建牌序号照 `add_joker` 的规矩给: 互不相同, 按入队顺序递增.
+            run.jokers[index].sort_id = index as u32 + 1;
+        }
+        if reversed {
+            // 手动调换顺序不消耗随机数, 所以两次运行的随机数状态仍然同步.
+            let order: Vec<usize> = (0..keys.len()).rev().collect();
+            run.rearrange_jokers(&order).expect("是个排列");
+        }
         run.boss_key = Some("bl_final_acorn".to_owned());
         run.blind_on_deck = BlindKind::Boss;
         run.select_blind();
-        let after: Vec<String> = run.jokers.iter().map(|j| j.key.clone()).collect();
-        if before != after {
-            changed += 1;
-        }
-        // 不论洗成什么样, 牌本身不能丢.
-        let mut sorted_before = before;
-        let mut sorted_after = after;
-        sorted_before.sort();
-        sorted_after.sort();
-        assert_eq!(sorted_before, sorted_after, "洗的是顺序, 不该丢牌");
-    }
-    assert!(changed > 0, "至少有一个种子下顺序该被洗动");
+        run
+    };
+
+    let straight = setup(false);
+    let reversed = setup(true);
+    let keys = |run: &RunState| -> Vec<String> {
+        run.jokers.iter().map(|joker| joker.key.clone()).collect()
+    };
+    assert_eq!(
+        keys(&straight),
+        keys(&reversed),
+        "两次运行的随机数状态相同, 洗完之后队形也该相同 —— \
+         不同就说明洗牌没有从'按建牌序号排好'的队形开始"
+    );
+    // 顺带确认这次洗牌不是恒等 (否则上面那条断言等于没测), 而且**没丢牌** ——
+    // 洗的是顺序, 不是内容.
+    let mut sorted: Vec<String> = keys(&straight);
+    sorted.sort();
+    let mut after: Vec<String> = keys(&straight);
+    after.sort();
+    assert_eq!(sorted, after, "洗的是顺序, 不该丢牌");
+    assert_ne!(keys(&straight), sorted, "洗过之后不该还是原来的顺序");
+}
+
+/// 奇可**中途进队**也要停用当前的 Boss —— 游戏里除了"摆盲注时"那一次
+/// (`context.setting_blind`), 还有 `Card:add_to_deck` 里那一支: 在盲注内把它开出来
+/// (审判 / 灵魂 / 商店) 也立刻关掉 Boss. 少接这一条, 那一回合的 Boss 效果会照常生效到底.
+#[test]
+fn chicot_acquired_mid_round_disables_the_boss() {
+    use balatro_engine::jokers::Joker;
+    use balatro_engine::run::{BlindKind, RunState};
+
+    let mut run = RunState::new("ALEEB", 8);
+    run.start();
+    run.boss_key = Some("bl_water".to_owned());
+    run.blind_on_deck = BlindKind::Boss;
+    run.select_blind();
+    assert_eq!(run.discards_left, 0, "水先按它的规矩把弃牌清零");
+    assert!(
+        !run.blind.as_ref().expect("有盲注").disabled,
+        "还没拿到奇可, Boss 该是生效的"
+    );
+
+    // 中途拿到奇可 —— 走**真正入队那个入口** (它同时负责发建牌序号与这一处停用),
+    // 而不是直接往 `jokers` 里塞: 塞进去就绕过了这一次判定, 那样测的是我自己写的那行.
+    run.add_joker(Joker::new("j_chicot").expect("有这张"));
+    assert!(
+        run.blind.as_ref().is_some_and(|blind| blind.disabled),
+        "中途拿到奇可, 当前的 Boss 该立刻停用"
+    );
 }
 
 /// 蓝铃 (决战 Boss): 每次发牌锁住手里的一张, 那张**不能取消选中** —— 出牌时会被自动带上.

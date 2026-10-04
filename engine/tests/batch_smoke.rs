@@ -25,7 +25,7 @@ fn play_along(run: &mut RunState) -> usize {
                 }
             }
             Phase::RoundEval => {
-                run.cash_out();
+                let _ = run.cash_out();
             }
             Phase::Shop => {
                 // 买得起就买第一件, 买不起就走.
@@ -36,12 +36,12 @@ fn play_along(run: &mut RunState) -> usize {
                     .map(|card| run.buy(&card).is_ok())
                     .unwrap_or(false);
                 if !bought || steps % 3 == 0 {
-                    run.next_round();
+                    run.next_round().expect("这一回合有商店");
                 }
             }
             Phase::BoosterOpened => {
                 if run.pick_from_pack(0).is_err() {
-                    run.next_round();
+                    run.next_round().expect("这一回合有商店");
                 }
             }
         }

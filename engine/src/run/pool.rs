@@ -74,9 +74,20 @@ fn voucher_available(proto: &Prototype, run: &RunState) -> bool {
 /// `get_current_pool('Voucher')`.
 pub fn voucher_pool(run: &RunState) -> (Vec<String>, String) {
     let starting = Catalog::get().pool("Voucher");
+    // 表演者 (Showman) 让"用过的"重新可以出现 —— 这条写在 `get_current_pool` 的**外层**条件里,
+    // 所以它对**每一类**池子都成立, 券也不例外:
+    //
+    // ```lua
+    // elseif not (G.GAME.used_jokers[v.key] and not next(find_joker("Showman"))) and ...
+    // ```
+    //
+    // 券为什么会在 `used_jokers` 里: 那个表是在 `Card:set_ability` 里按**名字**写的,
+    // 与牌是哪一类无关 —— 商店摆出来的券一样会被记进去 (`shop_vouchers` 只挡"这一底正摆着的那张").
+    // 于是"上一底见过、没买"的券, 在持有表演者时是**可以**再出现的.
+    let showman = run.jokers.iter().any(|joker| joker.key == "j_ring_master");
     build_pool(starting, "Voucher", run, |proto| {
-        // cull 的外层条件: 没上过场, 且 (解锁了 或 是传奇).
-        (!run.used_jokers.contains(&proto.id) && run.unlocked(proto))
+        // cull 的外层条件: 没上过场 (或者有表演者), 且 (解锁了 或 是传奇).
+        ((!run.used_jokers.contains(&proto.id) || showman) && run.unlocked(proto))
             && voucher_available(proto, run)
     })
 }

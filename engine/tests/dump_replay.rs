@@ -26,8 +26,11 @@
 //! 这个验的是**整局流程** (数据驱动, 覆盖面大得多).
 
 use balatro_engine::data::json::Json;
+// digest 的生成与解析在库里 (`src/run/digest.rs`): 它是**与游戏的接口约定**, 生成器也要用它,
+// 所以不能只放在测试里. 这里只留对拍特有的那部分 —— `normalize` (两处记录方式的差异).
+use balatro_engine::run::digest::{digest as digest_of, digest_fields};
 use balatro_engine::run::{Phase, RunState};
-use balatro_engine::scoring::{BackEffect, EvalEnv};
+use balatro_engine::scoring::EvalEnv;
 
 const PLASMA_DUMP: &str = include_str!("data/plasma-purple-6j8x.dump.jsonl");
 const ALEEB_DIGESTS: &str = include_str!("data/aleeb-gold-plasma.digest.jsonl");
@@ -151,9 +154,11 @@ fn apply_step(
     step: &Json,
     run: &mut RunState,
     env: &EvalEnv,
-    back: BackEffect,
 ) -> Result<(), balatro_engine::run::ActionError> {
     let method = step.get("method").and_then(Json::as_str).expect("有方法");
+    // 牌背的计分效果**从牌组现算** (等离子牌组那一支), 不再由调用方传 ——
+    // 传的时候写岔了不会报错, 只会让分数差一截.
+    let back = run.back_effect();
     let params = step.get("params");
     let cards = numbers_of(params.and_then(|p| p.get("cards")));
 
@@ -169,14 +174,25 @@ fn apply_step(
         "discard" => run.discard(&cards),
         "play" => run.play(&cards, env, back).map(|_| ()),
         "cash_out" => {
-            run.cash_out();
-            Ok(())
+            run.cash_out().map(|_| ())
         }
-        "next_round" => {
-            run.next_round();
-            Ok(())
-        }
+        "next_round" => run.next_round(),
         "reroll" => run.reroll_shop().map(|_| ()),
+        // 手动调换顺序. 三个区域各一个参数, 一次只给一个 —— 参数里给的是**新顺序**:
+        // 第 k 个数表示"新顺序的第 k 张来自原来的第几个".
+        // 这一步不能当成没发生: 手牌顺序本身就是状态 (出牌与弃牌用的都是下标),
+        // 而且游戏那边**不排序**, 只有下一次发牌才会按牌面重排.
+        "rearrange" => {
+            if let Some(order) = params.and_then(|p| p.get("hand")) {
+                run.rearrange_hand(&numbers_of(Some(order)))
+            } else if let Some(order) = params.and_then(|p| p.get("jokers")) {
+                run.rearrange_jokers(&numbers_of(Some(order)))
+            } else if let Some(order) = params.and_then(|p| p.get("consumables")) {
+                run.rearrange_consumables(&numbers_of(Some(order)))
+            } else {
+                Err(balatro_engine::run::ActionError::BadIndex(0))
+            }
+        }
         // 开着的包可以不取, 直接收掉 (游戏里那个"跳过"按钮).
         "pack" if params.and_then(|p| p.get("skip")).and_then(Json::as_bool) == Some(true) => {
             run.skip_pack()
@@ -184,28 +200,17 @@ fn apply_step(
         // 注意这里的参数键是 **`card`** (单数), 不是 `cards` —— 与 `play` / `discard` 不同.
         // 读错键不会报错, 只会静默取第 0 张, 于是"看着像差了一张牌".
         "pack" => {
-            let picked = run.pick_from_pack(amount(params, "card").unwrap_or(0.0) as usize)?;
+            let index = amount(params, "card").unwrap_or(0.0) as usize;
+            // 有些消耗牌要**指定手牌目标** (例如"给两张牌加强化"那种), 参数里就是 `targets`
+            // (手牌下标).
+            let targets = numbers_of(params.and_then(|p| p.get("targets")));
             // 本仓库的 `bbcore` 有一条自己的修改: **从包里取出的消耗牌直接"使用"**, 不进消耗槽.
             // 所以记录里"取走灵魂牌"的结果是当场拿到一张传奇小丑, 而不是多一张消耗牌.
-            // 这是**端点**的行为, 不是规则 —— 引擎的 `pick_from_pack` 仍然只负责取.
-            if picked.starts_with("c_") {
-                let last = run.consumables.len().saturating_sub(1);
-                // 有些消耗牌要**指定手牌目标** (例如"给两张牌加强化"那种), 参数里就是 `targets`
-                // (手牌下标).
-                let targets = numbers_of(params.and_then(|p| p.get("targets")));
-                if run.use_consumable(last, &targets).is_err() {
-                    // 用不成的时候, `bbcore` 的这个端点**会把牌丢掉**: 它按"取出来直接用"处理,
-                    // 而"用"那一步失败时牌既没进消耗槽也没生效. 记录里就是这么表现的
-                    // (第 34 步取走一张要指定手牌的塔罗, 而那一刻手牌是空的 —— 牌照样没了).
-                    // 对拍器照这个行为来, 免得把牌留在槽里, 后面每一步的消耗槽都对不上.
-                    if run.consumables.len() > last {
-                        run.consumables.remove(last);
-                    }
-                    // 牌离开场地也要把"用过"的记录去掉 (`Card:remove()` 里那一句),
-                    // 不然它会一直占着池子里的一个格子 —— 后面的包里就会少一张牌.
-                    run.used_jokers.remove(&picked);
-                }
-            }
+            // 这是**端点**的行为, 不是规则 —— 但"取出来之后马上用、用完才关包"这一步是**规则**:
+            // 关包会把整手牌收回牌堆, 而塔罗改的就是手牌, 所以顺序反了那两张牌就改不到.
+            // `take_and_use_from_pack` 就是照这个顺序做的 (见它的注释).
+            let picked = run.take_and_use_from_pack(index, &targets)?;
+            let _ = picked;
             Ok(())
         }
         // `sell` 与 `buy` 一样有几种目标, 这里只认小丑与消耗牌两种 (`joker` / `consumable`).
@@ -238,9 +243,37 @@ fn apply_step(
                 None => Err(balatro_engine::run::ActionError::BadIndex(0)),
             }
         }
+        // 商店里那个"买并使用"按钮: 买下来**当场用掉**, 不占消耗牌格子.
+        // 它与普通购买是两条规矩 (槽满也能买, 牌本身不留场), 所以不能折成 `buy`.
+        "buy_and_use" => {
+            let slot = amount(params, "card").map(|n| n as usize).unwrap_or(0);
+            match run
+                .shop
+                .as_ref()
+                .and_then(|shop| shop.jokers.get(slot))
+                .cloned()
+            {
+                Some(card) => run.buy_and_use(&card).map(|_| ()),
+                None => Err(balatro_engine::run::ActionError::BadIndex(slot)),
+            }
+        }
         "use" => {
             let consumable = amount(params, "consumable").unwrap_or(0.0) as usize;
             run.use_consumable(consumable, &cards)
+        }
+        // 跳过当前盲注换一个标签. **这一步必须接上**: 它不推进回合数, 所以那一步的 digest
+        // 前后一模一样 —— 漏了它不会当场报错, 但标签没了、盲注也没前进 (后面打的是**另一个**
+        // 盲注), 于是随机数位置从那一刻起错开, 要到下一个商店才显形.
+        "skip" => run.skip_blind().map(|_| ()),
+        // 手牌排序的两个按钮. 顺序本身就是状态 (出牌与弃牌都按下标), 所以不能忽略;
+        // 而且它们会**改掉手牌区的排序方式**, 之后每次发牌都照那个排.
+        "sort_hand_value" => {
+            run.sort_hand_by_value();
+            Ok(())
+        }
+        "sort_hand_suit" => {
+            run.sort_hand_by_suit();
+            Ok(())
         }
         // 回主菜单只是结束录像, 与对局本身无关.
         "menu" => Ok(()),
@@ -250,13 +283,13 @@ fn apply_step(
 }
 
 /// 逐步回放, 返回第一个对不上的地方 (全对就给 `None`).
-fn first_divergence(steps: &[Json], run: &mut RunState, back: BackEffect) -> Option<String> {
+fn first_divergence(steps: &[Json], run: &mut RunState) -> Option<String> {
     let env = EvalEnv::default();
 
     for (index, step) in steps.iter().enumerate() {
         let method = step.get("method").and_then(Json::as_str).expect("有方法");
 
-        let outcome = apply_step(step, run, &env, back);
+        let outcome = apply_step(step, run, &env);
 
         if let Err(error) = outcome {
             return Some(format!("第 {index} 步 ({method}) 执行失败: {error:?}"));
@@ -375,12 +408,7 @@ fn the_plasma_run_replays_step_by_step() {
     let deck = params.get("deck").and_then(Json::as_str).expect("有牌组");
 
     let mut run = RunState::new(seed, stake_of(stake)).with_deck(deck_of(deck));
-    let back = if deck == "PLASMA" {
-        BackEffect::Plasma
-    } else {
-        BackEffect::Plain
-    };
-    if let Some(reason) = first_divergence(&steps, &mut run, back) {
+    if let Some(reason) = first_divergence(&steps, &mut run) {
         panic!("整局重放对不上: {reason}");
     }
 }
@@ -439,7 +467,7 @@ fn the_aleeb_digests_match_step_by_step() {
 
     for (index, step) in steps.iter().enumerate() {
         let method = step.get("method").and_then(Json::as_str).expect("有方法");
-        if let Err(error) = apply_step(step, &mut run, &env, BackEffect::Plasma) {
+        if let Err(error) = apply_step(step, &mut run, &env) {
             panic!("第 {index} 步 ({method}) 执行失败: {error:?}");
         }
         let Some(want) = step.get("digest").and_then(Json::as_str) else {
@@ -450,215 +478,6 @@ fn the_aleeb_digests_match_step_by_step() {
             panic!("第 {index} 步 ({method}) 的 digest 对不上: {diff}\n  引擎 {got}\n  记录 {want}");
         }
     }
-}
-
-/// 一张牌的 digest token, 格式取自 `mods/bbreplay/replay/format.lua` 的 `card_token`:
-/// `键` + `+版本` + `#蜡封` + `~强化` + `!e永恒` + `!r租赁`.
-///
-/// 顺序不能换, 名字也要逐字符一致 —— 版本写的是**一个字母** (`f` / `h` / `p` / `n`),
-/// 蜡封与强化写小写名 (`#red` / `~glass`), 而强化取的是 `ability.effect` 去掉 " Card"
-/// 之后的名字 (所以是 `~bonus` 而不是 `~m_bonus`).
-fn token_of(
-    key: &str,
-    edition: Option<balatro_engine::cards::Edition>,
-    seal: Option<balatro_engine::cards::Seal>,
-    enhancement: Option<balatro_engine::cards::Enhancement>,
-    eternal: bool,
-    rental: bool,
-) -> String {
-    use balatro_engine::cards::{Edition, Enhancement, Seal};
-    let mut token = key.to_owned();
-    if let Some(edition) = edition {
-        let letter = match edition {
-            Edition::Foil => "f",
-            Edition::Holo => "h",
-            Edition::Polychrome => "p",
-            Edition::Negative => "n",
-        };
-        token.push_str(&format!("+{letter}"));
-    }
-    if let Some(seal) = seal {
-        let name = match seal {
-            Seal::Red => "red",
-            Seal::Blue => "blue",
-            Seal::Gold => "gold",
-            Seal::Purple => "purple",
-        };
-        token.push_str(&format!("#{name}"));
-    }
-    if let Some(enhancement) = enhancement {
-        let name = match enhancement {
-            Enhancement::Bonus => "bonus",
-            Enhancement::Mult => "mult",
-            Enhancement::Wild => "wild",
-            Enhancement::Glass => "glass",
-            Enhancement::Steel => "steel",
-            Enhancement::Stone => "stone",
-            Enhancement::Gold => "gold",
-            Enhancement::Lucky => "lucky",
-        };
-        token.push_str(&format!("~{name}"));
-    }
-    if eternal {
-        token.push_str("!e");
-    }
-    if rental {
-        token.push_str("!r");
-    }
-    token
-}
-
-/// 阶段名换游戏那边的字符串.
-fn state_name(phase: Phase) -> &'static str {
-    match phase {
-        Phase::BlindSelect => "BLIND_SELECT",
-        Phase::SelectingHand => "SELECTING_HAND",
-        Phase::RoundEval => "ROUND_EVAL",
-        Phase::Shop => "SHOP",
-        Phase::BoosterOpened => "SMODS_BOOSTER_OPENED",
-        Phase::GameOver => "GAME_OVER",
-    }
-}
-
-/// 把引擎当前的状态写成回放 digest 那种摘要.
-///
-/// 区域顺序与游戏一致 (`hand` / `jokers` / `consumables` / `shop` / `vouchers` / `packs` / `pack`),
-/// 因为手牌与小丑的顺序影响 agent 用的下标, 必须一致. 钱的写法也要一样 (整数不带小数点).
-fn digest_of(run: &RunState) -> String {
-    let number = |value: f64| -> String {
-        if value.fract() == 0.0 {
-            format!("{}", value as i64)
-        } else {
-            format!("{value}")
-        }
-    };
-    let joining = |tokens: Vec<String>| -> String { tokens.join(",") };
-
-    let mut parts = vec![
-        format!("state={}", state_name(run.phase)),
-        format!("ante={}", run.ante),
-        format!("round={}", run.round),
-        format!("money={}", number(run.dollars)),
-        format!("deck={}", run.deck.len()),
-        format!(
-            "hand={}",
-            joining(
-                run.hand
-                    .iter()
-                    .map(|c| token_of(&c.card.key(), c.edition, c.seal, c.enhancement, false, false))
-                    .collect()
-            )
-        ),
-        format!(
-            "jokers={}",
-            joining(
-                run.jokers
-                    .iter()
-                    .map(|j| token_of(&j.key, j.edition, None, None, j.eternal, j.rental))
-                    .collect()
-            )
-        ),
-        format!(
-            "consumables={}",
-            joining(
-                run.consumables
-                    .iter()
-                    .map(|card| token_of(&card.key, card.edition, None, None, false, false))
-                    .collect()
-            )
-        ),
-    ];
-    // 货架那三项**总是写出来**, 没有商店时写成空的 —— 游戏那边这三个区域一直都在,
-    // 只是没东西时是空表, digest 里就是 `shop=` (光秃秃一个等号).
-    let jokers = run.shop.as_ref().map(|shop| &shop.jokers);
-    let voucher = run.shop.as_ref().and_then(|shop| shop.voucher.as_ref());
-    let packs = run.shop.as_ref().map(|shop| &shop.packs);
-    parts.push(format!(
-        "shop={}",
-        joining(
-            jokers
-                .map(|list| list
-                    .iter()
-                    .map(|c| token_of(&c.key, c.edition, None, None, c.eternal, c.rental))
-                    .collect())
-                .unwrap_or_default()
-        )
-    ));
-    parts.push(format!(
-        "vouchers={}",
-        voucher
-            .map(|c| token_of(&c.key, c.edition, None, None, c.eternal, c.rental))
-            .unwrap_or_default()
-    ));
-    parts.push(format!(
-        "packs={}",
-        joining(
-            packs
-                .map(|list| list
-                    .iter()
-                    .map(|c| token_of(&c.key, c.edition, None, None, c.eternal, c.rental))
-                    .collect())
-                .unwrap_or_default()
-        )
-    ));
-    if let Some(pack) = run.open_pack.as_ref() {
-        parts.push(format!(
-            "pack={}",
-            joining(
-                pack.contents
-                    .iter()
-                    .map(|c| token_of(&c.key, c.edition, c.seal, c.enhancement, c.eternal, c.rental))
-                    .collect()
-            )
-        ));
-    }
-    parts.join(" ")
-}
-
-/// digest 里出现过的键名. 用来**定边界** —— 不能直接按空格切.
-///
-/// 原因: 卡片记号里的 `~效果名` 自带空格 (塔罗是 `~hand upgrade` 这种), 按空格切会把它切成两半,
-/// 于是"记录"那一侧被切碎, 比较注定对不上. 这类"格式里带空格"的地方只能按已知键名来找边界.
-const DIGEST_KEYS: [&str; 13] = [
-    "state",
-    "ante",
-    "round",
-    "money",
-    "deck",
-    "hand",
-    "jokers",
-    "consumables",
-    "shop",
-    "vouchers",
-    "packs",
-    "pack",
-    "todo",
-];
-
-/// 把 digest 拆成 `key -> value`.
-fn digest_fields(digest: &str) -> Vec<(String, String)> {
-    // 先找出每个 "<键>=" 的起点 (必须在开头或跟在空格后面).
-    let mut marks: Vec<(usize, &str)> = Vec::new();
-    for (index, _) in digest.char_indices() {
-        if index > 0 && !digest[..index].ends_with(' ') {
-            continue;
-        }
-        for key in DIGEST_KEYS {
-            if digest[index..].starts_with(&format!("{key}=")) {
-                marks.push((index, key));
-            }
-        }
-    }
-    marks
-        .iter()
-        .enumerate()
-        .map(|(i, (start, key))| {
-            let from = start + key.len() + 1;
-            let to = marks.get(i + 1).map(|(next, _)| *next).unwrap_or(digest.len());
-            let value = digest[from..to].trim_end().to_owned();
-            ((*key).to_owned(), value)
-        })
-        .collect()
 }
 
 /// 归一化两处**记录方式**上的差异, 免得它们盖住真正的状态差异.
@@ -713,7 +532,7 @@ fn normalize(digest: &str) -> String {
 ///
 /// 之所以这么比, 是因为游戏那边"区域存不存在"跟阶段有关 (开包时没有 `shop` 项等等),
 /// 而引擎总是把十二项都写出来. 记录里有的项能对上就够了.
-fn digest_diff_at(want: &str, got: &str, pack_open: bool) -> Option<String> {
+fn digest_diff_at(want: &str, got: &str) -> Option<String> {
     let want = normalize(want);
     let got = normalize(got);
     let got = digest_fields(&got);
@@ -737,14 +556,6 @@ fn digest_diff_at(want: &str, got: &str, pack_open: bool) -> Option<String> {
         if matches!(key.as_str(), "money") {
             continue;
         }
-        // 开包那几步的 `hand` 跳过 —— 那条槽里记录的 8 张牌至今没查出从哪来 (四种机制都试过:
-        // 取牌堆顶 / 排序后洗牌 / 只排序 / 两端的牌, 都对不上; 记录里那 8 张还按点数降序,
-        // 随机八张恰好降序的概率约四万分之一). 只在**这一步**跳, 别的步骤照比 ——
-        // 因为它是"包里能用塔罗指定手牌目标"才需要的槽, 而它出错的下游后果 (点数升错一张)
-        // 会在**后面的出牌步骤**上暴露, 那些步骤仍然比 hand.
-        if key == "hand" && pack_open {
-            continue;
-        }
         let found = got
             .iter()
             .find(|(k, _)| *k == key)
@@ -762,65 +573,165 @@ fn digest_diff_at(want: &str, got: &str, pack_open: bool) -> Option<String> {
     }
 }
 
-/// 同一局的**另一个 play-through** (68 步, 比第一份长, 而且多出 `sell` 与 `use` 两条动作).
+/// 把**全部录像**逐步对一遍.
+///
+/// 上面那几份是逐个手写出来的基准: 每加一份都要再写一段测试, 于是只有五份被用上,
+/// 而 `recordings/` 下有十八份 —— 剩下的十三条路径**从来没被验过**. 每一条路径都可能踩到
+/// 别的分支 (不同的包、不同的塔罗、不同的商店货架), 少一条就少一份背书.
+///
+/// 所以这里不手写: 扫 `tests/data/rec-*.jsonl`, 每份的第一行是头部 (种子 / 牌组 / 赌注),
+/// 之后是逐步的动作与 digest. 数据的来历见 `docs/rewrite/README.md` —— 由录像的
+/// `.replay.json` 折算而来 (`method` / `params` / `digest` 三样, 其余与规则无关).
+///
+/// **一次跑完再报**: 一份失败就停的话, 后面十七份里还藏着什么永远看不到.
+fn rec_fixture_paths() -> Vec<std::path::PathBuf> {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data");
+    let mut paths: Vec<_> = std::fs::read_dir(&dir)
+        .expect("能读 tests/data")
+        .filter_map(|entry| entry.ok().map(|e| e.path()))
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("rec-") && name.ends_with(".jsonl"))
+        })
+        .collect();
+    // 目录顺序不保证, 排一下让失败信息稳定.
+    paths.sort();
+    paths
+}
+
+/// 按种子挑出那份存档进度表. 两份录像的档**不一样** (RED/WHITE 那份是另一个档),
+/// 拿错会让池子里的占位格子整体偏, 表现成"抽到的东西全不对".
+fn uda_for(seed: &str) -> std::collections::HashMap<String, String> {
+    let text = match seed {
+        "ALEEB" => ALEEB_UDA,
+        "LG7RIX92" => include_str!("data/lg7rix92-uda.json"),
+        other => panic!("没有为种子 {other} 准备存档进度表"),
+    };
+    match Json::parse(text).expect("uda 表能解析") {
+        Json::Object(entries) => entries
+            .into_iter()
+            .filter_map(|(key, value)| value.as_str().map(|flags| (key, flags.to_owned())))
+            .collect(),
+        other => panic!("uda 应当是个对象, 实际 {other:?}"),
+    }
+}
+
+#[test]
+fn every_recorded_run_replays_step_by_step() {
+    let env = EvalEnv::default();
+    let paths = rec_fixture_paths();
+    assert!(
+        paths.len() >= 18,
+        "只找到 {} 份录像 fixture, 看起来不全",
+        paths.len()
+    );
+
+    let mut total_steps = 0usize;
+    let mut failures: Vec<String> = Vec::new();
+    let mut passed = 0usize;
+
+    for path in &paths {
+        let text = std::fs::read_to_string(path).expect("能读 fixture");
+        let mut lines = text.lines().filter(|line| !line.trim().is_empty());
+        let header = Json::parse(lines.next().expect("有头部")).expect("头部是 JSON");
+        let seed = header.get("seed").and_then(Json::as_str).expect("有种子");
+        let deck = header.get("deck").and_then(Json::as_str).expect("有牌组");
+        let stake = header.get("stake").and_then(Json::as_str).expect("有赌注");
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("?");
+
+        let steps: Vec<Json> = lines
+            .map(|line| Json::parse(line).expect("每行都是一条 JSON"))
+            .collect();
+
+        let mut run = RunState::new(seed, stake_of(stake)).with_deck(deck_of(deck));
+        run.start_run();
+        run.uda = uda_for(seed);
+
+        let mut broke = None;
+        for (index, step) in steps.iter().enumerate() {
+            let method = step.get("method").and_then(Json::as_str).expect("有方法");
+            // 录像里 `ok: false` 的步骤是**游戏拒绝了这次尝试** (选中张数不对, 槽位满了,
+            // 状态不允许...). 那种步骤没有 digest, 而且**引擎也该拒绝** ——
+            // 两边都拒绝才算对上. 忘了这一条的话, 会把"引擎正确地拒绝了"当成差异:
+            // 第一版就这么报了 5 宗, 其中 4 宗全是假警报.
+            let game_refused = step.get("ok").and_then(Json::as_bool) == Some(false);
+            let outcome = apply_step(step, &mut run, &env);
+            match (game_refused, &outcome) {
+                (true, Err(_)) => {
+                    // 两边都拒绝, 这一致. 拒绝的**理由**不必相同: 录像里只记了"没成功".
+                    total_steps += 1;
+                    continue;
+                }
+                (true, Ok(())) => {
+                    broke = Some(format!(
+                        "第 {index} 步 ({method}): 游戏拒绝了这一步, 引擎却接受了"
+                    ));
+                    break;
+                }
+                (false, Err(error)) => {
+                    broke = Some(format!("第 {index} 步 ({method}) 执行失败: {error:?}"));
+                    break;
+                }
+                (false, Ok(())) => {}
+            }
+            let Some(want) = step.get("digest").and_then(Json::as_str) else {
+                continue;
+            };
+            if let Some(diff) = digest_diff(want, &digest_of(&run)) {
+                broke = Some(format!("第 {index} 步 ({method}) 的 digest 对不上: {diff}"));
+                break;
+            }
+            total_steps += 1;
+        }
+
+        match broke {
+            None => passed += 1,
+            Some(reason) => failures.push(format!("{name} ({seed} {deck} {stake}): {reason}")),
+        }
+    }
+
+    println!(
+        "录像对拍: {passed}/{} 份全过, 共走了 {total_steps} 步",
+        paths.len()
+    );
+    for line in &failures {
+        println!("  失败 {line}");
+    }
+    assert!(
+        failures.is_empty(),
+        "{} 份录像没走通:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}
+
+
 ///
 /// 种子相同但出牌不同, 于是走过的商店 / 包 / 消耗牌都不一样 —— 这正是它的价值:
 /// 同一份基准只能覆盖一条路径, 多一份就多一条.
 ///
-/// # 现在走到第 42 步
+/// # 这一份一路挖出来的东西 (按发现顺序)
 ///
-/// 货架上那张塔罗不同 (引擎 `c_strength`, 记录 `c_empress`). `c_strength` 恰好是
-/// **池子全空时的兜底值**, 所以真正的问题是: 那一刻引擎的塔罗池**整池都判成了不可用**.
-/// 顺着 `used_jokers` 查下去 —— 第 4 步开过一个秘术包 (取出的是第三张灵魂, 前两张
-/// `c_temperance` / `c_empress` **没被取走**), 而引擎把"造出来的"都记了"用过" (这一步本身是对的),
-/// **却没在包关掉时把没取走的那两张的记录清掉**. 游戏那边剩下的牌会被 `Card:remove()` 收掉,
-/// 而 `Card:remove()` 里那一段正是"场上没有同名卡就把记录清掉" —— 所以它们又回到池子里了.
-/// 这一份一口气推掉了三处 (12 -> 18 -> 32 -> 34):
 /// 1. **包关掉时要把没取走的牌从 `used_jokers` 里去掉** —— 游戏那边剩下的牌会被 `Card:remove()`
-///    收掉, 而它里面正是"场上没有同名卡就去掉记录", 于是没取走的牌会重新回到池子里.
-///    少了它, 它们一直占着池子的格子, 后面的塔罗池会整池判成不可用.
+///    收掉, 而里面正是"场上没有同名卡就去掉记录", 于是没取走的牌会重新回到池子里. 少了它,
+///    它们一直占着池子的格子, 后面的塔罗池会整池判成不可用, 兜底值 (`c_strength`) 冒了出来.
 /// 2. **特里布莱 (传奇) 没实现** —— 每张计分的 K / Q 乘一次倍率. 少了它, 那一手两对只打出
-///    一半的分, 回合没结束 ⇒ 第 18 步就分岔了.
+///    一半的分, 回合没结束.
 /// 3. **卖掉小丑也要清记录** (与用掉消耗牌同理) —— 少了它, 卖掉的那张本局再也刷不出来,
 ///    而记录里那张**重复的传奇**正是"卖掉之后又开出一张同样的".
-///
-/// 现在剩第 34 步, 而且**不是** `used_jokers` 的事: 那一步的包抽到一张要**指定手牌目标**的塔罗
-/// (记录里的参数是 `{"card": 2, "targets": [2]}`), 而引擎在商店阶段**手牌是空的** ——
-/// 回合末就把牌收回牌堆了. `targets` 这一步已经接上 (`apply_step` 里读 `params.targets`),
-/// 但目标指向的手牌本身不存在, 所以那张牌用不掉, 留在消耗槽里.
-///
-/// 后来靠**另一份记录** (bbdump 那份, 它的取样时机是可靠的) 仲裁了手牌那件事:
-/// 它在 SHOP 与 BOOSTER_OPENED 两步都写着**手牌为空** ⇒ 游戏在商店/开包阶段手牌确实是空的,
-/// 引擎的模型没错, 是这份 digest 的手牌栏不可信. 同时也就解释了为什么当初要把
-/// `deck` / `hand` 隔出去.
-///
-/// 这一轮把消耗牌改成了**带版本的实例** (原来只是一个键), 珀克奥才能实现 ——
-/// 它离店时复制一张消耗牌并给负片, 记录里那一格就是 `c_earth+n`. 顺带三处:
-/// 1. **包里的牌不限槽位** (游戏用 `emplace` 直接放, 与珀克奥的复制品同一个机制),
-///    所以会出现"3 张挤在 2 格里"; 商店那条路仍然查槽位 (那边槽位满了按钮是灰的).
-/// 2. 券把货架变大之后要**当场**把缺的那格补上 —— 不然买完还是原来两格.
-/// 3. 珀克奥的实现 (见 `next_round`).
-///
-/// 现在卡在第 52 步: 货架**补出来的那张**与记录不同 (引擎 `j_ancient`, 记录 `j_duo`).
-/// 第 52 步那个货架差异已经解决: 原因是**存档进度表 (`snapshot.uda`) 没载入** ——
-/// 录像那份档是全解锁的 (`uda` 里 357 条, `j_duo` 标记为 `u`), 而引擎原来退回原型自己的初始值,
-/// 于是 3 级池里 13 张"默认锁着"的都被剔掉了, 池子里凭空多出一批占位格子, 抽出来的东西整体偏.
-/// 现在对拍器会把 `data/aleeb-uda.json` 读进 `run.uda` (12 份 ALEEB 录像的这一份完全一致).
-///
-/// # 现在卡在第 56 步, 根因已经查清
-///
-/// 逐步比牌堆张数发现一处**状态**差异, 但复核之后方向和我一开始想的相反:
-/// 两份记录里 `SHOP` 与 `ROUND_EVAL` 都是"牌堆 52 / 手牌 0", 而 **`BOOSTER_OPENED` 是
-/// "牌堆 44 / 手牌 8"** —— 也就是说回合末收回牌堆是**对的**, 异常在**开包那一段**:
-/// 开包会发一手牌, 关包时收回牌堆 (游戏里就是 `end_consumeable` 里那句 `draw_from_hand_to_deck`).
-///
-/// 而它正好解释第 56 步: 店里用掉的那张 `c_strength` 要**指定手牌目标**, 那一刻手牌确实有 8 张
-/// ⇒ 游戏真的升了一张的点数; 引擎这边手牌是空的 ⇒ 那张牌被丢掉 (对拍器照 `bbcore` 的
-/// "用不成也丢"处理), 效果没发生 ⇒ 后面那手牌少一张 K 多一张 Q, 同花凑不成.
-/// 所以接下来要在引擎里给"开包 / 关包"接上这一对发牌与收牌, 并核对那 8 张的**内容**
-/// (记录里 `BOOSTER_OPENED` 的 digest 带着手牌, 可以直接比).
+/// 4. **存档进度表 (`snapshot.uda`) 要载入** —— 录像那份档是全解锁的, 而引擎原来退回原型
+///    自己的初始值, 于是 3 级池里"默认锁着"的那批被剔掉, 池子里凭空多出占位格子.
+/// 5. **开包会给手牌发一手牌** (见 `RunState::deal_for_pack`), 关包再收回牌堆. 这一条先是从
+///    digest 的 `deck` / `hand` 两栏异常看出来的, 最后落实成: 只有**秘术包与幽灵包**发,
+///    因为塔罗要指定手牌目标.
+/// 6. **结算屏那一下会洗牌** (`G.deck:shuffle('cashout'..底注)`, 见 `RunState::cash_out`) ——
+///    它对牌堆顺序是隐形的 (洗牌前总会按 `sort_id` 排序), 但它决定店里开包抽到的那 8 张.
+/// 7. **建牌序号 (`sort_id`) 的来源与用法** 有三处细节, 每一处错了都表现成"发出来的牌不对":
+///    新造的牌要有号且**单调递增** (`next_sort_id`); 标准包的牌要**插到牌堆底面**
+///    (游戏的 `emplace` 对牌堆是插数组头); 而死神的复制**不动目标的号** (它复用目标牌对象,
+///    而 DNA / 神秘生物是新建牌, 两者相反 —— 见 `c_death` 那一支的注释).
 #[test]
-#[ignore = "第 52 步补货架那张小丑与记录不同, 见上方注释"]
 fn the_aleeb_long_run_replays_step_by_step() {
     let steps = parse_steps(ALEEB_LONG);
     let mut run = RunState::new("ALEEB", stake_of("GOLD")).with_deck(deck_of("PLASMA"));
@@ -830,7 +741,7 @@ fn the_aleeb_long_run_replays_step_by_step() {
 
     for (index, step) in steps.iter().enumerate() {
         let method = step.get("method").and_then(Json::as_str).expect("有方法");
-        if let Err(error) = apply_step(step, &mut run, &env, BackEffect::Plasma) {
+        if let Err(error) = apply_step(step, &mut run, &env) {
             panic!("第 {index} 步 ({method}) 执行失败: {error:?}");
         }
         let Some(want) = step.get("digest").and_then(Json::as_str) else {
@@ -845,28 +756,33 @@ fn the_aleeb_long_run_replays_step_by_step() {
 
 /// 同一局的**第三份 play-through** (133 步, 比前两份都长).
 ///
-/// 这几份种子相同、打法不同, 所以走过的商店 / 包 / 消耗牌都不同 —— 一份基准只能覆盖一条路径.
+/// 这几份种子相同, 打法不同, 所以走过的商店 / 包 / 消耗牌都不同 —— 一份基准只能覆盖一条路径.
+/// 这一份跑到第 133 步, 覆盖到前面两份没有的东西: `rearrange` (手牌手动排序),
+/// 以及底注 4 到 5 那一段连着开好几个补充包.
 ///
-/// # 它立刻报出一处新差异, 而且比"包里那手牌"更值得追
+/// # 它挖出来的东西
 ///
-/// 赠包那处 (第 4 步 `p_buffoon_normal_2` vs 记录 `_1`) 已经修掉了: 原因是**券的抽取时机** ——
-/// 游戏里商店的生成顺序是"卡 -> 券 -> 包", 而券要消耗随机数, 所以它抽在包前面还是后面
-/// 决定了 `get_pack` 第一次调用时全局序列停在哪. 详见 `shop::restock` 的注释.
-///
-/// 现在停在第 43 步, 而且是**和长跑那份同一个根因**: 第 41 步从包里取出一张塔罗,
-/// 参数是 `{'card': 4, 'targets': [0, 6]}` —— 那次强化在记录里落在了 `S_4` 上 (`S_4~bonus`),
-/// 而引擎的手牌那一刻是"开包时发的那一手"(内容至今没复原出来), 所以目标指到了别的牌.
-/// 也就是说这两份对拍不是两个问题, 是**同一个**: 开包时那 8 张手牌从哪来.
-///
-/// 到这一轮为止已经把这几种可能都试过了, 都不对:
-/// (a) 直接取牌堆顶; (b) 按 `sort_id` 排序再按 `nr{底注}` 洗牌; (c) 只排序;
-/// (d) 取牌堆两端; (e) 八个候选洗牌键 (`nr1`/`nr2`/`shuffle`/`pack1`/`shop_pack1`/`sta1`/`shop1`/`1`).
-/// 另外把它和引擎牌堆对了一遍: 那 8 张在引擎牌堆里是**散落**的 (位置 12, 17, 35, 36, 49, 33, 11, 43),
-/// 不是任何一段连续区间 ⇒ 说明游戏那一刻的牌堆顺序与引擎不同, 而不是"取了哪一段".
-/// 结论: 这一处的机制**还没查出来**, 但它只影响两份长对拍的开包那几步, 其余三份基准 (含验收点名的
-/// "开局发牌与商店内容") 都是过的.
+/// 1. **券的抽取时机**: 游戏的货架生成顺序是"卡 -> 券 -> 包", 而券要消耗随机数, 所以它抽在
+///    包前面还是后面, 决定了 `get_pack` 第一次调用时全局序列停在哪 (那一掷是**裸**的
+///    `math.random(1, 2)`, 挑那个白送的小人包). 详见 `shop::restock`.
+/// 2. **券买走之后, 这一底剩下的商店里不再摆券** (`RunState::voucher_spent`) —— 只清货架上那张
+///    是不够的, 键还在 `shop_vouchers` 里, 下一次铺货会照着它把**已经买过**的那张又摆回去.
+/// 3. **一张牌离场要清它的"用过"记录** (`forget_used_if_gone`): 判据是**持有区里还有没有同名卡**,
+///    而游戏那个 `find_joker` 只搜持有区, **不搜牌堆也不搜货架** —— 所以货架上被收走的那张
+///    也要清. 少了这一步, 商店重抽 / 离开商店之后, 那些牌会一直占着池子里的格子.
+/// 4. **买下的小丑要带上版本** —— 货架上那张是闪箔 / 镭射 / 多彩 / 负片的时候, 买下来就是那张
+///    带版本的; 漏了这一项, 版本在买的那一刻凭空消失, 而且不报错.
+/// 5. **开包时发牌的是秘术包与幽灵包**, 不是"凡是装消耗牌的都发" —— 按后者判会把**天体包**
+///    也算进去, 于是每开一次天体包就凭空多一手牌.
+/// 6. **停用的 Boss (希科) 整条不生效**: 游戏那两个入口 (`Blind:debuff_hand` 与
+///    `Blind:press_play`) 开头都是 `if self.disabled then return end`, 那一整段 Boss 判定
+///    (眼 / 嘴限制牌型, 牙扣钱, 臂降等级, 牛清零) 都要挂在那个标志后面.
+/// 7. **`table.sort` 是不稳定排序**, 而且手牌顺序本身就是状态 —— 见 `crate::lua::table_sort`.
+///    两张同点数同花色的牌靠什么分先后, 是同一条线上的另一处: `Card:set_base` 会把
+///    **最初的花色** (`suit_nominal_original`) 带下去, 所以换过花色的牌仍然带着旧花色那一份.
+/// 8. **手动调换顺序 (`rearrange`) 是状态不是动作**: 出牌与弃牌都用下标, 而且游戏那边换完
+///    **不排序**, 下一次发牌才按牌面重排.
 #[test]
-#[ignore = "第 43 步的那次强化落在别的牌上 —— 与长跑那份同一个根因, 见上方注释"]
 fn the_aleeb_133_run_replays_step_by_step() {
     let steps = parse_steps(ALEEB_133);
     let mut run = RunState::new("ALEEB", stake_of("GOLD")).with_deck(deck_of("PLASMA"));
@@ -876,7 +792,7 @@ fn the_aleeb_133_run_replays_step_by_step() {
 
     for (index, step) in steps.iter().enumerate() {
         let method = step.get("method").and_then(Json::as_str).expect("有方法");
-        if let Err(error) = apply_step(step, &mut run, &env, BackEffect::Plasma) {
+        if let Err(error) = apply_step(step, &mut run, &env) {
             panic!("第 {index} 步 ({method}) 执行失败: {error:?}");
         }
         let Some(want) = step.get("digest").and_then(Json::as_str) else {
@@ -889,32 +805,7 @@ fn the_aleeb_133_run_replays_step_by_step() {
     }
 }
 
-/// 临时探针: 记录那手牌是不是我牌堆的某一端. TODO remove
-#[test]
-#[ignore]
-fn probe_ends() {
-    let steps = parse_steps(ALEEB_133);
-    let mut run = RunState::new("ALEEB", stake_of("GOLD")).with_deck(deck_of("PLASMA"));
-    run.start_run();
-    run.uda = uda_of();
-    let env = EvalEnv::default();
-    for (index, step) in steps.iter().enumerate() {
-        if index == 4 {
-            let deck: Vec<String> = run.deck.iter().map(|c| c.card.key()).collect();
-            let top8: Vec<String> = deck.iter().rev().take(8).cloned().collect();
-            let bottom8: Vec<String> = deck.iter().take(8).cloned().collect();
-            println!("记录: H_Q,H_T,C_T,D_9,H_8,D_8,D_7,C_6");
-            println!("我的顶(取牌端): {top8:?}");
-            println!("我的底:        {bottom8:?}");
-            break;
-        }
-        let _ = apply_step(step, &mut run, &env, BackEffect::Plasma);
-    }
-}
-
-/// 对拍某一处的 digest. `pack_open` 表示这一步记录的是"补充包开着"的状态 ——
-/// 那一步的 `hand` 那条槽要跳过 (见 `digest_diff_at` 里的说明).
+/// 对拍某一处的 digest.
 fn digest_diff(want: &str, got: &str) -> Option<String> {
-    let pack_open = want.contains("state=SMODS_BOOSTER_OPENED");
-    digest_diff_at(want, got, pack_open)
+    digest_diff_at(want, got)
 }

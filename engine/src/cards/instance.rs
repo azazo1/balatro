@@ -194,10 +194,12 @@ impl CardInstance {
     /// `sort_id` 给 0: 它只在洗牌前用来定序, 而那时牌堆会被整体重排, 具体值不影响结果.
     pub fn from_key(key: &str) -> Option<CardInstance> {
         let (suit, rank) = key.split_once('_')?;
+        let suit = crate::cards::Suit::from_code(suit.chars().next()?)?;
         Some(CardInstance::plain(crate::cards::PlayingCard {
-            suit: crate::cards::Suit::from_code(suit.chars().next()?)?,
+            suit,
             rank: crate::cards::Rank::from_code(rank.chars().next()?)?,
             sort_id: 0,
+            original_suit: suit,
         }))
     }
 
@@ -210,6 +212,9 @@ impl CardInstance {
     }
 
     /// 改花色, 对应世界, 星星, 月亮, 太阳这几张.
+    ///
+    /// **最初花色不跟着改** —— 游戏那边 `set_base` 会把 `suit_nominal_original` 带过去,
+    /// 而它正是手牌排序里给同点数同花色的两张牌分先后的那一项 (见 `PlayingCard::nominal`).
     pub fn change_suit(&mut self, suit: crate::cards::Suit) {
         self.card.suit = suit;
     }

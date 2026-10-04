@@ -1,0 +1,16 @@
+{"seed": "ALEEB", "deck": "PLASMA", "stake": "GOLD", "source": "20261003-222131-ALEEB.replay.json"}
+{"method": "select", "digest": "state=SELECTING_HAND ante=1 round=1 money=4 deck=44 hand=C_T,D_T,S_9,S_7,H_6,H_5,H_4,D_2 jokers= consumables=", "ok": true}
+{"method": "discard", "params": {"cards": [0, 1, 2, 7]}, "digest": "state=SELECTING_HAND ante=1 round=1 money=4 deck=40 hand=D_8,S_7,H_6,H_5,H_4,C_4,C_3,H_2 jokers= consumables=", "ok": true}
+{"method": "play", "params": {"cards": [0, 1, 2, 3, 4]}, "digest": "state=ROUND_EVAL ante=1 round=1 money=4 deck=52 hand= jokers= consumables=", "ok": true}
+{"method": "cash_out", "digest": "state=SHOP ante=1 round=1 money=7 deck=52 hand= jokers= consumables= shop=j_trading!e,j_rocket vouchers=v_magic_trick packs=p_buffoon_normal_1,p_arcana_normal_4", "ok": true}
+{"method": "buy", "params": {"pack": 1}, "digest": "state=SMODS_BOOSTER_OPENED ante=1 round=1 money=3 deck=44 hand=H_Q,H_T,C_T,D_9,H_8,D_8,D_7,C_6 jokers= consumables= shop=j_trading!e,j_rocket vouchers=v_magic_trick packs=p_buffoon_normal_1 pack=c_temperance~joker payout,c_empress~enhance,c_soul~unlocker", "ok": true}
+{"method": "pack", "params": {"card": 2}, "digest": "state=SHOP ante=1 round=1 money=3 deck=52 hand= jokers=j_caino~ consumables= shop=j_trading!e,j_rocket vouchers=v_magic_trick packs=p_buffoon_normal_1", "ok": true}
+{"method": "next_round", "digest": "state=BLIND_SELECT ante=1 round=1 money=3 deck=52 hand= jokers=j_caino~ consumables= shop= vouchers= packs=", "ok": true}
+{"method": "select", "digest": "state=SELECTING_HAND ante=1 round=2 money=3 deck=44 hand=D_A,S_K,H_K,C_Q,C_9,H_8,H_6,D_5 jokers=j_caino~ consumables= shop= vouchers= packs=", "ok": true}
+{"method": "discard", "params": {"cards": [0, 4, 5, 6, 7]}, "digest": "state=SELECTING_HAND ante=1 round=2 money=3 deck=39 hand=S_K,H_K,C_Q,D_7,C_6,S_5,H_5,H_3 jokers=j_caino~ consumables= shop= vouchers= packs=", "ok": true}
+{"method": "discard", "params": {"cards": [2, 3, 4, 7]}, "digest": "state=SELECTING_HAND ante=1 round=2 money=3 deck=35 hand=H_A,S_K,H_K,H_7,S_5,H_5,S_3,D_3 jokers=j_caino~ consumables= shop= vouchers= packs=", "ok": true}
+{"method": "play", "params": {"cards": [1, 2, 4, 5]}, "digest": "state=SELECTING_HAND ante=1 round=2 money=3 deck=31 hand=H_A,S_Q,D_Q,D_9,H_7,S_3,C_3,D_3 jokers=j_caino~ consumables= shop= vouchers= packs=", "ok": true}
+{"method": "play", "params": {"cards": [1, 2, 5, 6, 7]}, "digest": "state=ROUND_EVAL ante=1 round=2 money=3 deck=52 hand= jokers=j_caino~ consumables= shop= vouchers= packs=", "ok": true}
+{"method": "cash_out", "digest": "state=SHOP ante=1 round=2 money=9 deck=52 hand= jokers=j_caino~ consumables= shop=c_empress~enhance,j_ceremonial~!e vouchers=v_magic_trick packs=p_standard_normal_1,p_arcana_normal_4", "ok": true}
+{"method": "cash_out", "ok": false}
+{"method": "buy", "params": {"pack": 1}, "ok": true}
