@@ -50,6 +50,23 @@ Android 的 `versionCode` 由两段版本折算, 保证单调递增, 否则无�
   按 user 的要求调用 `endless` 继续或 `menu` 回主菜单.
 - 规则和卡牌效果拿不准时, 用 `lookup` 查卡牌, 用 `docs_search`/`docs_read` 查规则手册, 不要凭印象猜.
 
+### 在引擎里对局
+
+不启动游戏, 改用 `just play` 让 agent 在引擎里逐步打完一局 (不需要图形环境), 详细用法见
+`engine/README.md` 的 "让 agent 玩" 一节:
+
+1. `just play step --seed <种子> --deck <牌组> --stake <赌注> --actions <动作文件>` 打印当前局面,
+   含牌的中文名与效果, 盲注目标与跳过奖励, 以及会变的值 (每回合认的花色点数, 小丑成长值,
+   摸牌堆分布).
+2. 每步用 `--do '<动作 JSON>'`; 动作先执行, 成功了才写进动作文件, 所以被拒的动作不会污染历史.
+3. `--emit <回放文件>` 把这局导出成游戏能回放的文件 (每步带引擎预测的摘要), 再交给
+   `just macos replay <回放文件> tight` 逐步对拍 —— 游戏是裁判, 退出码 0 才算全过.
+4. 规则与卡牌拿不准时用 `just play lookup` / `docs` / `search`, 提示词 (`just play prompt`) 里
+   有规则要点.
+
+- 会变的值 (认的花色点数, 成长值, 待办目标) 一律现查, 不要沿用上一回合的印象 —— 引擎与真游戏
+  给的局内信息是对齐的, 猜就会输在信息差上.
+
 ## 开发
 
 - agent mod 的纯逻辑改动后运行 `just test-agent`, 原生库 `native/bbnet` 改动后运行 `just native test`.
