@@ -38,6 +38,11 @@ do -- 摘要: 顺序和修饰都要区分, 否则下标错位或版本不同也�
   local diff = Format.diff(a, Format.digest(state({ card("S_A"), card("H_K") }, nil, 9)))
   check("diff 指出不同的项", diff == "money: 4 -> 9", tostring(diff))
   check("diff 相同时为 nil", Format.diff(a, a) == nil)
+  local packs = "packs=p_buffoon_normal_1,p_arcana_normal_4"
+  check("卡包图案编号不算差异", Format.diff(packs, "packs=p_buffoon_normal_2,p_arcana_normal_4") == nil)
+  check("卡包种类不同仍算差异", Format.diff(packs, "packs=p_buffoon_normal_1,p_arcana_jumbo_4") ~= nil)
+  check("卡包槽位顺序仍算差异", Format.diff(packs, "packs=p_arcana_normal_4,p_buffoon_normal_1") ~= nil)
+  check("只差图案编号时返回 nil 而不是空串", Format.diff(a .. " " .. packs, a .. " packs=p_buffoon_normal_2,p_arcana_normal_4") == nil)
   local todo_a = Format.digest(state({ card("S_A") }, { { key = "j_todo_list", to_do = "Full House" } }))
   local todo_b = Format.digest(state({ card("S_A") }, { { key = "j_todo_list", to_do = "Straight" } }))
   check("待办清单目标写入摘要", todo_a:find("todo=Full_House", 1, true) ~= nil)
