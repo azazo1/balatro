@@ -142,6 +142,63 @@ fn actions_are_rejected_outside_selecting_hand() {
     );
 }
 
+/// 老千小丑的触发口径跨回合: 新回合的第一手**不**该乘三, 同一回合的第二手才该.
+///
+/// 游戏在 `new_round` 里把 12 个牌型的 `played_this_round` 清零, 而引擎的计数是计分**之后**
+/// 才累加的, 所以"本回合之前打过几次"这个判断完全靠那次清零维持. 少了它, 从第二回合起每一手
+/// 都会乘三 —— DSH1 那局就是这么和真游戏分家的: 同一手同花, 引擎算 8250 直接清掉 Boss,
+/// 游戏只给 3795.
+#[test]
+fn a_new_round_forgets_the_hands_played_last_round() {
+    use balatro_engine::jokers::Joker;
+    use balatro_engine::run::{Phase, RunState};
+    use balatro_engine::scoring::{BackEffect, EvalEnv, PokerHand};
+
+    // 单张出牌是"高牌", 分数很低, 不会顺手把盲注打通 (那会自动结束回合, 后面的步骤就没得测了).
+    let play_one = |run: &mut RunState| {
+        set_hand(run, &["C_2"]);
+        run.play(&[0], &EvalEnv::default(), BackEffect::Plain)
+            .expect("能出这手牌")
+            .mult
+    };
+
+    let mut run = RunState::new("ALEEB", 8);
+    run.start();
+    run.jokers.push(Joker::new("j_card_sharp").expect("有这张"));
+
+    assert_eq!(play_one(&mut run), 1.0, "本回合第一手高牌, 老千不触发");
+    assert_eq!(run.hands.get(PokerHand::HighCard).played_this_round, 1);
+
+    assert_eq!(play_one(&mut run), 3.0, "同一牌型本回合第二手才乘三");
+
+    // 打完这一回合, 进下一个回合 —— 计数要跟着回合一起翻篇.
+    // (手里还留着出牌次数, 所以得先把分数凑够, 否则结算走的是"没到目标"那一支.)
+    run.chips = 99_999.0;
+    run.end_round();
+    if run.phase == Phase::RoundEval {
+        run.cash_out().expect("刚结算完, 领得成");
+    }
+    run.next_round().expect("这一回合有商店");
+    common::place_blind(&mut run);
+
+    assert_eq!(
+        run.hands.get(PokerHand::HighCard).played_this_round,
+        0,
+        "新回合的计数从头开始"
+    );
+    assert_eq!(
+        run.hands.get(PokerHand::HighCard).played,
+        2,
+        "本局累计的那份留着 (这一回合打过两次)"
+    );
+
+    assert_eq!(
+        play_one(&mut run),
+        1.0,
+        "新回合的第一手不乘三 (忘了清零的话这里是 3)"
+    );
+}
+
 /// 走完第一个盲注与商店, 进第二个回合, 与回放的第 6, 7 步对齐.
 ///
 /// 这里**跳过了商店里的购买与开包**, 牌序依然对得上: 商店操作消耗的是自己那几个伪随机键

@@ -62,3 +62,21 @@ fn hidden_hands_turn_visible_once_played() {
     assert_eq!(table.get(PokerHand::FlushFive).played, 1);
     assert_eq!(table.get(PokerHand::FlushFive).played_this_round, 1);
 }
+
+/// 新回合只清"本回合"的计数, 本局累计的 `played` 留着 —— 超新星与牛看的是后者.
+#[test]
+fn a_new_round_clears_only_the_this_round_counts() {
+    let mut table = HandTable::new();
+    table.record_played(PokerHand::Flush);
+    table.record_played(PokerHand::Flush);
+    table.record_played(PokerHand::Pair);
+    assert_eq!(table.get(PokerHand::Flush).played_this_round, 2);
+
+    table.reset_round();
+
+    assert_eq!(table.get(PokerHand::Flush).played_this_round, 0, "同花清零");
+    assert_eq!(table.get(PokerHand::Pair).played_this_round, 0, "对子也清零");
+    assert_eq!(table.get(PokerHand::Flush).played, 2, "本局累计不动");
+    assert_eq!(table.get(PokerHand::Pair).played, 1, "本局累计不动");
+    assert_eq!(table.most_played(), PokerHand::Flush, "最常打的那手不受影响");
+}

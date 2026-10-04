@@ -196,6 +196,17 @@ impl HandTable {
         entry.level = (entry.level + amount).max(0);
     }
 
+    /// 新回合开始: 12 个牌型的"本回合打过几次"全部清零, 本局累计的 `played` 不动.
+    ///
+    /// 对应游戏 `new_round` 里那一轮 `v.played_this_round = 0`
+    /// (`game/functions/state_events.lua` 的 L302-L305). 少了它, 老千小丑这类按
+    /// "本回合打过同一牌型"触发的效果会一直带着前几回合的计数, 于是每一手都触发.
+    pub fn reset_round(&mut self) {
+        for level in &mut self.levels {
+            level.played_this_round = 0;
+        }
+    }
+
     /// 打出一次: 本局计数加一, 本回合计数加一, 并把隐藏牌型变成可见.
     pub fn record_played(&mut self, hand: PokerHand) {
         let entry = self.get_mut(hand);

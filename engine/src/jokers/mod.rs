@@ -58,7 +58,8 @@ pub struct TriggerContext<'a> {
     /// 这一手牌型在这回合**之前**已经打过几次 (`G.GAME.hands[hand].played_this_round`).
     ///
     /// 牌卡夏普那类"这手型打过就乘"的小丑要看它. 注意引擎是在**计分之后**才累加次数的,
-    /// 所以这里拿到的是"之前打过的次数"; 游戏那边的判断是"含这一手在内 > 1", 两者等价.
+    /// 所以这里拿到的是"之前打过的次数"; 游戏那边的判断是"含这一手在内 > 1", 两者等价 ——
+    /// 这个等价靠 `HandTable::reset_round` 在每回合开始时清零来维持, 别把它摘了.
     pub played_this_round: u32,
     /// 上古小丑这一回合盯的花色 (`G.GAME.current_round.ancient_card.suit`).
     pub ancient_suit: Option<crate::cards::Suit>,
@@ -318,10 +319,15 @@ impl Joker {
         // 出过的这一手先记上 —— 积分卡按"拿到之后打了几手"循环.
         self.hands_since_gained += 1;
 
-        // 方尖碑: 如果这一手打的是"本局打得最多的牌型"就重置成 1, 否则涨 0.2.
-        // 判定里用的是 `>=` —— 所以并列最多的那种也算"最多", 一样触发重置.
+        // 方尖碑: 如果这一手打的是"本局唯一打得最多的牌型"就重置成 1, 否则涨 0.2.
+        //
+        // 比较基准是**含这一手**的计数: 游戏在 `evaluate_play` 开头就给本次牌型 `played += 1`,
+        // 而引擎在计分**之后**才累加, 所以这里要补上那一次. 边界就在这一位上 ——
+        // 出牌前高牌 10 / 对子 9, 再打对子时游戏看到的是"10 与高牌并列"仍算增长;
+        // 对子本来是 10 时, 新计数 11 成为唯一最高, 才重置 (手册 §4.4 的三个例子).
+        // 判定用的是 `>=`: 别的牌型只要"不比这一手少"就算压住了它.
         if self.key == "j_obelisk" {
-            let mine = ctx.table.get(ctx.hand).played;
+            let mine = ctx.table.get(ctx.hand).played + 1;
             let beaten = crate::scoring::PokerHand::BY_PRIORITY
                 .iter()
                 .filter(|hand| **hand != ctx.hand)
@@ -1200,9 +1206,11 @@ impl Joker {
             }
             // 超新星: 这一手牌型**本局打过几次**就加几点倍率.
             // 原型里的 `extra` 是 1, 但源码给的是 `played` 本身而不是 `played x extra`.
+            // 游戏在 `evaluate_play` 开头就给本次牌型记过一次 (`state_events.lua` L574),
+            // 所以它读到的是**含这一手**的次数; 引擎在计分之后才累加, 这里补上那一次.
             "j_supernova" => {
                 return Some(JokerEffect {
-                    mult_mod: ctx.table.get(ctx.hand).played as f64,
+                    mult_mod: f64::from(ctx.table.get(ctx.hand).played + 1),
                     ..JokerEffect::default()
                 });
             }

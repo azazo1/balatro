@@ -391,8 +391,9 @@ impl RunState {
                 }
             }
         }
-        // `new_round` 还会把各牌型的 `played_this_round` 清零, 那需要把牌型表挂到这一局上,
-        // 现在还没接.
+        // `new_round` 把各牌型的"本回合打过几次"清零. 这一条不能漏: 老千小丑按
+        // "本回合打过同一牌型"乘 3 倍, 计数不归零就会从第二回合起一直触发.
+        self.hands.reset_round();
 
         self.sort_deck_by_sort_id();
         let key = format!("nr{}", self.ante);

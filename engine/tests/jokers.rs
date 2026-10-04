@@ -866,50 +866,48 @@ fn loyalty_card_pays_every_sixth_hand_starting_at_the_fifth() {
     }
 }
 
-/// 方尖碑: 打的是"本局被打得最多的牌型"时重置成 1, 否则涨 0.2.
+/// 方尖碑: 打的不是"本局唯一最多"的牌型就涨 0.2, 是唯一最多就重置成 1.
 ///
-/// 判定用的是 `>=` 而不是 `>`: 只要有别的牌型"不算比它少"就判为增长, 所以**并列时也是增长**.
-/// 只有这一手是**唯一最多**的那种牌型时才重置 —— 这一点最容易看反.
+/// 边界在**含这一手**的计数上: 游戏在 `evaluate_play` 开头就给本次牌型 `played += 1`,
+/// 比较的是打完之后的次数, 不是出牌前的. 手册 §4.4 的"并列最高边界"给了三个例子,
+/// 这里照着它们走一遍.
 #[test]
 fn obelisk_grows_unless_you_play_the_most_played_hand() {
-    use balatro_engine::scoring::HandTable;
-
     let pair = ["C_5", "D_5"].map(card);
     let flush = ["C_2", "C_4", "C_6", "C_8", "C_T"].map(card);
+    let env = EvalEnv::default();
 
     let mut jokers = [Joker::new("j_obelisk").expect("有这张")];
+
+    // 开局: 对子与其余全部都是 0 次. 打完这一手它就是**唯一**有过计数的牌型 ⇒ 重置,
+    // 而此时倍率本来也是 1, 所以这一手不加成 (只有重置到更低才看得出来).
     let mut table = HandTable::new();
+    let first = score_play(&pair, &table, &env, BackEffect::Plain, &mut jokers).expect("对子能识别");
+    assert_eq!(first.mult, 2.0, "第一手没有底子, 不涨");
 
-    // 开局所有牌型都是 0 次, 打对子时"别的牌型 0 >= 0"成立, 所以是增长.
-    let first = score_play(&pair, &table, &EvalEnv::default(), BackEffect::Plain, &mut jokers)
-        .expect("对子能识别");
-    // 成长在**当次**就生效: `before` 先把它涨到 1.2, 主效果紧接着读它.
-    assert_eq!(jokers[0].x_mult, 1.2, "打完涨到 1.2");
-    assert_eq!(first.mult, 2.0 * 1.2, "这一手就乘上了");
-
-    // 让对子成为"打得最多的那个": 它的次数高于其余全部.
-    for _ in 0..3 {
-        table.record_played(balatro_engine::scoring::PokerHand::Pair);
+    // 例 1: 出牌前高牌 10 次 / 对子 8 次. 再出对子, 新计数 9 少于高牌的 10 ⇒ 增长.
+    for _ in 0..10 {
+        table.record_played(PokerHand::HighCard);
     }
-    let before = jokers[0].x_mult;
-    score_play(&pair, &table, &EvalEnv::default(), BackEffect::Plain, &mut jokers)
-        .expect("对子能识别");
-    assert_eq!(jokers[0].x_mult, 1.0, "打最多的牌型就重置 (之前是 {before})");
+    for _ in 0..8 {
+        table.record_played(PokerHand::Pair);
+    }
+    score_play(&pair, &table, &env, BackEffect::Plain, &mut jokers).expect("对子能识别");
+    assert_eq!(jokers[0].x_mult, 1.2, "新计数 9 少于高牌的 10, 增长");
 
-    // 换成同花 (它一次都没打过), 别的牌型里有对子的 3 次 >= 它的 0 次, 所以是增长.
-    score_play(&flush, &table, &EvalEnv::default(), BackEffect::Plain, &mut jokers)
-        .expect("同花能识别");
+    // 例 2: 对子是 9 次时再打, 新计数 10 与高牌并列 ⇒ 仍增长.
+    table.record_played(PokerHand::Pair);
+    score_play(&pair, &table, &env, BackEffect::Plain, &mut jokers).expect("对子能识别");
+    assert_eq!(jokers[0].x_mult, 1.4, "与高牌并列, 仍增长");
+
+    // 例 3: 对子是 10 次时再打, 新计数 11 成为唯一最高 ⇒ 重置.
+    table.record_played(PokerHand::Pair);
+    score_play(&pair, &table, &env, BackEffect::Plain, &mut jokers).expect("对子能识别");
+    assert_eq!(jokers[0].x_mult, 1.0, "成了唯一最多, 重置");
+
+    // 换同花 (一次都没打过) 照样增长: 对子的 11 次压着它的新计数 1.
+    score_play(&flush, &table, &env, BackEffect::Plain, &mut jokers).expect("同花能识别");
     assert_eq!(jokers[0].x_mult, 1.2, "打冷门牌型就涨回去");
-
-    // 判定用的是 `>=`: 只要有别的牌型"不比我少"就算没打过最冷门的, 所以**并列时是增长**.
-    // 让同花也打过 3 次, 此时对子与它并列, 再打对子就该涨而不是重置.
-    for _ in 0..3 {
-        table.record_played(balatro_engine::scoring::PokerHand::Flush);
-    }
-    jokers[0].x_mult = 2.0; // 先垫一个值, 好看出它到底涨了还是重置了
-    score_play(&pair, &table, &EvalEnv::default(), BackEffect::Plain, &mut jokers)
-        .expect("对子能识别");
-    assert_eq!(jokers[0].x_mult, 2.2, "并列时是增长 (重置的话会变成 1.0)");
 }
 
 /// 二重奏 / 三重奏 / 一家人 / 秩序 / 部落: 原型里是 `{Xmult, type}`, 命中那个牌型才乘倍率.
@@ -946,27 +944,29 @@ fn typed_xmult_jokers_only_fire_on_their_hand() {
 }
 
 /// 超新星: 这一手牌型本局**打过几次**就加几点倍率 —— 给的是次数本身, 不再乘 `extra`.
+///
+/// "含这一手"是关键: 游戏在 `evaluate_play` 开头就把计数加上去了, 所以第一次打也有 +1.
 #[test]
 fn supernova_pays_for_how_often_that_hand_was_played() {
     use balatro_engine::scoring::{HandTable, PokerHand};
 
     let pair = ["C_5", "D_5"].map(card);
 
-    // 一次都还没打过时不给.
+    // 第一次打对子时, 这一手**已经**记过一次了, 所以给 +1.
     let table = HandTable::new();
     let mut jokers = [Joker::new("j_supernova").expect("有这张")];
     let first = score_play(&pair, &table, &EvalEnv::default(), BackEffect::Plain, &mut jokers)
         .expect("对子能识别");
-    assert_eq!(first.mult, 2.0, "没打过就不加");
+    assert_eq!(first.mult, 2.0 + 1.0, "这一手是第 1 次");
 
-    // 打过三次就是 +3.
+    // 之前打过三次, 这一手是第 4 次 ⇒ +4.
     let mut table = HandTable::new();
     for _ in 0..3 {
         table.record_played(PokerHand::Pair);
     }
     let got = score_play(&pair, &table, &EvalEnv::default(), BackEffect::Plain, &mut jokers)
         .expect("对子能识别");
-    assert_eq!(got.mult, 2.0 + 3.0, "打过三次加三点");
+    assert_eq!(got.mult, 2.0 + 4.0, "这一手是第 4 次");
 }
 
 /// 棒球卡: 队里每张**罕见**(2 级)小丑让倍率乘 1.5, 别的稀有度不算.
