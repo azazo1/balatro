@@ -8,12 +8,11 @@ reason 不会被验证. 于是"嘴上说打两对 J+5, 手上选中 J,J,9,5 (只
 expect 把"模型以为的结果"变成可校验的结构化字段, 由这里当场比对, 不一致就拒绝执行.
 
 两类断言 (都可选, 都不给就跳过):
-- cards: 与 cards 下标同序等长, 每张写内部键 (C_K 是梅花 K, H_9 是红桃 9), 与 gamestate, digest 一致.
+- cards: 与 cards 下标同序等长, 正面牌写内部键 (C_K 是梅花 K, H_9 是红桃 9), 背面牌必须写小写 unknown.
 - hand:  牌型内部键 (Two Pair, Pair, Flush ...), 与 gs.hands 的键一致.
 
-不判定为错的情况一律放行 (算不出来不能当它错):
-- 背面牌身份未知, 跳过这一张.
-- 选牌含非标准牌, 或张数不合法时 preview 给不出牌型, 跳过牌型断言.
+背面牌只核对是否声明 unknown, 不读取或反馈隐藏身份, 猜测具体牌值即使猜中也拒绝.
+选牌含背面或非标准牌, 或张数不合法时 preview 给不出牌型, 跳过牌型断言.
 ]]
 
 local M = {}
@@ -66,6 +65,7 @@ function M.card_key(gs, index)
     return nil, false
   end
   local hidden = card.state and card.state.hidden == true
+  if hidden then return nil, true end
   if type(card.key) == "string" then
     return card.key, hidden
   end
@@ -92,7 +92,7 @@ function M.check(gs, indices, expect, preview)
   local declared = expect.cards
   if declared ~= nil then
     if type(declared) ~= "table" then
-      return "未执行: expect.cards 必须是数组, 每项写内部键 (例如 C_K 是梅花 K)."
+      return "未执行: expect.cards 必须是数组, 正面牌写内部键 (例如 C_K 是梅花 K), 背面牌写 unknown."
     end
     if #declared ~= #indices then
       return string.format(
@@ -104,7 +104,9 @@ function M.check(gs, indices, expect, preview)
     for i, key in ipairs(declared) do
       local actual, hidden = M.card_key(gs, indices[i])
       if hidden then
-        -- 背面牌身份未知, 不能拿它判模型错.
+        if key ~= "unknown" then
+          wrong[#wrong + 1] = string.format("下标 %d 是背面牌, expect.cards 对应项必须写 unknown, 不得猜测花色点数", indices[i])
+        end
       elseif actual == nil then
         wrong[#wrong + 1] = string.format("下标 %d 取不到牌", indices[i])
       elseif type(key) ~= "string" or key ~= actual then

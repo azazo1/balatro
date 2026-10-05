@@ -1020,6 +1020,46 @@ do -- 牌值声明不符时拦下.
   check("牌值声明不符时不执行", #env.calls == 0)
 end
 
+do -- 背面牌只能声明 unknown, 猜中也不能放行; 正面牌不能用 unknown 绕过核对.
+  local cases = {
+    { name = "背面牌声明 unknown", declared = { "H_A", "unknown" }, ok = true },
+    { name = "背面牌猜中身份", declared = { "H_A", "S_T" }, ok = false },
+    { name = "背面牌猜错身份", declared = { "H_A", "C_K" }, ok = false },
+    { name = "正面牌声明 unknown", declared = { "unknown", "unknown" }, ok = false },
+  }
+  for _, method in ipairs({ "play", "discard" }) do
+    for _, case in ipairs(cases) do
+      local env = harness()
+      env.gs.hand.cards[2].state.hidden = true
+      env.driver.start(); env.tick()
+      env.reply({ { method, { cards = { 0, 1 }, expect = { cards = case.declared }, reason = "操作一张正面牌和一张背面牌" } } })
+      env.settle()
+      local logged
+      for _, entry in ipairs(env.transcript) do if entry.type == "expect" then logged = entry end end
+      check(method .. " " .. case.name, #env.calls == (case.ok and 1 or 0) and logged and logged.ok == case.ok)
+      if case.declared[2] ~= "unknown" then
+        check(method .. " 拒绝猜测时不透露隐藏身份", logged and logged.reason
+          and not logged.reason:find("S_T", 1, true) and not logged.reason:find("黑桃10", 1, true))
+      end
+    end
+  end
+end
+
+do -- 已脱敏的背面牌也能验证 unknown; 翻回正面后恢复牌值核对.
+  local Expect = dofile(DIR .. "expect.lua")
+  local gs = hand_state()
+  gs.hand.cards[2] = { state = { hidden = true } }
+  check("背面牌没有 key 和 value 时接受 unknown", Expect.check(gs, { 0, 1 }, { cards = { "H_A", "unknown" } }) == nil)
+  check("背面牌不能省略 expect.cards 的占位", Expect.check(gs, { 0, 1 }, { cards = { "H_A" } }) ~= nil)
+  gs.hand.cards[2] = hand_state().hand.cards[2]
+  gs.hand.cards[2].state.hidden = true
+  local key, hidden = Expect.card_key(gs, 1)
+  check("背面牌取值不返回隐藏身份", key == nil and hidden == true)
+  gs.hand.cards[2].state.hidden = false
+  check("恢复正面后拒绝 unknown", Expect.check(gs, { 1 }, { cards = { "unknown" } }) ~= nil)
+  check("恢复正面后接受实际牌值", Expect.check(gs, { 1 }, { cards = { "S_T" } }) == nil)
+end
+
 do -- 不传 expect 时行为不变.
   local env = harness()
   env.driver.start(); env.tick()

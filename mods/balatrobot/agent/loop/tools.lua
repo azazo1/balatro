@@ -21,14 +21,15 @@ local REASON = {
   description = "这一步的解说 (30~60 字): 做什么, 为什么, 估分. 先显示给观众, 读完后动作才生效, 不要再另发 notify 重复",
 }
 -- 出牌与弃牌的自我核对: 声明这几张分别是哪些牌, 组成什么牌型, 系统拿当前局面比对, 不符就不执行.
--- cards 要与 cards 参数同序等长, 写内部键 (C_K 是梅花 K); hand 写牌型内部键 (Two Pair).
+-- cards 要与 cards 参数同序等长, 正面牌写内部键 (C_K 是梅花 K), 背面牌必须写 unknown; hand 写牌型内部键 (Two Pair).
 local EXPECT = {
   type = "object",
-  description = "这一步的自我核对. cards 与 cards 参数同序等长, 每项写内部键 (C_K 是梅花 K, H_9 是红桃 9);"
-    .. " hand 写牌型内部键 (Two Pair, Pair, Flush 等). 系统会拿当前手牌核对, 不符则动作不执行并告诉你实际是什么.",
+  description = "这一步的自我核对. cards 与 cards 参数同序等长, 正面牌写内部键 (C_K 是梅花 K, H_9 是红桃 9);"
+    .. " 背面牌必须写小写 unknown, 不得猜测花色点数, 即使猜中也会被拒绝."
+    .. " hand 写牌型内部键 (Two Pair, Pair, Flush 等), 选中背面牌时省略 hand, 不猜牌型. 系统会拿当前手牌核对, 不符则动作不执行并反馈可见信息.",
   properties = {
-    cards = { type = "array", items = { type = "string" }, description = "按 cards 的顺序, 每张的内部键" },
-    hand = { type = "string", description = "这手组成的牌型内部键" },
+    cards = { type = "array", items = { type = "string" }, description = "按 cards 的顺序, 正面牌写实际内部键, 背面牌必须写小写 unknown, 不得省略该项或猜测" },
+    hand = { type = "string", description = "这手组成的牌型内部键; 选中背面牌时省略, 不猜牌型" },
   },
 }
 
