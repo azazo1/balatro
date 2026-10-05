@@ -608,7 +608,10 @@ function M.new(deps)
       local gs = deps.gamestate()
       local preview = deps.hand_preview
       if not preview and deps.capabilities then
-        preview = deps.capabilities.snapshot(gs).preview_hand
+        local preview_hand = deps.capabilities.snapshot(gs).preview_hand
+        if preview_hand then
+          preview = function(_, indices) return preview_hand(indices) end
+        end
       end
       local why = expect_mod.check(gs, params.cards or {}, expect, preview)
       if why then

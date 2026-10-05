@@ -210,6 +210,7 @@ function M.install(opts)
     prompt = load("agent/loop/prompt.lua"),
     history = load("agent/loop/history.lua"),
     summary = load("agent/loop/summary.lua"),
+    expect = load("agent/loop/expect.lua"),
     text = load("agent/text.lua"),
     client = Client,
     json = { encode = Client.Chat.encode, decode = json.decode },

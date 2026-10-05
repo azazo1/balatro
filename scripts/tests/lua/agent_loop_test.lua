@@ -1042,6 +1042,90 @@ do -- expect 不进端点参数, 但留在转录里.
   check("转录里保留了 expect 与核对结果", logged and logged.expect and logged.expect.hand == "Pair" and logged.ok == true)
 end
 
+do -- 真实接线: 只替换游戏和网络边界, 模块加载与 driver 依赖由 builtin.install 自己完成.
+  local gs, installed, callbacks = hand_state(), nil, nil
+  local calls, entries = {}, {}
+  local function noop() end
+  local client = {
+    init = function() return true end,
+    backend = function() return "test" end,
+    Chat = { encode = json.encode },
+    start = function(_, _, _, cb)
+      callbacks = cb
+      return { update = noop, cancel = noop }
+    end,
+  }
+  local globals = setmetatable({
+    G = { GAME = {}, hand = { cards = gs.hand.cards, config = { highlighted_limit = 5 } } },
+    BB_OVERLAY = { kind = function() return nil end, menu_open = function() return false end, animating = function() return false end },
+    love = {
+      timer = { getTime = function() return 0 end },
+      filesystem = {
+        createDirectory = noop,
+        append = function(_, line) entries[#entries + 1] = json.decode(line) end,
+      },
+    },
+    sendInfoMessage = noop, sendErrorMessage = noop, sendWarnMessage = noop, sendDebugMessage = noop,
+  }, { __index = _G })
+  globals.SMODS = { load_file = function(path, mod)
+    if mod == "balatrobot" and path == "agent/llm/client.lua" then return function() return client end end
+    local chunk, err = loadfile("mods/" .. mod .. "/" .. path)
+    if chunk then setfenv(chunk, globals) end
+    return chunk, err
+  end }
+  local chunk = assert(loadfile(DIR .. "builtin.lua"))
+  local builtin = setfenv(chunk, globals)()
+  local config = { builtin_backend = "llm", llm = { model = "test" } }
+  local runner = {
+    on_state = {}, set_driver = function(driver) installed = driver end,
+    set_phase = noop, note_request = noop, add_usage = noop,
+  }
+  local server = { send_response = noop }
+  local dispatcher = { endpoints = {} }
+  dispatcher.dispatch = function(request)
+    calls[#calls + 1] = request
+    server.send_response(gs)
+  end
+  builtin.install({
+    mod = { path = "mods/balatrobot/", config = config }, runner = runner,
+    stream = { begin_request = noop, push = noop, reset = noop, finish = noop,
+      show_error = noop, clear = noop, show_status = noop },
+    server = server, dispatcher = dispatcher,
+    gamestate = { get_gamestate = function() return gs end },
+  })
+  check("真实 builtin 安装完成并注册 driver", installed ~= nil and builtin.driver.state == "stopped")
+  for _, backend in ipairs({ "decision", "hybrid", "llm" }) do
+    config.builtin_backend = backend
+    installed.start()
+    check("真实 builtin 可启动 " .. backend, builtin.driver.state == "idle" and runner.backend == backend)
+    if backend ~= "llm" then installed.stop() end
+  end
+  installed.update()
+  check("真实 builtin 启动后向模型发起请求", callbacks ~= nil and builtin.driver.state == "requesting")
+  local function reply(hand)
+    callbacks.on_done({ role = "assistant", tool_calls = {
+      { id = "builtin_" .. hand, type = "function", ["function"] = {
+        name = "play", arguments = json.encode({ cards = { 0, 1 }, expect = { hand = hand } }),
+      } },
+    } }, { prompt_tokens = 1, completion_tokens = 1 })
+    installed.update()
+  end
+  reply("Pair") -- 当前是 H_A 与 S_T, 实际为高牌, 通过 capabilities 的预览回调校验.
+  local rejected = entries[#entries]
+  check("真实 builtin 牌型不符时拒绝动作并记录真值",
+    #calls == 0 and rejected.type == "expect" and rejected.ok == false
+      and rejected.reason:find("High Card", 1, true) ~= nil)
+  installed.update() -- acting -> idle
+  installed.update() -- 发起下一次请求
+  reply("High Card")
+  local accepted
+  for _, entry in ipairs(entries) do if entry.type == "expect" then accepted = entry end end
+  check("真实 builtin 牌型相符时执行且不把 expect 发给端点",
+    #calls == 1 and calls[1].method == "play" and calls[1].params.expect == nil
+      and accepted and accepted.ok == true)
+  installed.stop()
+end
+
 if failures > 0 then
   print(failures .. " failed")
   os.exit(1)
