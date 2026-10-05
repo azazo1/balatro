@@ -775,7 +775,7 @@ fn pip_reading_jokers_pay_for_the_right_cards() {
     assert_eq!(single("j_scary_face", "C_T"), (5.0 + 10.0, 1.0), "10 不是人头牌");
 }
 
-/// 钢铁小丑 (看手里的钢铁牌) 与蓝色小丑 (看牌堆张数).
+/// 钢铁小丑看整副存活牌中的钢铁牌, 蓝色小丑看摸牌堆张数.
 #[test]
 fn steel_and_blue_jokers_read_the_board() {
     use balatro_engine::cards::{CardInstance, Enhancement};
@@ -783,7 +783,7 @@ fn steel_and_blue_jokers_read_the_board() {
 
     let pair = ["C_5", "D_5"].map(card);
 
-    // 钢铁小丑: 手里一张钢铁牌 -> 倍率乘 1.2.
+    // 整副存活牌中有一张钢铁牌, 无论它是否位于手牌区都提供 x1.2.
     let mut jokers = [Joker::new("j_steel_joker").expect("有这张")];
     let mut steel = CardInstance::from_key("H_7").expect("能造出牌");
     steel.set_enhancement(Enhancement::Steel);
@@ -791,7 +791,7 @@ fn steel_and_blue_jokers_read_the_board() {
         &pair,
         &[steel.to_hand_card()],
         &table(),
-        &EvalEnv::default(),
+        &EvalEnv { deck_steels: 1, ..EvalEnv::default() },
         BackEffect::Plain,
         &mut jokers,
     )
@@ -1209,7 +1209,7 @@ fn photograph_pays_for_the_first_face_card_only() {
     assert_eq!(none.mult, 4.0, "没有人头牌就不给");
 }
 
-/// 花盆: **参与计分的牌**凑齐四种花色时乘三倍; 百搭牌不算数.
+/// 花盆: 参与计分的牌凑齐四种花色时乘三倍, 百搭牌逐张补缺失花色.
 #[test]
 fn flower_pot_needs_all_four_suits_scoring() {
     // 顺子跨四种花色: S / H / D / C 各一张.
@@ -1226,12 +1226,12 @@ fn flower_pot_needs_all_four_suits_scoring() {
         .expect("同花能识别");
     assert_eq!(same.mult, 4.0, "同花只有一种花色, 不给");
 
-    // 百搭牌不算任何一种花色 (游戏那边显式跳过它), 所以换成百搭就凑不齐了.
+    // 三种非百搭花色先占位, 百搭牌再补缺少的梅花.
     let mut rainbow = ["S_5", "H_6", "D_7", "C_8", "S_9"].map(card);
     rainbow[3].wild = true;
     let with_wild = score_play(&rainbow, &table(), &EvalEnv::default(), BackEffect::Plain, &mut jokers)
         .expect("顺子能识别");
-    assert_eq!(with_wild.mult, 4.0, "梅花那张成了百搭, 就不齐了");
+    assert_eq!(with_wild.mult, 12.0, "百搭补梅花后仍满足四花色");
 }
 
 /// 提靴带: 每满五块钱给 +2 倍率, 不满五块的部分不算.
@@ -1695,27 +1695,23 @@ fn jokers_with_values_inside_extra_are_not_silent_noops() {
     );
 }
 
-/// 小不点 (Wee Joker): 每张**计分的 2** 长 8 点, 而且成长要到**下一手**才付账.
-///
-/// 顺序不能反: 游戏里手牌级的付账在逐张计分**之前**跑, 所以这一手的成长影响下一手.
+/// 小不点在逐张计分阶段成长, 主效果使用本手已经增长的筹码.
+/// 补丁树 Card:calculate_joker 的 individual 先于 joker_main.
 #[test]
-fn wee_grows_on_scored_twos_and_pays_next_hand() {
+fn wee_grows_on_scored_twos_and_pays_the_same_hand() {
     let twos = ["C_2", "D_2"].map(card);
     let mut jokers = [Joker::new("j_wee").expect("有这张")];
 
-    // 第一手: 成长值还是 0 (`extra.chips` 的初值是 **0**, 不是 8 —— 8 是"每次长多少").
-    // 所以这一手只拿牌自己的筹码 (对子 10 + 两张 2 的点数 4).
+    // 初值为 0, 两张计分的 2 在本手各增长 8 筹码.
     let first = score_play(&twos, &table(), &EvalEnv::default(), BackEffect::Plain, &mut jokers)
         .expect("能识别牌型");
-    assert_eq!(first.chips, 10.0 + 4.0, "成长值为 0 时不额外给筹码");
+    assert_eq!(first.chips, 10.0 + 4.0 + 16.0);
+    assert_eq!(jokers[0].chips, 16.0);
 
-    // 两张 2 都计分了, 所以长 16 点.
-    assert_eq!(jokers[0].chips, 16.0, "两张 2 各长 8 点");
-
-    // 第二手才付账.
     let second = score_play(&twos, &table(), &EvalEnv::default(), BackEffect::Plain, &mut jokers)
         .expect("能识别牌型");
-    assert_eq!(second.chips, 10.0 + 4.0 + 16.0, "下一手才付成长后的 16 点");
+    assert_eq!(second.chips, 10.0 + 4.0 + 32.0);
+    assert_eq!(jokers[0].chips, 32.0);
 }
 
 /// 城堡 (Castle): 弃掉**那一回合盯的花色**就长 3 点筹码; 别的花色不长.
@@ -2269,10 +2265,10 @@ fn vampire_drains_enhancements_before_scoring() {
 
     assert!(enhanced_without, "没有吸血鬼时强化还在");
     assert!(!enhanced_with, "有吸血鬼时强化被吸走");
-    assert!(
-        drained > plain,
-        "吸走之后这一手的倍率该更高 ({drained} vs {plain})"
-    );
+    // 去掉倍率牌的 +4 后, 高牌基础倍率 1 乘吸血鬼本手成长的 1.1.
+    // 成长不是保证本手分数更高, 更不能保留被剥除的强化效果.
+    assert_eq!(plain, 5.0);
+    assert!((drained - 1.1).abs() < 1e-9);
 }
 
 /// 全息图: 每有一张牌进牌堆就涨 0.25 乘倍率 (游戏钩的是"牌进了牌堆"这件事).
@@ -2542,53 +2538,32 @@ fn lucky_cat_grows_on_every_successful_lucky_trigger() {
     assert!(grown < 30, "也总该有没触发的 —— 否则上面那半断言等于没测");
 }
 
-/// 大理石与 DNA 往牌堆里加的牌要落在**牌堆底**, 不是牌堆顶.
-///
-/// # 为什么这条要单独钉
-///
-/// 游戏的 `CardArea:emplace` 对**牌堆**是特例 —— `G.deck.config.type` 是 `'deck'`, 于是它走
-/// `table.insert(self.cards, 1, card)` 那一支 (插到数组头部), 而抽牌 (`remove_card`) 取的是尾部.
-/// 两下一合: **新加的牌落在牌堆最底下, 最后才被抽到**.
-///
-/// 引擎这边数组下标 0 就是游戏的下标 1 (洗牌那条对拍测试钉住的), 所以"插到牌堆底"就是
-/// `insert(0)`. 这条曾经写成 `push` (等于插到牌堆顶), 后果是**这一回合刚加的牌在下一次补牌时
-/// 立刻被抽上来** —— 手牌内容当场就不对了.
-///
-/// **录像覆盖不到它**: 十九份录像里大理石只在商店货架上出现过, 一次都没进过队, 所以这个效果
-/// 从没触发过. 这类分支只能靠单测钉住.
+/// 大理石在 setting_blind 创建新牌, 然后新牌参与 nr 洗牌与首次发牌.
+/// 源码顺序是 state_events:280 set_blind, :282 setting_blind, :291 shuffle.
+/// 插入牌堆底是创建瞬间的规则, 不能要求随后洗牌的新牌仍位于下标 0.
 #[test]
-fn cards_added_to_the_deck_go_to_the_bottom() {
+fn marble_created_at_setting_blind_participates_in_round_shuffle() {
     use balatro_engine::run::RunState;
-    use balatro_engine::scoring::{BackEffect, EvalEnv};
 
     let mut run = RunState::new("ALEEB", 8);
     run.start_run();
-    run.jokers.push(Joker::new("j_marble").expect("有这张"));
+    let mut expected_deck = run.deck.clone();
+    let mut oracle = run.rng.clone();
+    run.add_joker(Joker::new("j_marble").expect("有这张"));
     common::place_blind(&mut run);
 
-    // 石头牌就是刚加进来的那一张.
-    let index = run
-        .deck
-        .iter()
-        .position(|card| card.is_stone())
-        .expect("大理石该给一张石头牌");
-    assert_eq!(
-        index,
-        0,
-        "新加的牌在下标 {index}, 应当在 0 (牌堆底) —— 下标 0 是游戏的下标 1, \
-         而牌堆是**插头部、抽尾部**, 所以新牌落在最底下"
-    );
-    assert!(
-        !run.deck.last().expect("牌堆非空").is_stone(),
-        "新加的牌跑到牌堆顶了, 下一次补牌就会立刻抽到它"
-    );
-
-    // 出牌会补牌 —— 补上来的不该是那张石头牌 (它还在最底下).
-    run.play(&[0, 1, 2, 3, 4], &EvalEnv::default(), BackEffect::Plain)
-        .expect("能出牌");
-    assert!(
-        !run.hand.iter().any(|card| card.is_stone()),
-        "补牌把堆底那张石头牌抽上来了 —— 说明插的位置是牌堆顶. 实际手牌: {}",
-        common::hand_keys(&run)
-    );
+    // 新牌的具体 front 由独立生成回归验证, 此处只重建它进入 nr 洗牌的时机.
+    let new_stones: Vec<_> = run.deck.iter().chain(run.hand.iter())
+        .filter(|card| card.is_stone()).copied().collect();
+    assert_eq!(new_stones.len(), 1);
+    expected_deck.insert(0, new_stones[0]);
+    balatro_engine::lua::table_sort::sort_by(&mut expected_deck, |a, b| a.card.sort_id < b.card.sort_id);
+    oracle.pseudoshuffle(&mut expected_deck, "nr1");
+    let mut expected_hand: Vec<_> = (0..8).map(|_| expected_deck.pop().unwrap()).collect();
+    assert_eq!(run.deck, expected_deck, "新石头牌应参与回合洗牌, 剩余牌堆顺序完整匹配");
+    // 手牌另按当前展示规则排序, 所以这里比较身份与状态的多重集而非展示顺序.
+    let mut actual_hand = run.hand.clone();
+    actual_hand.sort_by_key(|card| card.card.sort_id);
+    expected_hand.sort_by_key(|card| card.card.sort_id);
+    assert_eq!(actual_hand, expected_hand);
 }

@@ -164,7 +164,7 @@ impl HandCard {
 
     /// `Card:get_nominal()`, 只用于挑高牌.
     pub fn nominal(&self) -> f64 {
-        self.card.nominal()
+        self.card.nominal_with_stone(self.stone)
     }
 
     /// `Card:is_suit(suit, nil, true)`, 即同花判定用的那一种.
@@ -215,6 +215,8 @@ pub struct EvalEnv {
     pub deck_nines: usize,
     pub planets_used: usize,
     pub discards_used: i64,
+    /// Boss 本手实际触发效果, 斗牛士在主效果阶段依此给钱.
+    pub boss_triggered: bool,
     /// 燧石 (The Flint) 生效: 牌型的基础筹码与倍率各砍一半.
     pub flint: bool,
     /// 上古小丑这一回合盯的花色. 计分引擎要用它给那种花色的牌加乘倍率.
@@ -230,6 +232,8 @@ pub struct EvalEnv {
     pub deck_total: usize,
     pub deck_stones: usize,
     pub deck_enhanced: usize,
+    /// 整副存活牌中的钢铁牌数, 钢铁小丑在主效果读取.
+    pub deck_steels: usize,
     /// 开局那副牌有多少张 (`G.GAME.starting_deck_size`). 侵蚀要比它.
     pub starting_deck_size: usize,
     /// 这一回合还剩几次出牌. 杂技演员要它 (最后一手才算), 而且要在**减过之后**读.
@@ -285,12 +289,14 @@ pub fn evaluate_poker_hand(hand: &[HandCard], env: &EvalEnv) -> EvaluatedHand {
     };
 
     if !five.is_empty() && !flush.is_empty() {
-        out.groups[PokerHand::FlushFive.index()] = five.clone();
+        let merged = five.iter().chain(flush.iter()).fold(Vec::new(), |merged, group| concat_groups(&merged, group));
+        out.groups[PokerHand::FlushFive.index()] = vec![merged];
         out.top = out.top.or(Some(PokerHand::FlushFive));
     }
 
-    if !three.is_empty() && !two.is_empty() && !flush.is_empty() {
-        out.groups[PokerHand::FlushHouse.index()] = vec![concat_groups(&three[0], &two[0])];
+    if !three.is_empty() && two.len() >= 2 && !flush.is_empty() {
+        let all_pairs = two.iter().fold(Vec::new(), |merged, group| concat_groups(&merged, group));
+        out.groups[PokerHand::FlushHouse.index()] = vec![concat_groups(&all_pairs, &flush[0])];
         out.top = out.top.or(Some(PokerHand::FlushHouse));
     }
 
@@ -300,13 +306,8 @@ pub fn evaluate_poker_hand(hand: &[HandCard], env: &EvalEnv) -> EvaluatedHand {
     }
 
     if !flush.is_empty() && !straight.is_empty() {
-        // 同花组在前, 再补上顺子里不在同花组中的牌: 是两组 4 张牌的并集.
-        let mut merged = flush[0].clone();
-        for &idx in &straight[0] {
-            if !merged.contains(&idx) {
-                merged.push(idx);
-            }
-        }
+        // SMODS 合并全部顺子组和同花组. 四指允许组的成员不完全相同.
+        let merged = straight.iter().chain(flush.iter()).fold(Vec::new(), |merged, group| concat_groups(&merged, group));
         out.groups[PokerHand::StraightFlush.index()] = vec![merged];
         out.top = out.top.or(Some(PokerHand::StraightFlush));
     }
@@ -316,8 +317,8 @@ pub fn evaluate_poker_hand(hand: &[HandCard], env: &EvalEnv) -> EvaluatedHand {
         out.top = out.top.or(Some(PokerHand::FourOfAKind));
     }
 
-    if !three.is_empty() && !two.is_empty() {
-        out.groups[PokerHand::FullHouse.index()] = vec![concat_groups(&three[0], &two[0])];
+    if !three.is_empty() && two.len() >= 2 {
+        out.groups[PokerHand::FullHouse.index()] = vec![two.iter().fold(Vec::new(), |merged, group| concat_groups(&merged, group))];
         out.top = out.top.or(Some(PokerHand::FullHouse));
     }
 
@@ -336,11 +337,9 @@ pub fn evaluate_poker_hand(hand: &[HandCard], env: &EvalEnv) -> EvaluatedHand {
         out.top = out.top.or(Some(PokerHand::ThreeOfAKind));
     }
 
-    // 两对: 恰好两个对子, 或者一个三条加一个对子 (后者是葫芦, 也算两对).
-    if two.len() == 2 || (three.len() == 1 && two.len() == 1) {
-        let first = &two[0];
-        let second = if two.len() >= 2 { &two[1] } else { &three[0] };
-        out.groups[PokerHand::TwoPair.index()] = vec![concat_groups(first, second)];
+    // SMODS 的 _2 包含所有不少于 2 张的同点数组. 两对合并全部这样的组.
+    if two.len() >= 2 {
+        out.groups[PokerHand::TwoPair.index()] = vec![two.iter().fold(Vec::new(), |merged, group| concat_groups(&merged, group))];
         out.top = out.top.or(Some(PokerHand::TwoPair));
     }
 
@@ -354,40 +353,24 @@ pub fn evaluate_poker_hand(hand: &[HandCard], env: &EvalEnv) -> EvaluatedHand {
         out.top = out.top.or(Some(PokerHand::HighCard));
     }
 
-    // 包含回填. 顺序不能换: 四条可能刚被五条覆盖, 三条又取四条, 对子再取三条.
-    inherit(&mut out.groups, PokerHand::FiveOfAKind, PokerHand::FourOfAKind, 4);
-    inherit(&mut out.groups, PokerHand::FourOfAKind, PokerHand::ThreeOfAKind, 3);
-    inherit(&mut out.groups, PokerHand::ThreeOfAKind, PokerHand::Pair, 2);
+    // 不再沿用原版包含回填. SMODS 的 >= 分组已直接提供三条/对子等子结果.
 
     out
 }
 
 fn concat_groups(a: &[usize], b: &[usize]) -> Vec<usize> {
-    let mut v = Vec::with_capacity(a.len() + b.len());
-    v.extend_from_slice(a);
-    v.extend_from_slice(b);
-    v
-}
-
-/// 把 `from` 的前 `take` 组搬到 `to`, 只在 `from` 非空时覆盖.
-fn inherit(
-    groups: &mut [Vec<Vec<usize>>; 12],
-    from: PokerHand,
-    to: PokerHand,
-    take: usize,
-) {
-    let src = groups[from.index()].clone();
-    if src.is_empty() {
-        return;
+    let mut v = a.to_vec();
+    for index in b {
+        if !v.contains(index) { v.push(*index); }
     }
-    groups[to.index()] = (0..take).filter_map(|k| src.get(k).cloned()).collect();
+    v
 }
 
 /// `get_flush`: 按 黑桃 / 红桃 / 梅花 / 方片 的顺序找首个够张数的同花组.
 fn get_flush(hand: &[HandCard], env: &EvalEnv) -> Vec<Vec<usize>> {
     const ORDER: [Suit; 4] = [Suit::Spades, Suit::Hearts, Suit::Clubs, Suit::Diamonds];
     let need = if env.four_fingers { 4 } else { 5 };
-    if hand.len() > 5 || hand.len() < need {
+    if hand.len() < need {
         return Vec::new();
     }
     for suit in ORDER {
@@ -404,58 +387,46 @@ fn get_flush(hand: &[HandCard], env: &EvalEnv) -> Vec<Vec<usize>> {
     Vec::new()
 }
 
-/// `get_straight`.
-///
-/// `j = 1` 时看的是点数 14 (A), 这样 `A,2,3,4,5` 也能连上; `j` 走到 14 时再看一次 A,
-/// 于是 `10,J,Q,K,A` 同样成立. 捷径的跳过点也只允许一个, 且不允许发生在 `j = 14`,
-/// 所以 A 不能首尾环绕.
+/// SMODS 的点数图路径. 捷径可跨一个点数, A 可作开头或结尾但不能中途环绕.
 fn get_straight(hand: &[HandCard], env: &EvalEnv) -> Vec<Vec<usize>> {
     let need = if env.four_fingers { 4 } else { 5 };
-    if hand.len() > 5 || hand.len() < need {
-        return Vec::new();
-    }
-
+    if hand.len() < need { return Vec::new(); }
     let mut by_id: [Vec<usize>; 15] = std::array::from_fn(|_| Vec::new());
-    for (i, card) in hand.iter().enumerate() {
-        if let Some(id) = card.id()
-            && id > 1
-            && id < 15
-        {
-            by_id[id as usize].push(i);
-        }
+    for (index, card) in hand.iter().enumerate() {
+        if let Some(id) = card.id() { by_id[id as usize].push(index); }
     }
-
-    let mut picked: Vec<usize> = Vec::new();
-    let mut length = 0usize;
-    let mut found = false;
-    let mut skipped = false;
-    for j in 1..=14usize {
-        let id = if j == 1 { 14 } else { j };
-        if !by_id[id].is_empty() {
-            length += 1;
-            skipped = false;
-            picked.extend_from_slice(&by_id[id]);
-        } else if env.shortcut && !skipped && j != 14 {
-            skipped = true;
-        } else {
-            length = 0;
-            skipped = false;
-            if !found {
-                picked.clear();
+    let mut tuples: Vec<Vec<usize>> = (2..=14).filter(|rank| !by_id[*rank].is_empty()).map(|rank| vec![rank]).collect();
+    let mut result = Vec::new();
+    for length in 2..=hand.len() + 1 {
+        let mut next_tuples = Vec::new();
+        for tuple in tuples {
+            let last = *tuple.last().unwrap();
+            let mut next_ranks = Vec::new();
+            if length <= hand.len() && (last != 14 || length == 2) {
+                let next = if last == 14 { 2 } else { last + 1 };
+                next_ranks.push(next);
+                if env.shortcut && next != 14 { next_ranks.push(next + 1); }
             }
-            if found {
-                break;
+            let mut extended = false;
+            for next in next_ranks {
+                if !by_id[next].is_empty() {
+                    let mut next_tuple = tuple.clone();
+                    next_tuple.push(next);
+                    next_tuples.push(next_tuple);
+                    extended = true;
+                }
+            }
+            if !extended && tuple.len() >= need {
+                result.push(tuple.iter().flat_map(|rank| by_id[*rank].iter().copied()).collect::<Vec<_>>());
             }
         }
-        if length >= need {
-            found = true;
-        }
+        tuples = next_tuples;
     }
-
-    if found { vec![picked] } else { Vec::new() }
+    result.sort_by_key(|group| std::cmp::Reverse(group.len()));
+    result
 }
 
-/// `get_X_same`: 找恰好 `num` 张的同点数组, 从大点数到小点数返回.
+/// SMODS 的 `get_X_same(num, hand, true)`: 不少于 `num` 张, 大点数组在前.
 fn get_x_same(num: usize, hand: &[HandCard]) -> Vec<Vec<usize>> {
     let mut by_id: [Option<Vec<usize>>; 15] = std::array::from_fn(|_| None);
     for i in (0..hand.len()).rev() {
@@ -466,7 +437,7 @@ fn get_x_same(num: usize, hand: &[HandCard]) -> Vec<Vec<usize>> {
                 group.push(j);
             }
         }
-        if group.len() == num {
+        if group.len() >= num {
             by_id[id as usize] = Some(group);
         }
     }

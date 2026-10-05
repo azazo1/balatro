@@ -265,11 +265,13 @@ pub struct RoundEval {
     pub interest: f64,
     /// 手牌在回合末给的钱 (黄金牌与金封各三块).
     pub card_bonus: f64,
+    /// 已满足条件的标签奖金, 例如打过 Boss 后的投资标签.
+    pub tag_bonus: f64,
 }
 
 impl RoundEval {
     pub fn total(&self) -> f64 {
-        self.blind_reward + self.hand_bonus + self.discard_bonus + self.interest + self.card_bonus
+        self.blind_reward + self.hand_bonus + self.discard_bonus + self.interest + self.card_bonus + self.tag_bonus
     }
 }
 

@@ -84,7 +84,7 @@ pub fn voucher_pool(run: &RunState) -> (Vec<String>, String) {
     // 券为什么会在 `used_jokers` 里: 那个表是在 `Card:set_ability` 里按**名字**写的,
     // 与牌是哪一类无关 —— 商店摆出来的券一样会被记进去 (`shop_vouchers` 只挡"这一底正摆着的那张").
     // 于是"上一底见过、没买"的券, 在持有表演者时是**可以**再出现的.
-    let showman = run.jokers.iter().any(|joker| joker.key == "j_ring_master");
+    let showman = run.jokers.iter().any(|joker| joker.key == "j_ring_master" && !joker.debuffed);
     build_pool(starting, "Voucher", run, |proto| {
         // cull 的外层条件: 没上过场 (或者有表演者), 且 (解锁了 或 是传奇).
         ((!run.used_jokers.contains(&proto.id) || showman) && run.unlocked(proto))
@@ -109,6 +109,12 @@ impl RunState {
         self.pick_from_pool(&pool, &pool_key)
     }
 
+    /// `get_next_voucher_key(true)`: 标签覆盖池键, 不附加底注.
+    pub fn next_voucher_key_from_tag(&mut self) -> String {
+        let (pool, _) = voucher_pool(self);
+        self.pick_from_pool(&pool, "Voucher_fromtag")
+    }
+
     /// `get_next_tag_key()`.
     ///
     /// 开局时用小盲注与大盲注各抽一个 ("跳过这个盲注能得到什么标签"), 底注提升时重抽.
@@ -121,10 +127,15 @@ impl RunState {
 
 /// `get_current_pool('Tag')`.
 ///
-/// 标签池几乎不过滤: 原版 24 个标签默认都在里面, 只是被禁用的那些要剔掉.
+/// 标签按最早底注与前置原型的发现状态筛选, 不使用小丑的解锁检查.
 pub fn tag_pool(run: &RunState) -> (Vec<String>, String) {
     let starting = Catalog::get().pool("Tag");
-    build_pool(starting, "Tag", run, |proto| run.unlocked(proto))
+    build_pool(starting, "Tag", run, |proto| {
+        proto.min_ante.is_none_or(|minimum| minimum <= run.ante)
+            && proto.tag_requires.as_deref().is_none_or(|required| {
+                Catalog::get().record(required).is_some_and(|center| run.discovered(center))
+            })
+    })
 }
 
 /// 供测试用: 只做一次抽取, 不重采样, 便于看清池子与下标.

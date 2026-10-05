@@ -157,19 +157,16 @@ fn rarity_tags_force_the_shop_slot() {
         uncommon_card.key
     );
 
-    // 版本标签: 给那张小丑加上版本, 价格也跟着涨.
+    // 稀有度和版本标签生成的商店牌免费, 版本加价不覆盖免费标记.
     let mut foil = aleeb_run();
     foil.tags.push("tag_rare".to_owned());
     foil.tags.push("tag_foil".to_owned());
     let foil_card = create_card_for_shop(&mut foil, &ShopRates::default());
     assert_eq!(foil_card.edition, Some(Edition::Foil), "闪箔标签加了版本");
     assert_eq!(rarity_of(&foil_card.key), Some(3), "稀有度不受版本影响");
-    assert!(
-        foil_card.cost > rare_card.cost,
-        "带版本的要贵一些: {} vs {}",
-        rare_card.cost,
-        foil_card.cost
-    );
+    assert_eq!(rare_card.cost, 0.0);
+    assert_eq!(foil_card.cost, 0.0);
+    assert!(rare_card.couponed && foil_card.couponed);
 }
 
 /// 持有**表演者**时, 用过的小丑还会再出现; 没有它时用过的就不再进池子.

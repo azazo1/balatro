@@ -562,6 +562,16 @@ fn every_recorded_run_replays_step_by_step() {
             .map(|line| Json::parse(line).expect("每行都是一条 JSON"))
             .collect();
 
+        if header.get("uda").is_some() {
+            let report = balatro_engine::replay::check(&header, &steps, false);
+            total_steps += report.matched_digests + report.matched_refusals;
+            if let Some(reason) = report.failure {
+                failures.push(format!("{name} ({seed} {deck} {stake}): {reason}"));
+            } else {
+                passed += 1;
+            }
+            continue;
+        }
         let mut run = RunState::new(seed, stake_of(stake)).with_deck(deck_of(deck));
         run.start_run();
         run.uda = uda_for(seed);

@@ -602,6 +602,7 @@ fn end_of_round_hand_effects_pay_out() {
     run.hand.push(blue);
 
     // 打出一手, 让"最后打出的牌型"有值.
+    let before = run.dollars;
     run.chips = 99_999.0;
     run.play(
         &[0, 1, 2, 3, 4],
@@ -612,7 +613,8 @@ fn end_of_round_hand_effects_pay_out() {
 
     // 打到目标之后 `play` 自己就会走回合收尾, 所以这里不该再调一次 `end_round`.
     let eval = run.round_eval.expect("回合末有结算栏");
-    assert_eq!(eval.card_bonus, 3.0, "黄金牌给三块");
+    assert_eq!(run.dollars, before + 3.0, "黄金牌奖励在结算界面前到账");
+    assert_eq!(eval.card_bonus, 0.0, "黄金牌不重复并入领取奖励");
     assert!(
         run.consumables.iter().any(|card| card.key.starts_with("c_")),
         "蓝封给了一张行星牌: {:?}",
@@ -1064,12 +1066,13 @@ fn hex_and_ectoplasm_add_editions() {
     let editions: Vec<_> = run.jokers.iter().filter_map(|joker| joker.edition).collect();
     assert_eq!(editions, vec![Edition::Negative], "灵质给一张加负片");
 
-    // 都没有版本可加时什么也不做.
+    // 没有可加版本的小丑时不能使用, 拒绝后保留消耗牌.
     let mut run = RunState::new("ALEEB", 8);
     run.start();
     run.consumables.push(balatro_engine::run::consumable::Consumable::plain("c_hex".to_owned()));
-    run.use_consumable(0, &[]).expect("能用");
-    assert!(run.jokers.is_empty(), "一张小丑都没有, 挑了也没处加");
+    assert!(run.use_consumable(0, &[]).is_err());
+    assert!(run.jokers.is_empty());
+    assert_eq!(run.consumables.len(), 1);
 }
 
 /// 光环给第一张选中的牌加版本, 而且用的是"必定出"那一档 —— 所以不该空手而归.

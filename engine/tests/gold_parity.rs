@@ -12,7 +12,7 @@ use balatro_engine::scoring::{BackEffect, EvalEnv, HandTable, score_play};
 fn item(key: &str, cost: f64) -> ShopCard {
     ShopCard {
         key: key.to_owned(), cost, edition: None, eternal: false,
-        perishable: false, rental: false, enhancement: None, todo: None,
+        perishable: false, rental: false, couponed: false, enhancement: None, todo: None,
     }
 }
 

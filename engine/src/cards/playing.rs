@@ -66,14 +66,9 @@ impl Suit {
         }
     }
 
-    /// `base.suit_nominal_original`, 只在按花色排序 (`mod = 'suit'`) 时才起作用.
+    /// Steamodded 的 `base.suit_nominal_original` 与首次花色的当前排序值相同.
     pub fn suit_nominal_original(self) -> f64 {
-        match self {
-            Suit::Diamonds => 0.001,
-            Suit::Clubs => 0.002,
-            Suit::Hearts => 0.003,
-            Suit::Spades => 0.004,
-        }
+        self.suit_nominal()
     }
 
     /// 红桃与方片为红. 模糊小丑按这个把两色合并.
@@ -260,7 +255,7 @@ impl PlayingCard {
         self.nominal_with(false, false)
     }
 
-    /// 按**花色**排时用的那份 (`get_nominal('suit')`): 花色那一项的权重被抬到 1000 倍,
+    /// 按**花色**排时用的那份 (`get_nominal('suit')`): 花色那一项的权重被抬到 10000 倍,
     /// 于是"先看花色, 再看点数". 手牌右上角那个按花色排序的按钮走这条.
     pub fn nominal_suit(self) -> f64 {
         self.nominal_with(true, false)
@@ -268,7 +263,7 @@ impl PlayingCard {
 
     /// `Card:get_nominal(mod = nil | 'suit')`.
     ///
-    /// `mod = 'suit'` 把花色那两项乘 1000; `stone` 则是**石头牌**: 它的 `mult` 是 **-1000**,
+    /// `mod = 'suit'` 把花色那两项乘 10000; `stone` 则是**石头牌**: 它的 `mult` 是 **-10000**,
     /// 于是花色那一项变成一个极大的负数, 石头牌被推到**最后** —— 这不是随手写的, 石头牌本来
     /// 就没有花色与点数 (`ability.effect == 'Stone Card'`), 排序时它不该挤在中间.
     ///
@@ -286,16 +281,16 @@ impl PlayingCard {
 
     fn nominal_with(self, by_suit: bool, stone: bool) -> f64 {
         let mult = if stone {
-            -1000.0
+            -10000.0
         } else if by_suit {
-            1000.0
+            10000.0
         } else {
             1.0
         };
-        self.rank.nominal()
+        10.0 * self.rank.nominal()
             + self.suit.suit_nominal() * mult
             + self.original_suit.suit_nominal_original() * 0.0001 * mult
-            + self.rank.face_nominal()
+            + 10.0 * self.rank.face_nominal()
             + 0.000001 * self.unique_val()
     }
 

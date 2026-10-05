@@ -6,7 +6,7 @@ pub mod poker_hand;
 
 pub use engine::{
     BackEffect, ScoreKind, ScoreResult, ScoreSource, ScoreStep, score_play, score_play_with_creation,
-    score_play_with_held, score_play_with_rng,
+    score_play_with_held, score_play_with_rng, score_play_with_creation_pre_evaluated, scoring_selection,
 };
 pub use hand_levels::{HandInfo, HandLevel, HandTable};
 pub use poker_hand::{EvalEnv, EvaluatedHand, HandCard, PokerHand, evaluate_poker_hand};

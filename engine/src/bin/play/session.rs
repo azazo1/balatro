@@ -34,9 +34,12 @@ pub fn deck_of(name: &str) -> String {
 pub const TEMPLATE: &str = "../recordings/20261003-222131-ALEEB/20261003-222131-ALEEB.replay.json";
 
 fn template_text() -> String {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(TEMPLATE);
-    std::fs::read_to_string(&path)
-        .unwrap_or_else(|error| panic!("读不到模板 {}: {error}", path.display()))
+    let path = std::env::var_os("BALATRO_REPLAY_TEMPLATE")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(TEMPLATE));
+    std::fs::read_to_string(&path).unwrap_or_else(|error| {
+        panic!("读不到模板 {}: {error}; 请用 BALATRO_REPLAY_TEMPLATE 指定一份原始回放", path.display())
+    })
 }
 
 /// 从模板录像里取出 `snapshot.uda`.

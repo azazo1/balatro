@@ -70,6 +70,9 @@ impl Rng {
 
     /// `pseudoseed(key)`: 推进这个 key 的递推值, 返回交给 `math.randomseed` 的浮点数.
     pub fn pseudoseed(&mut self, key: &str) -> f64 {
+        if key == "seed" {
+            return self.random();
+        }
         let current = match self.keys.get(key) {
             Some(v) => *v,
             None => pseudohash(&format!("{key}{}", self.seed)),

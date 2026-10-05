@@ -23,4 +23,5 @@ pub mod lua;
 pub mod data;
 pub mod rng;
 pub mod run;
+pub mod replay;
 pub mod scoring;

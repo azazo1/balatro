@@ -16,7 +16,7 @@
 use crate::data::json::Json;
 use crate::scoring::{EvaluatedHand, HandCard, PokerHand};
 
-use crate::cards::{Rank, Suit};
+use crate::cards::Suit;
 
 /// 小丑触发时机, 对应 `Card:calculate_joker` 收到的 `context`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -92,6 +92,10 @@ pub struct TriggerContext<'a> {
     pub deck_total: usize,
     pub deck_stones: usize,
     pub deck_enhanced: usize,
+    /// 整副存活牌中的钢铁牌数, 钢铁小丑按此计算主效果.
+    pub deck_steels: usize,
+    /// 有生效的模糊小丑时, 红色和黑色各自共享花色判定.
+    pub smeared: bool,
     pub starting_deck_size: usize,
     /// 牌堆里 9 有几张 (9 霄云外要看).
     pub deck_nines: usize,
@@ -99,6 +103,8 @@ pub struct TriggerContext<'a> {
     pub planets_used: usize,
     /// 这一回合弃过几次牌 (延迟满足要看).
     pub discards_used: i64,
+    /// 实际盲注本手设置了 triggered, 斗牛士只在该标志为真时给钱.
+    pub boss_triggered: bool,
     /// 各牌型本局打过的次数 (方尖碑要看: 它比的是"这一手是不是打得最多的那种").
     pub table: &'a crate::scoring::HandTable,
 }
@@ -136,6 +142,7 @@ impl JokerEffect {
             && self.chip_mod == 0.0
             && self.xmult_mod == 0.0
             && self.dollars == 0.0
+            && self.create_consumable.is_none()
     }
 }
 
@@ -146,7 +153,17 @@ impl TriggerContext<'_> {
         if card.debuffed {
             return false;
         }
-        card.card.rank.is_face() || self.pareidolia
+        (!card.stone && card.card.rank.is_face()) || self.pareidolia
+    }
+
+    /// 游戏的效果花色判定. 花盆的非百搭阶段可以忽略削弱, 但石头牌始终无花色.
+    pub fn is_suit(&self, card: &HandCard, suit: Suit, bypass_debuff: bool) -> bool {
+        if card.stone || (card.debuffed && !bypass_debuff) {
+            return false;
+        }
+        card.wild
+            || card.card.suit == suit
+            || (self.smeared && card.card.suit.is_red() == suit.is_red())
     }
 
 }
@@ -188,6 +205,8 @@ pub struct Joker {
     pub extra: f64,
     /// 当前基础标价, 折扣与版本变化会重算. 卖价另外加上成长值.
     pub cost: f64,
+    /// 免费标签只清零商店的购买价, 持有区仍按正常成本计算卖价.
+    pub couponed: bool,
     /// 拿到这张牌之后出过几手. 积分卡这类"按次数循环"的小丑要看.
     pub hands_since_gained: u32,
     /// 这张小丑被削弱了吗. 易腐到期就会变成这样, 效果全部停用.
@@ -203,6 +222,8 @@ pub struct Joker {
     pub rental: bool,
     /// 易腐小丑剩下的回合数, 0 表示不是易腐的.
     /// 每回合末减一, 减到 0 就**变成被削弱** (效果全停, 但小丑还在队里).
+    /// 易腐标记在过期后保留, 不能用 tally=0 区分自然小丑与过期小丑.
+    pub perishable: bool,
     pub perish_tally: i64,
     /// 建牌序号, 对应游戏的 `Card.sort_id` (小丑也是 `Card`, 吃的是**同一个**全局计数器).
     ///
@@ -259,11 +280,13 @@ impl Joker {
             },
             // 由调用方按实际标价填, 这里给一个基于原型价的默认值.
             cost: proto.base_cost.unwrap_or(0.0),
+            couponed: false,
             hands_since_gained: 0,
             edition: None,
             debuffed: false,
             eternal: false,
             rental: false,
+            perishable: false,
             perish_tally: 0,
             chips: if matches!(config.get("extra"), Some(Json::Object(_))) {
                 config
@@ -317,12 +340,11 @@ impl Joker {
     ///
     /// 返回的只是给飘字看的说明, 数值本身已经写回 `self`.
     pub fn before(&mut self, ctx: &TriggerContext) -> Option<JokerEffect> {
+        // 积分卡的循环基于持有期间的出牌次数, 削弱期间也推进, 但不产生效果.
+        self.hands_since_gained += 1;
         if self.debuffed {
             return None;
         }
-
-        // 出过的这一手先记上 —— 积分卡按"拿到之后打了几手"循环.
-        self.hands_since_gained += 1;
 
         // 方尖碑: 如果这一手打的是"本局唯一打得最多的牌型"就重置成 1, 否则涨 0.2.
         //
@@ -336,7 +358,10 @@ impl Joker {
             let beaten = crate::scoring::PokerHand::BY_PRIORITY
                 .iter()
                 .filter(|hand| **hand != ctx.hand)
-                .any(|hand| ctx.table.get(*hand).played >= mine);
+                .any(|hand| {
+                    let entry = ctx.table.get(*hand);
+                    entry.visible && entry.played >= mine
+                });
             if beaten {
                 self.x_mult += self.extra_number("extra");
             } else if self.x_mult > 1.0 {
@@ -352,9 +377,9 @@ impl Joker {
                     return Some(JokerEffect::default());
                 }
             }
-            // 绿色小丑: 每次出牌 +1 倍率; 弃牌时的 -1 在 `discard` 分支, 这里不做.
+            // 绿色小丑: 每次出牌增长配置的 hand_add, 弃牌的扣减在 on_discard.
             "j_green_joker" => {
-                self.mult += 1.0;
+                self.mult += self.extra_number("hand_add");
                 return Some(JokerEffect::default());
             }
             // 方形小丑: 打出的牌**正好四张**时 +4 筹码. 注意看的是打出的张数,
@@ -373,9 +398,9 @@ impl Joker {
                     return Some(JokerEffect::default());
                 }
             }
-            // 搭乘巴士: 这手牌里没有面牌就 +1 倍率, 有面牌则一路白费, 直接清零.
+            // 搭乘巴士只看计分牌, 未计分的人头牌不会中断成长.
             "j_ride_the_bus" => {
-                if ctx.has_face_card() {
+                if ctx.scoring.iter().any(|card| ctx.is_face(card)) {
                     self.mult = 0.0;
                 } else {
                     self.mult += self.extra;
@@ -386,26 +411,38 @@ impl Joker {
         None
     }
 
-    /// 弃牌时 (`context.discard`).
-    ///
-    /// - 绿色小丑: 每次弃牌掉 1 点倍率;
-    /// - 城堡: 弃掉的牌里**有那一回合盯的花色**就长大一次 (`chip_mod` 点筹码).
-    ///
-    /// 这两个钩子原来**一次都没被调用过** —— 绿小丑只涨不掉, 城堡整个没实现.
+    /// 弃牌时触发, 此入口按没有模糊小丑处理.
     pub fn on_discard(
         &mut self,
         discarded: &[crate::cards::CardInstance],
         castle_suit: Option<crate::cards::Suit>,
         pareidolia: bool,
     ) {
-        if self.key == "j_green_joker" {
-            self.mult -= 1.0;
+        self.on_discard_with_suits(discarded, castle_suit, pareidolia, false);
+    }
+
+    /// 逐张弃牌效果使用游戏的花色口径, 每次弃牌级效果只触发一次.
+    pub fn on_discard_with_suits(
+        &mut self,
+        discarded: &[crate::cards::CardInstance],
+        castle_suit: Option<crate::cards::Suit>,
+        pareidolia: bool,
+        smeared: bool,
+    ) {
+        if self.debuffed {
+            return;
         }
-        if self.key == "j_castle"
-            && let Some(suit) = castle_suit
-            && discarded.iter().any(|card| card.card.suit == suit)
-        {
-            self.chips += self.extra_number("chip_mod");
+        if self.key == "j_green_joker" {
+            self.mult = (self.mult - self.extra_number("discard_sub")).max(0.0);
+        }
+        if self.key == "j_castle" && let Some(suit) = castle_suit {
+            let matched = discarded.iter().filter(|card| {
+                let view = card.to_hand_card();
+                !view.debuffed && !view.stone
+                    && (view.wild || view.card.suit == suit
+                        || (smeared && view.card.suit.is_red() == suit.is_red()))
+            }).count();
+            self.chips += matched as f64 * self.extra_number("chip_mod");
         }
         // 拉面: 每弃**一张**牌就掉 0.01 倍率 (它自己那个 `x_mult`).
         if self.key == "j_ramen" {
@@ -421,7 +458,7 @@ impl Joker {
         if self.key == "j_hit_the_road" {
             let jacks = discarded
                 .iter()
-                .filter(|card| card.card.rank == crate::cards::Rank::Jack && !card.debuffed)
+                .filter(|card| card.to_hand_card().id() == Some(11) && !card.debuffed)
                 .count();
             self.x_mult += jacks as f64 * self.extra;
         }
@@ -430,7 +467,10 @@ impl Joker {
             // 弃牌这条路拿不到计分那套上下文, 所以帕瑞多利亚的标志单独传进来.
             let faces = discarded
                 .iter()
-                .filter(|card| !card.debuffed && (card.card.rank.is_face() || pareidolia))
+                .filter(|card| {
+                    let view = card.to_hand_card();
+                    !view.debuffed && ((!view.stone && view.card.rank.is_face()) || pareidolia)
+                })
                 .count();
             if faces as f64 >= self.extra_number("faces") {
                 self.faceless_dollars = self.extra_number("dollars");
@@ -454,28 +494,22 @@ impl Joker {
         }
     }
 
-    /// 本轮计分结束后 (`context.after`).
-    ///
-    /// 这里只改**下一轮**要用的值, 所以它相对牌背处理的先后不影响本轮总分.
-    /// 返回 `true` 表示这张小丑用完就没了 (冰淇淋融化, 汽水喝完), 调用方要把它移出持有区.
-    ///
-    /// `_ctx` 目前用不上, 留着是为了与其他几个阶段的签名一致.
-    pub fn after(&mut self, ctx: &TriggerContext) -> bool {
+    /// 逐张计分时成长, 每次重触发都调用. 复制效果不应调用此入口.
+    pub fn grow_on_scored_card(&mut self, card: &HandCard) -> bool {
+        if self.debuffed || card.debuffed || self.key != "j_wee" || card.id() != Some(2) {
+            return false;
+        }
+        self.chips += self.extra_number("chip_mod");
+        true
+    }
+
+    /// 本轮计分结束后处理冰淇淋和汽水的消耗.
+    /// 返回 true 表示本轮计分之后销毁这张小丑.
+    pub fn after(&mut self, _ctx: &TriggerContext) -> bool {
         if self.debuffed {
             return false;
         }
         match self.key.as_str() {
-            // 小不点 (Wee Joker): 这一手里**每一张计分的 2** 长 8 点.
-            // 放在 `after` (计分结束之后) 而不是计分之中: 手牌级的付账在计分**之前**跑,
-            // 所以这一手的成长要到**下一手**才付账 —— 先付账后成长, 顺序不能反.
-            "j_wee" => {
-                let twos = ctx
-                    .scoring
-                    .iter()
-                    .filter(|card| card.card.rank == crate::cards::Rank::Two)
-                    .count();
-                self.chips += twos as f64 * self.extra_number("chip_mod");
-            }
             // 冰淇淋: 每回合融 5 点, 融到 0 就没了.
             // 注意先判自毁再减, 所以最后剩下的那 5 点仍然算在最后一次计分里.
             "j_ice_cream" => {
@@ -521,7 +555,7 @@ impl Joker {
     /// 所以最终的倍数与队里有几张符合条件的有关.
     pub fn other_joker(&self, other: &Joker) -> Option<JokerEffect> {
         // 调用方已经排除了"自己看自己", 这里不用再判一次.
-        if self.key != "j_baseball" {
+        if self.debuffed || self.key != "j_baseball" {
             return None;
         }
         // 棒球卡: 队里每张**罕见** (2 级) 小丑让倍率乘 1.5.
@@ -542,7 +576,7 @@ impl Joker {
     /// 游戏那边先把"每张小丑给几次"收成一个列表, 再把整段逐卡效果重跑那么多次, 所以这里
     /// 返回的是**额外**次数 (不含那张牌本身那一次). 红封给的那一次在牌上, 不在这里.
     pub fn retrigger(&self, card: &HandCard, ctx: &TriggerContext) -> u32 {
-        if self.debuffed {
+        if self.debuffed || card.debuffed {
             return 0;
         }
         let extra = self.extra.max(0.0) as u32;
@@ -550,19 +584,12 @@ impl Joker {
             // 袜子与巴斯金: 人头牌多算一遍.
             "j_sock_and_buskin" if ctx.is_face(card) => extra,
             // 烂脱口秀演员: 点数 2 / 3 / 4 / 5 的牌多算一遍.
-            "j_hack"
-                if matches!(
-                    card.card.rank,
-                    Rank::Two | Rank::Three | Rank::Four | Rank::Five
-                ) =>
-            {
-                extra
-            }
+            "j_hack" if matches!(card.id(), Some(2..=5)) => extra,
             // 黄昏: 这一回合**最后一手**里每张牌都多算一遍.
-            "j_dusk" if ctx.hands_left <= 0 => extra,
+            "j_dusk" if ctx.hands_left == 0 => extra,
             // 挂账: 只有这一手里的**第一张**计分牌多算一遍.
             "j_hanging_chad" => {
-                if ctx.scoring.first().is_some_and(|view| view.card == card.card) {
+                if ctx.scoring.first().is_some_and(|view| std::ptr::eq(view, card)) {
                     extra
                 } else {
                     0
@@ -574,11 +601,23 @@ impl Joker {
         }
     }
 
+    /// 模仿提供手牌效果的额外重触发次数. 调用方先确认该牌本轮有可重触发效果.
+    /// 同一入口可用于计分手牌和回合末黄金牌/蓝封效果.
+    pub fn held_repetitions(&self, card: &HandCard, _ctx: &TriggerContext) -> u32 {
+        if self.debuffed || card.debuffed || self.key != "j_mime" {
+            return 0;
+        }
+        self.extra.max(0.0) as u32
+    }
+
     /// 回合末那几张自己的事 (`context.end_of_round`). 返回 `true` 表示这张小丑就此销毁.
     ///
     /// 与 [`Joker::after`] 的区别在**频率**: `after` 是**每出一手**就跑 (冰淇淋),
     /// 这个是**每回合末**跑一次 (大麦克的销毁骰, 爆米花的退化).
     pub fn end_of_round_effect(&mut self, rng: &mut crate::rng::Rng, probability_scale: f64) -> bool {
+        if self.debuffed {
+            return false;
+        }
         // 蛋: 每过一个回合给自己涨一点**卖出价** (不是筹码, 是卖掉时多拿的钱).
         if self.key == "j_egg" {
             self.extra_value += self.extra;
@@ -599,14 +638,12 @@ impl Joker {
         if self.key == "j_hit_the_road" && self.x_mult > 1.0 {
             self.x_mult = 1.0;
         }
-        if self.debuffed {
-            return false;
-        }
         match self.key.as_str() {
-            // 大麦克: 每回合末掷 1/6, 中了就烂掉 (掷中的那次它已经给过这一回合的倍率了).
-            "j_gros_michel" => {
+            // 大麦克和醋栗各自使用独立的回合末销毁骰.
+            "j_gros_michel" | "j_cavendish" => {
                 let odds = self.extra_number("odds");
-                odds > 0.0 && rng.pseudorandom("gros_michel") < probability_scale / odds
+                let key = if self.key == "j_cavendish" { "cavendish" } else { "gros_michel" };
+                odds > 0.0 && rng.pseudorandom(key) < probability_scale / odds
             }
             // 爆米花: 每回合末掉 4 点倍率, 掉到 0 就没了.
             "j_popcorn" => {
@@ -618,6 +655,27 @@ impl Joker {
                 false
             }
             _ => false,
+        }
+    }
+
+    /// Boss 回合末的本体成长与重置. 调用方只在 Boss 结算时调用一次,
+    /// 且须在本次易腐到期之前运行, 不能为蓝图或头脑风暴重复成长.
+    pub fn end_of_round_boss_effects(&mut self) {
+        if self.debuffed {
+            return;
+        }
+        match self.key.as_str() {
+            "j_rocket" => {
+                let increase = self.extra_number("increase");
+                if let Json::Object(config) = &mut self.config
+                    && let Some((_, Json::Object(extra))) = config.iter_mut().find(|(key, _)| key == "extra")
+                    && let Some((_, Json::Number(dollars))) = extra.iter_mut().find(|(key, _)| key == "dollars")
+                {
+                    *dollars += increase;
+                }
+            }
+            "j_campfire" if self.x_mult > 1.0 => self.x_mult = 1.0,
+            _ => {}
         }
     }
 
@@ -657,18 +715,10 @@ impl Joker {
         ctx: &TriggerContext,
         rng: &mut crate::rng::Rng,
     ) -> Option<JokerEffect> {
+        if self.debuffed || other.debuffed {
+            return None;
+        }
         match self.key.as_str() {
-            // 模仿: 把手里这张牌**自己的**效果再触发一次 —— 实现上就是把它那个乘倍率再乘一遍.
-            // 手里牌的效果主要就是钢铁牌那一类 (×1.5), 照这样再乘一次正好是 ×1.5 两次.
-            "j_mime" => {
-                let again = other.h_x_mult();
-                if again > 0.0 {
-                    return Some(JokerEffect {
-                        xmult_mod: again,
-                        ..JokerEffect::default()
-                    });
-                }
-            }
             // 预留车位: 手里每张**人头牌**各掷一次 (键 `parking`, 概率 1/odds), 中了给一块.
             // 位置就在"手牌那一趟", 与游戏一致; 而且**先看牌面再掷** —— 顺序反了随机序列就错.
             "j_reserved_parking" => {
@@ -687,7 +737,7 @@ impl Joker {
             }
             // 射月: 手里每张 Q 给 +13 倍率.
             "j_shoot_the_moon" => {
-                if other.card.rank == Rank::Queen && !other.debuffed {
+                if other.id() == Some(12) {
                     return Some(JokerEffect {
                         mult_mod: self.extra,
                         ..JokerEffect::default()
@@ -696,30 +746,18 @@ impl Joker {
             }
             // 男爵: 手里每张 K 给 x1.5.
             "j_baron" => {
-                if other.card.rank == Rank::King && !other.debuffed {
+                if other.id() == Some(13) {
                     return Some(JokerEffect {
                         xmult_mod: self.extra,
                         ..JokerEffect::default()
                     });
                 }
             }
-            // 钢铁小丑: 手里每张钢铁牌让倍率乘 1.2 (即 `1 + 0.2 x 张数`).
-            // 它看的是**手里**的钢铁牌, 所以走这一阶段而不是主效果.
-            "j_steel_joker" => {
-                if other.h_x_mult > 0.0 {
-                    return Some(JokerEffect {
-                        xmult_mod: 1.0 + self.extra,
-                        ..JokerEffect::default()
-                    });
-                }
-            }
-            // 致胜之拳: 只有手里**点数最小**的那张给 "两倍点数" 的倍率.
-            //
-            // 游戏那边是从头扫一遍, 只在"更小"时替换, 所以同点数时留下的是靠左的那张;
-            // 石头牌被排除在外 (它没有点数).
+            // 致胜之拳同点数时选最右的一张, 该牌削弱时不改选其他同点数牌.
             "j_raised_fist" => {
                 let smallest = held
                     .iter()
+                    .rev()
                     .filter(|card| !card.stone)
                     .min_by(|a, b| a.card.rank.pip().cmp(&b.card.rank.pip()))?;
                 if std::ptr::eq(smallest, other) && !other.debuffed {
@@ -764,11 +802,14 @@ impl Joker {
         ctx: &TriggerContext,
         rng: &mut crate::rng::Rng,
     ) -> Option<JokerEffect> {
+        if self.debuffed || card.debuffed {
+            return None;
+        }
         match self.key.as_str() {
             // 特里布莱 (传奇): 每张计分的 **K 或 Q** 乘一次倍率 (2 倍).
             // 它在**逐张**那一趟里, 所以打出 K 和 Q 的两对会被乘四次.
             "j_triboulet" => {
-                if matches!(card.card.rank, Rank::King | Rank::Queen) {
+                if matches!(card.id(), Some(12 | 13)) {
                     return Some(JokerEffect {
                         xmult_mod: self.extra,
                         ..JokerEffect::default()
@@ -778,7 +819,7 @@ impl Joker {
             // 血石: 每张**红桃**计分时掷一次 (1/2), 中了乘 1.5 倍.
             // 队里有几张血石就各掷各的, 所以掷骰放在这里 (而不是由调用方预掷).
             "j_bloodstone" => {
-                if card.card.suit == Suit::Hearts {
+                if ctx.is_suit(card, Suit::Hearts, false) {
                     let odds = self.extra_number("odds");
                     if odds > 0.0
                         && rng.pseudorandom("bloodstone") < (1.0 + ctx.probability_extra) / odds
@@ -806,7 +847,7 @@ impl Joker {
             }
             // 璞玉: 每张**方片**计分时给一块钱 (游戏那边走 `p_dollars`).
             "j_rough_gem" => {
-                if card.card.suit == Suit::Diamonds {
+                if ctx.is_suit(card, Suit::Diamonds, false) {
                     return Some(JokerEffect {
                         dollars: self.extra,
                         ..JokerEffect::default()
@@ -815,7 +856,7 @@ impl Joker {
             }
             // 缟玛瑙: 每张**梅花**计分时给 +7 倍率.
             "j_onyx_agate" => {
-                if card.card.suit == Suit::Clubs {
+                if ctx.is_suit(card, Suit::Clubs, false) {
                     return Some(JokerEffect {
                         mult_mod: self.extra,
                         ..JokerEffect::default()
@@ -824,7 +865,7 @@ impl Joker {
             }
             // 箭头: 每张**黑桃**计分时给 +50 筹码.
             "j_arrowhead" => {
-                if card.card.suit == Suit::Spades {
+                if ctx.is_suit(card, Suit::Spades, false) {
                     return Some(JokerEffect {
                         chip_mod: self.extra,
                         ..JokerEffect::default()
@@ -838,7 +879,7 @@ impl Joker {
                     .scoring
                     .iter()
                     .find(|view| ctx.is_face(view));
-                if first.is_some_and(|view| view.card == card.card) {
+                if first.is_some_and(|view| std::ptr::eq(view, card)) {
                     return Some(JokerEffect {
                         xmult_mod: self.extra,
                         ..JokerEffect::default()
@@ -856,8 +897,7 @@ impl Joker {
             }
             // 斐波那契: 点数为 A / 2 / 3 / 5 / 8 的牌各给 +8 倍率.
             "j_fibonacci" => {
-                let pip = card.card.rank.pip();
-                if matches!(pip, 1 | 2 | 3 | 5 | 8 | 14) {
+                if matches!(card.id(), Some(2 | 3 | 5 | 8 | 14)) {
                     return Some(JokerEffect {
                         mult_mod: self.extra,
                         ..JokerEffect::default()
@@ -875,8 +915,7 @@ impl Joker {
             }
             // 偶数史蒂文: 偶数点的牌各给 +4 倍率 (人头牌不算, 它们的点数序号是 11 到 13).
             "j_even_steven" => {
-                let pip = card.card.rank.pip();
-                if pip <= 10 && pip.is_multiple_of(2) {
+                if card.id().is_some_and(|pip| pip <= 10 && pip.is_multiple_of(2)) {
                     return Some(JokerEffect {
                         mult_mod: self.extra,
                         ..JokerEffect::default()
@@ -885,7 +924,7 @@ impl Joker {
             }
             // 学者: 每张 A 给 +20 筹码与 +4 倍率.
             "j_scholar" => {
-                if card.card.rank == Rank::Ace {
+                if card.id() == Some(14) {
                     return Some(JokerEffect {
                         chip_mod: self.extra_number("chips"),
                         mult_mod: self.extra_number("mult"),
@@ -895,7 +934,7 @@ impl Joker {
             }
             // 对讲机: 点数为 10 或 4 的牌各给 +10 筹码与 +4 倍率.
             "j_walkie_talkie" => {
-                if matches!(card.card.rank, Rank::Ten | Rank::Four) {
+                if matches!(card.id(), Some(10 | 4)) {
                     return Some(JokerEffect {
                         chip_mod: self.extra_number("chips"),
                         mult_mod: self.extra_number("mult"),
@@ -907,7 +946,7 @@ impl Joker {
             // 它们的原型都带 `extra.suit`, 所以按花色取, 不写死四个分支.
             "j_greedy_joker" | "j_lusty_joker" | "j_wrathful_joker" | "j_gluttenous_joker" => {
                 if let Some(suit) = self.extra_suit()
-                    && card.card.suit == suit
+                    && ctx.is_suit(card, suit, false)
                 {
                     return Some(JokerEffect {
                         mult_mod: self.extra_number("s_mult"),
@@ -918,8 +957,8 @@ impl Joker {
             // 爱豆: 每张**正好是它这一回合盯的那张牌**的计分牌各乘一次 `extra` (2).
             "j_idol" => {
                 if let Some((suit, rank)) = ctx.idol_card
-                    && card.card.suit == suit
-                    && card.card.rank == rank
+                    && ctx.is_suit(card, suit, false)
+                    && card.id() == Some(rank.id())
                 {
                     return Some(JokerEffect {
                         xmult_mod: self.extra,
@@ -930,7 +969,7 @@ impl Joker {
             // 八号球: 每张**计分**的 8 各掷一次 (键 `8ball`, 概率 1/4), 中了造一张塔罗.
             // 先看消耗槽有没有位子 —— 没位子时**连骰子都不掷**, 顺序反了随机序列就不一样.
             "j_8_ball" => {
-                if card.card.rank == Rank::Eight && ctx.consumable_room > 0 {
+                if card.id() == Some(8) && ctx.consumable_room > 0 {
                     let odds = self.extra;
                     if odds > 0.0
                         && rng.pseudorandom("8ball") < (1.0 + ctx.probability_extra) / odds
@@ -955,7 +994,7 @@ impl Joker {
             // 它和城堡一样在回合开始掷花色, 只是城堡管弃牌、它管计分.
             "j_ancient" => {
                 if let Some(suit) = ctx.ancient_suit
-                    && card.card.suit == suit
+                    && ctx.is_suit(card, suit, false)
                 {
                     return Some(JokerEffect {
                         xmult_mod: self.extra,
@@ -965,14 +1004,11 @@ impl Joker {
             }
             // 奇数托德: 点数为 3 / 5 / 7 / 9 或 A 的牌各给 +31 筹码.
             // A 要单独列出来 —— 它的点数序号是 14, 不满足"落在 3..9 的奇数"那一条.
-            "j_odd_todd" => {
-                let pip = card.card.rank.pip();
-                if (pip <= 10 && pip % 2 == 1) || pip == 14 {
-                    return Some(JokerEffect {
-                        chip_mod: self.extra,
-                        ..JokerEffect::default()
-                    });
-                }
+            "j_odd_todd" if card.id().is_some_and(|pip| (pip <= 10 && pip % 2 == 1) || pip == 14) => {
+                return Some(JokerEffect {
+                    chip_mod: self.extra,
+                    ..JokerEffect::default()
+                });
             }
             _ => {}
         }
@@ -1002,6 +1038,13 @@ impl Joker {
 
         // 看**局面**而不是看牌的那几张: 它们各自读一个当前值.
         match self.key.as_str() {
+            // 斗牛士在主效果按实际 triggered 给钱, 让逐实例与复制调度保持正确顺序.
+            "j_matador" if ctx.boss_triggered => {
+                return Some(JokerEffect {
+                    dollars: self.extra,
+                    ..JokerEffect::default()
+                });
+            }
             // 旗帜: 每剩一次弃牌给 +30 筹码.
             "j_banner" => {
                 return Some(JokerEffect {
@@ -1011,7 +1054,7 @@ impl Joker {
             }
             // 神秘之峰: 一次弃牌都没剩时给 +15 倍率.
             "j_mystic_summit" => {
-                if ctx.discards_left <= 0 {
+                if ctx.discards_left as f64 == self.extra_number("d_remaining") {
                     return Some(JokerEffect {
                         mult_mod: self.extra_number("mult"),
                         ..JokerEffect::default()
@@ -1041,6 +1084,13 @@ impl Joker {
             "j_stuntman" => {
                 return Some(JokerEffect {
                     chip_mod: self.extra_number("chip_mod"),
+                    ..JokerEffect::default()
+                });
+            }
+            // 钢铁小丑在主效果按整副存活牌计数, 不是逐张手牌相乘.
+            "j_steel_joker" if ctx.deck_steels > 0 => {
+                return Some(JokerEffect {
+                    xmult_mod: 1.0 + self.extra * ctx.deck_steels as f64,
                     ..JokerEffect::default()
                 });
             }
@@ -1100,24 +1150,29 @@ impl Joker {
             //
             // 注意它**不是**"四种花色齐" (那是花盆) —— 源码里的判据是
             // `(红桃 > 0 或 方片 > 0 或 黑桃 > 0) 且 梅花 > 0`.
-            // 百搭牌不直接算数, 而是按"梅花 -> 方片 -> 黑桃 -> 红桃"的顺序去**补还缺的那种**,
-            // 每张只补一种. 少了这一步, 手里有百搭牌时就会判错.
+            // Steamodded 先让百搭牌补梅花, 梅花已有时补其余缺失花色.
+            // 非百搭牌可以通过模糊小丑同时匹配同色的两种花色.
             "j_seeing_double" => {
                 let mut counts: [usize; 4] = [0; 4];
                 let index = |suit: Suit| Suit::ALL.iter().position(|s| *s == suit).expect("四种之一");
                 // 第一趟: 百搭牌不参与.
                 for card in ctx.scoring {
-                    if !card.wild && !card.debuffed {
-                        counts[index(card.card.suit)] += 1;
+                    if !card.wild {
+                        for suit in Suit::ALL {
+                            if ctx.is_suit(card, suit, false) {
+                                counts[index(suit)] += 1;
+                            }
+                        }
                     }
                 }
                 // 第二趟: 每张百搭牌补一种还缺的花色.
-                for card in ctx.scoring {
-                    if card.wild && !card.debuffed {
-                        for suit in [Suit::Clubs, Suit::Diamonds, Suit::Spades, Suit::Hearts] {
-                            if counts[index(suit)] == 0 {
+                for card in ctx.scoring.iter().filter(|card| card.wild) {
+                    if counts[index(Suit::Clubs)] == 0 && ctx.is_suit(card, Suit::Clubs, false) {
+                        counts[index(Suit::Clubs)] = 1;
+                    } else {
+                        for suit in Suit::ALL {
+                            if counts[index(suit)] == 0 && ctx.is_suit(card, suit, false) {
                                 counts[index(suit)] = 1;
-                                break;
                             }
                         }
                     }
@@ -1131,22 +1186,22 @@ impl Joker {
                     });
                 }
             }
-            // 花盆: **参与计分的牌**凑齐四种花色时乘三倍. 百搭牌不算数 (游戏那边显式跳过
-            // `Wild Card`), 因为它的花色是随场景变的.
+            // 花盆先给每张非百搭牌分配一个花色, 再用每张百搭牌填一个空缺.
+            // 非百搭牌允许忽略削弱, 百搭牌不允许. 模糊小丑仍每张只填一个花色.
             "j_flower_pot" => {
-                let all = [
-                    Suit::Spades,
-                    Suit::Hearts,
-                    Suit::Diamonds,
-                    Suit::Clubs,
-                ]
-                .iter()
-                .all(|suit| {
-                    ctx.scoring
-                        .iter()
-                        .any(|card| !card.wild && card.card.suit == *suit)
-                });
-                if all {
+                let suits = [Suit::Hearts, Suit::Diamonds, Suit::Spades, Suit::Clubs];
+                let mut present = [false; 4];
+                for wild in [false, true] {
+                    for card in ctx.scoring.iter().filter(|card| card.wild == wild) {
+                        for (index, suit) in suits.iter().enumerate() {
+                            if !present[index] && ctx.is_suit(card, *suit, !wild) {
+                                present[index] = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if present.iter().all(|found| *found) {
                     return Some(JokerEffect {
                         xmult_mod: self.extra,
                         ..JokerEffect::default()
@@ -1167,7 +1222,7 @@ impl Joker {
             // 杂技演员: 这一回合的**最后一手**乘三倍. 出牌次数是在算分前减的,
             // 所以最后一手在这里看到的是 0.
             "j_acrobat" => {
-                if ctx.hands_left <= 0 {
+                if ctx.hands_left == 0 {
                     return Some(JokerEffect {
                         xmult_mod: self.extra,
                         ..JokerEffect::default()
@@ -1201,7 +1256,7 @@ impl Joker {
                 if ctx
                     .held
                     .iter()
-                    .all(|card| matches!(card.card.suit, Suit::Spades | Suit::Clubs))
+                    .all(|card| ctx.is_suit(card, Suit::Spades, false) || ctx.is_suit(card, Suit::Clubs, false))
                 {
                     return Some(JokerEffect {
                         xmult_mod: self.extra,
@@ -1262,7 +1317,7 @@ impl Joker {
             let aces = ctx
                 .scoring
                 .iter()
-                .filter(|card| card.card.rank == Rank::Ace)
+                .filter(|card| card.id() == Some(14))
                 .count();
             if aces >= 1 && ctx.hands.has(PokerHand::Straight) {
                 return Some(JokerEffect {
@@ -1272,15 +1327,14 @@ impl Joker {
             }
         }
 
-        // 通灵: 打出的牌型正好是配置里指定的那个 ⇒ 造一张幽灵牌.
-        // 认牌型用配置里那个名字 (`extra.poker_hand`), 与牌型自己的名字对得上才生效.
+        // 通灵: 计分牌包含配置指定的牌型时生成幽灵牌, 不仅匹配最高牌型.
         if self.key == "j_seance" && ctx.consumable_room > 0 {
             let wanted = self
                 .config
                 .get("extra")
                 .and_then(|extra| extra.get("poker_hand"))
                 .and_then(Json::as_str);
-            if wanted.is_some_and(|name| name == ctx.hand.info().key) {
+            if wanted.and_then(PokerHand::from_key).is_some_and(|hand| ctx.hands.has(hand)) {
                 return Some(JokerEffect {
                     create_consumable: Some(("Spectral", "sea")),
                     ..JokerEffect::default()

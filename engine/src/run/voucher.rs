@@ -26,8 +26,19 @@ fn extra_of(key: &str) -> f64 {
 pub fn apply(run: &mut RunState, key: &str) {
     let extra = extra_of(key);
     match key {
-        // 库存过剩: 商店多摆一件小丑.
-        "v_overstock_norm" | "v_overstock_plus" => run.shop_size_bonus += 1,
+        // 库存过剩立即补满扩容后的现有货架, 包括之前已经买空的格子.
+        "v_overstock_norm" | "v_overstock_plus" => {
+            run.shop_size_bonus += 1;
+            if let Some(mut shop) = run.shop.take() {
+                let rates = rates_of(run);
+                let slots = 2 + run.shop_size_bonus;
+                while shop.jokers.len() < slots {
+                    shop.jokers.push(super::shop::create_card_for_shop(run, &rates));
+                }
+                run.shop = Some(shop);
+                super::shop::refresh_costs(run);
+            }
+        }
         // 清仓特卖 / 清算: 折扣是**设定**而不是叠加 (后者要求先买前者).
         "v_clearance_sale" | "v_liquidation" => {
             run.discount_percent = extra;
@@ -39,10 +50,16 @@ pub fn apply(run: &mut RunState, key: &str) {
         }
         // 种子基金 / 摇钱树: 利息本金上限.
         "v_seed_money" | "v_money_tree" => run.interest_cap = extra,
-        // 抓手 / 玉米片夹: 每回合多一次出牌.
-        "v_grabber" | "v_nacho_tong" => run.hands_per_round += extra as i64,
-        // 常弃常新 / 回收魔法: 每回合多一次弃牌.
-        "v_wasteful" | "v_recyclomancy" => run.discards_per_round += extra as i64,
+        // 抓手 / 玉米片夹同时改变回合默认值和当前剩余次数 (`ease_hands_played`).
+        "v_grabber" | "v_nacho_tong" => {
+            run.hands_per_round += extra as i64;
+            run.hands_left += extra as i64;
+        }
+        // 常弃常新 / 回收魔法同样立即改变当前回合 (`ease_discard`).
+        "v_wasteful" | "v_recyclomancy" => {
+            run.discards_per_round += extra as i64;
+            run.discards_left += extra as i64;
+        }
         // 油漆刷 / 调色板: 手牌上限各加一张.
         "v_paint_brush" | "v_palette" => run.hand_size_bonus += 1,
         // 水晶球: 多一个消耗牌格子.
@@ -63,8 +80,10 @@ pub fn apply(run: &mut RunState, key: &str) {
             run.ante -= extra as i64;
             if key == "v_hieroglyph" {
                 run.hands_per_round -= extra as i64;
+                run.hands_left -= extra as i64;
             } else {
                 run.discards_per_round -= extra as i64;
+                run.discards_left -= extra as i64;
             }
         }
         // 望远镜与天文台改的是"天体包内容"与"行星牌的加成", 走的不是这里的字段;

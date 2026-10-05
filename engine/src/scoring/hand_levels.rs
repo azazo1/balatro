@@ -153,13 +153,13 @@ impl HandLevel {
     /// 本次出牌用的基础筹码.
     pub fn chips(&self, hand: PokerHand) -> f64 {
         let info = hand.info();
-        (info.s_chips + info.l_chips * f64::from(self.level - 1)).max(0.0)
+        info.s_chips + info.l_chips * f64::from(self.level - 1)
     }
 
     /// 本次出牌用的基础倍率.
     pub fn mult(&self, hand: PokerHand) -> f64 {
         let info = hand.info();
-        (info.s_mult + info.l_mult * f64::from(self.level - 1)).max(1.0)
+        info.s_mult + info.l_mult * f64::from(self.level - 1)
     }
 }
 
@@ -190,10 +190,10 @@ impl HandTable {
         &mut self.levels[hand.index()]
     }
 
-    /// `level_up_hand`: 升若干级, 等级下限为 0. The Arm 降级时传负数.
+    /// SMODS 的 `level_up_hand` 直接增加等级和基础增量, 不沿用原版下界截断.
     pub fn level_up(&mut self, hand: PokerHand, amount: i32) {
         let entry = self.get_mut(hand);
-        entry.level = (entry.level + amount).max(0);
+        entry.level += amount;
     }
 
     /// 新回合开始: 12 个牌型的"本回合打过几次"全部清零, 本局累计的 `played` 不动.

@@ -1,6 +1,6 @@
 //! 牌型等级与基础值.
 //!
-//! 期望值来自 `docs/game/rules/poker-hands.md` 的基础值表与 `level_up_hand` 的钳制规则.
+//! 期望值来自牌型基础值表与 Steamodded 的 upgrade_poker_hands 实现.
 
 use balatro_engine::scoring::{HandTable, PokerHand};
 
@@ -27,14 +27,14 @@ fn each_level_adds_the_growth_step() {
 }
 
 #[test]
-fn level_can_fall_to_zero_and_values_are_clamped() {
+fn modded_level_zero_preserves_the_unclamped_growth_values() {
     let mut table = HandTable::new();
-    // 高牌: 5 筹码 1 倍率, 每级 +10 / +1. 降到 0 级后筹码是负的, 倍率是 0.
+    // Steamodded 直接按等级步长增减, 不沿用原版的筹码与倍率钳制.
     table.level_up(PokerHand::HighCard, -1);
     let entry = table.get(PokerHand::HighCard);
     assert_eq!(entry.level, 0);
-    assert_eq!(entry.chips(PokerHand::HighCard), 0.0, "筹码下限为 0");
-    assert_eq!(entry.mult(PokerHand::HighCard), 1.0, "倍率下限为 1");
+    assert_eq!(entry.chips(PokerHand::HighCard), -5.0);
+    assert_eq!(entry.mult(PokerHand::HighCard), 0.0);
 }
 
 #[test]

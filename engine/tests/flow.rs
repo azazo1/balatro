@@ -923,9 +923,9 @@ fn immediate_tags_pay_out_when_earned() {
     let (before, after) = skip_and_check("tag_skip");
     assert_eq!(after, before + 5.0, "速度标签按跳过次数给");
 
-    // 顺手标签: 按当前剩余出牌次数给.
+    // 顺手标签按本局累计出牌次数给, 开局尚未出牌没有奖励.
     let (before, after) = skip_and_check("tag_handy");
-    assert_eq!(after, before + 4.0, "开局还有四次出牌");
+    assert_eq!(after, before, "尚未出牌时顺手标签给 0");
 
     // 经济标签: 给当前现金那么多 (封顶 40).
     let (before, after) = skip_and_check("tag_economy");
@@ -1395,6 +1395,7 @@ fn buffoon_pack_jokers_can_carry_flags() {
             eternal: false,
             perishable: false,
             rental: false,
+            couponed: false,
             enhancement: None,
         todo: None,
             cost: 4.0,
@@ -1914,18 +1915,23 @@ fn showdown_bosses_have_their_effects() {
     leaf.jokers[0].debuffed = false;
 
     // 猩红之心: 发牌时正好一个小丑失效.
-    let mut heart = with_boss("bl_final_heart");
-    heart.jokers.push(Joker::new("j_joker").expect("有这张"));
-    heart.jokers.push(Joker::new("j_duo").expect("有这张"));
-    heart.jokers.push(Joker::new("j_trio").expect("有这张"));
-    heart.draw_to_hand();
+    let mut heart = RunState::new("ALEEB", 8);
+    heart.start();
+    heart.boss_key = Some("bl_final_heart".to_owned());
+    heart.blind_on_deck = BlindKind::Boss;
+    for key in ["j_joker", "j_duo", "j_trio"] {
+        heart.jokers.push(Joker::new(key).expect("有这张"));
+    }
+    common::place_blind(&mut heart);
     assert_eq!(
         heart.jokers.iter().filter(|joker| joker.debuffed).count(),
         1,
         "猩红之心每次发牌只让一个小丑失效"
     );
-    // 再发一次: 仍然是"恰好一个"(先全部恢复再挑).
-    heart.draw_to_hand();
+    // press_play 重新设置 Heart.prepped, 弃牌补牌本身不重新挑目标.
+    heart.blind.as_mut().unwrap().chips = 1e100;
+    heart.play(&[0], &balatro_engine::scoring::EvalEnv::default(),
+        balatro_engine::scoring::BackEffect::Plain).expect("出牌后发生真实补牌");
     assert_eq!(
         heart.jokers.iter().filter(|joker| joker.debuffed).count(),
         1,
@@ -2031,19 +2037,21 @@ fn crimson_heart_never_redebuffs_the_same_joker() {
     run.start();
     run.boss_key = Some("bl_final_heart".to_owned());
     run.blind_on_deck = BlindKind::Boss;
-    common::place_blind(&mut run);
     for key in ["j_joker", "j_duo", "j_trio", "j_family", "j_sly"] {
         run.jokers.push(Joker::new(key).expect("有这张"));
     }
+    common::place_blind(&mut run);
+    run.hands_left = 31;
+    run.blind.as_mut().unwrap().chips = 1e100;
 
-    run.draw_to_hand();
     let mut previous = run
         .jokers
         .iter()
         .position(|joker| joker.debuffed)
         .expect("发完牌该有一张失效");
     for round in 0..30 {
-        run.draw_to_hand();
+        run.play(&[0], &balatro_engine::scoring::EvalEnv::default(),
+            balatro_engine::scoring::BackEffect::Plain).expect("出牌后发生真实补牌");
         let now = run
             .jokers
             .iter()
@@ -2242,9 +2250,9 @@ fn trading_card_destroys_a_lone_first_discard() {
     assert_eq!(money, 3.0, "给 3 块");
 }
 
-/// 待办清单: 打出的牌型正好是它指定的那个, 就给 4 块并**换一个**牌型.
+/// 待办清单匹配时支付 4 块, 目标只在回合末重新抽取.
 #[test]
-fn todo_list_pays_and_rerolls_on_a_match() {
+fn todo_list_pays_on_a_match_and_rerolls_at_round_end() {
     use balatro_engine::jokers::Joker;
     use balatro_engine::run::RunState;
     use balatro_engine::scoring::{BackEffect, EvalEnv, PokerHand};
@@ -2271,11 +2279,10 @@ fn todo_list_pays_and_rerolls_on_a_match() {
     run.play(&pair, &EvalEnv::default(), BackEffect::Plain)
         .expect("能出牌");
     assert_eq!(run.dollars, before + 4.0, "打中对子给 4 块");
-    assert_ne!(
-        run.jokers[0].todo_hand,
-        Some(PokerHand::Pair),
-        "命中之后要换成别的牌型"
-    );
+    assert_eq!(run.jokers[0].todo_hand, Some(PokerHand::Pair), "命中不能提前更换目标");
+    run.chips = 99_999.0;
+    run.end_round();
+    assert_ne!(run.jokers[0].todo_hand, Some(PokerHand::Pair), "回合结束才重新抽取目标");
 }
 
 /// 徒步者与迈达斯面具: 都是**改被打出去的那几张牌本身**, 所以打完去看弃牌堆里的牌就对了.
@@ -2670,7 +2677,7 @@ fn red_card_mr_bones_and_hallucination() {
     assert!(extra > 0, "开了这么多次总该有一张塔罗");
 }
 
-/// 大摇大摆: 倍率 = 1 + **其他**小丑卖价之和 (每次出牌重算).
+/// 大摇大摆额外倍率是其他小丑卖价之和, 不包含牌型自身的基础倍率.
 /// 减肥可乐: 卖掉时换一个"双倍"标签.
 #[test]
 fn swashbuckler_and_diet_cola() {
@@ -2678,7 +2685,7 @@ fn swashbuckler_and_diet_cola() {
     use balatro_engine::run::{Phase, RunState};
     use balatro_engine::scoring::{BackEffect, EvalEnv};
 
-    // 大摇大摆: 放两张别的小丑, 倍率该是 1 加上它们的卖价之和.
+    // 大摇大摆提供其他小丑卖价之和作为额外倍率.
     let mut run = RunState::new("ALEEB", 8);
     run.start();
     common::place_blind(&mut run);
@@ -2689,15 +2696,14 @@ fn swashbuckler_and_diet_cola() {
         .jokers
         .iter()
         .skip(1)
-        .map(|joker| (joker.cost / 2.0).floor().max(1.0))
-        .sum::<f64>()
-        + 1.0;
+        .map(Joker::sell_price)
+        .sum::<f64>();
 
     run.play(&[0], &EvalEnv::default(), BackEffect::Plain)
         .expect("能出牌");
     assert_eq!(
         run.jokers[0].mult, expected,
-        "倍率该是其他卖价之和加一 (算出来是 {expected})"
+        "额外倍率应等于其他卖价之和 ({expected})"
     );
 
     // 减肥可乐: 卖掉之后标签里多一个"双倍".

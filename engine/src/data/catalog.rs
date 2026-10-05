@@ -31,6 +31,12 @@ pub struct Prototype {
     pub rarity: Option<i64>,
     /// 新档的初始解锁状态. 没有这个字段时按 `None` 处理, 与游戏的 `v.unlocked ~= false` 一致.
     pub initially_unlocked: Option<bool>,
+    /// 贴纸兼容性, 与 Card:set_eternal / set_perishable 的原型检查一致.
+    pub eternal_compat: bool,
+    pub perishable_compat: bool,
+    /// 标签使用的发现前置条件和最早底注, 不同于优惠券 requires 数组.
+    pub tag_requires: Option<String>,
+    pub min_ante: Option<i64>,
     /// 优惠券与标签的前置原型.
     pub requires: Vec<String>,
     pub no_pool_flag: Option<String>,
@@ -105,13 +111,27 @@ impl Catalog {
 
     fn parse() -> Catalog {
         let root = Json::parse(CATALOG_JSON).expect("catalog.json 应当能解析");
-        let records: Vec<Prototype> = root
+        let mut records: Vec<Prototype> = root
             .get("records")
             .and_then(Json::as_array)
             .expect("catalog.json 缺少 records")
             .iter()
             .map(parse_record)
             .collect();
+
+        // 静态快照来自原版源码. Steamodded lovely/seal.toml 的初始化补丁重排
+        // Seal 为 Red, Blue, Gold, Purple; take_ownership 后仅原位替换, 不再重排.
+        for record in &mut records {
+            if record.category == "Seal" {
+                record.order = match record.id.as_str() {
+                    "Red" => 1.0,
+                    "Blue" => 2.0,
+                    "Gold" => 3.0,
+                    "Purple" => 4.0,
+                    _ => record.order,
+                };
+            }
+        }
 
         let mut by_id = HashMap::with_capacity(records.len());
         let mut pools: HashMap<String, Vec<usize>> = HashMap::new();
@@ -191,6 +211,10 @@ fn parse_record(value: &Json) -> Prototype {
         order: value.get("order").and_then(Json::as_f64).unwrap_or(0.0),
         rarity: value.get("rarity").and_then(Json::as_f64).map(|n| n as i64),
         initially_unlocked: value.get("initially_unlocked").and_then(Json::as_bool),
+        eternal_compat: value.get("eternal_compat").and_then(Json::as_bool).unwrap_or(false),
+        perishable_compat: value.get("perishable_compat").and_then(Json::as_bool).unwrap_or(false),
+        tag_requires: str_field(value, "requires"),
+        min_ante: value.get("min_ante").and_then(Json::as_f64).map(|n| n as i64),
         requires: value
             .get("requires")
             .map(Json::str_list)

@@ -97,6 +97,9 @@ impl Edition {
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct CardInstance {
     pub card: PlayingCard,
+    /// Steamodded 的新复制对象先以空底牌初始化, 首次花色排序值因此固定为 0.
+    /// 普通牌用 `PlayingCard::original_suit`, 死神覆盖已有对象时保留该标记.
+    pub copy_original_suit_zero: bool,
     pub enhancement: Option<Enhancement>,
     pub edition: Option<Edition>,
     pub seal: Option<Seal>,
@@ -117,6 +120,7 @@ impl CardInstance {
     pub fn plain(card: PlayingCard) -> Self {
         CardInstance {
             card,
+            copy_original_suit_zero: false,
             enhancement: None,
             edition: None,
             seal: None,
@@ -224,6 +228,46 @@ impl CardInstance {
     /// 直接换点数, 对应幻灵里的占卜 (它把整手牌的点数统一成一个值).
     pub fn change_rank(&mut self, rank: crate::cards::Rank) {
         self.card.rank = rank;
+    }
+
+    /// 手牌排序值, 包括 Steamodded 新复制对象为 0 的首次花色排序项.
+    pub fn nominal(&self, by_suit: bool) -> f64 {
+        let nominal = if by_suit {
+            self.card.nominal_suit_with_stone(self.is_stone())
+        } else {
+            self.card.nominal_with_stone(self.is_stone())
+        };
+        if self.copy_original_suit_zero {
+            let weight = if self.is_stone() { -10000.0 } else if by_suit { 10000.0 } else { 1.0 };
+            nominal - self.card.original_suit.suit_nominal_original() * 0.0001 * weight
+        } else {
+            nominal
+        }
+    }
+
+    /// 复制到已有牌上, 对应死神的 `copy_card(source, target)`.
+    ///
+    /// 能力和修饰跟随来源, 但目标的身份及首次花色不变. `set_base` 保留目标原有的
+    /// `suit_nominal_original`, 不能直接把来源整张覆盖后仅恢复建牌序号.
+    pub fn copy_onto(&mut self, source: &CardInstance) {
+        let sort_id = self.card.sort_id;
+        let original_suit = self.card.original_suit;
+        let copy_original_suit_zero = self.copy_original_suit_zero;
+        *self = *source;
+        self.card.sort_id = sort_id;
+        self.card.original_suit = original_suit;
+        self.copy_original_suit_zero = copy_original_suit_zero;
+    }
+
+    /// 新建复制牌, 对应 DNA / 神秘生物的 `copy_card(source, nil)`.
+    ///
+    /// 新对象先以空底牌初始化, Steamodded 写入首次花色排序值 0. Lua 的 0 为真,
+    /// 后续设置来源底牌时仍保留 0, 而不是来源的当前花色或首次花色.
+    pub fn duplicate(&self, sort_id: u32) -> CardInstance {
+        let mut copy = *self;
+        copy.card.sort_id = sort_id;
+        copy.copy_original_suit_zero = true;
+        copy
     }
 
     /// 换上一种强化, 对应魔术师, 皇后, 教皇那批塔罗 (`mod_conv` 指向一张 `m_` 原型).

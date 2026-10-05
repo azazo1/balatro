@@ -14,7 +14,7 @@
 //! 四段小丑钩子按游戏里的先后依次跑, 逐张牌的增强与版本在 `card_contributions` 里算.
 
 use super::hand_levels::HandTable;
-use super::poker_hand::{EvalEnv, HandCard, PokerHand, evaluate_poker_hand};
+use super::poker_hand::{EvalEnv, EvaluatedHand, HandCard, PokerHand, evaluate_poker_hand};
 use crate::cards::{Edition, PlayingCard};
 use crate::jokers::{Joker, TriggerContext};
 
@@ -97,6 +97,8 @@ pub struct ScoreResult {
     pub dollars: f64,
     /// 本次计分顺手造出来的消耗牌 (按顺序), 由运行层负责入槽.
     pub consumables: Vec<String>,
+    /// 本次逐卡阶段的永久筹码增量, 与打出牌的输入下标一一对应. 未计分牌为 0.
+    pub perma_bonuses: Vec<f64>,
     /// 这一手被盲注封禁 (眼 / 嘴那两个"整手不计分"的 Boss), 所以分数是零.
     ///
     /// 单独立一个字段而不是让调用方从"全零"去猜: 零分的成因不止这一种可能, 而
@@ -186,20 +188,57 @@ impl Ledger {
 /// 所以这里要一直解到一张"有自己效果的"或者解不下去为止.
 ///
 /// 解不下去时返回 `None` (例如蓝图在最右边, 或者脑风暴指着自己).
-fn resolve_copy_target(jokers: &[Joker], index: usize) -> Option<&Joker> {
+fn resolve_copy_index(jokers: &[Joker], index: usize) -> Option<usize> {
     let mut current = index;
-    // 队里最多这么多张, 所以链长不会超过它 —— 上限只是防呆.
     for _ in 0..jokers.len() {
-        match jokers[current].key.as_str() {
-            "j_blueprint" => current += 1,
-            "j_brainstorm" => current = 0,
-            _ => return Some(&jokers[current]),
-        }
-        if current >= jokers.len() {
+        if jokers[current].debuffed {
             return None;
         }
+        let target = match jokers[current].key.as_str() {
+            "j_blueprint" => current + 1,
+            "j_brainstorm" => 0,
+            _ => return Some(current),
+        };
+        if target >= jokers.len() || target == current || jokers[target].debuffed {
+            return None;
+        }
+        // Steamodded 的 blueprint_effect 在每一层检查复制兼容性, 不能穿过不兼容节点.
+        let compatible = crate::data::knowledge::find_cards(&jokers[target].key)
+            .into_iter()
+            .find(|card| card.id == jokers[target].key)
+            .is_some_and(|card| card.blueprint_compat == Some(true));
+        if !compatible {
+            return None;
+        }
+        current = target;
     }
     None
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_joker_effect(
+    ledger: &mut Ledger,
+    effect: crate::jokers::JokerEffect,
+    source: &ScoreSource,
+    dollars: &mut f64,
+    created: &mut Vec<String>,
+    creation: &mut Option<&mut crate::run::shop::Creation>,
+    rng: &mut crate::rng::Rng,
+) {
+    // Steamodded calculation_keys: 加筹码 -> 加倍率 -> 乘倍率 -> 钱.
+    ledger.add_chips(source, effect.chip_mod);
+    ledger.add_mult(source, effect.mult_mod);
+    if effect.xmult_mod != 0.0 {
+        ledger.times_mult(source, effect.xmult_mod);
+    }
+    ledger.add_dollars(source, effect.dollars);
+    *dollars += effect.dollars;
+    if let Some((kind, append)) = effect.create_consumable
+        && let Some(creation) = creation.as_deref_mut()
+    {
+        let key = crate::run::shop::create_consumable(creation, rng, kind, append, true);
+        created.push(key);
+    }
 }
 
 /// 版本给的那三项: 加筹码, 加倍率, 乘倍率.
@@ -283,7 +322,7 @@ pub fn score_play_with_rng(
         enhanced: std::collections::HashSet::new(),
         played: std::collections::HashSet::new(),
     };
-    score_play_inner(cards, held, table, env, back, jokers, rng, Some(&mut creation))
+    score_play_inner(cards, held, table, env, back, jokers, rng, Some(&mut creation), None)
 }
 
 /// 与上面那条一样, 但**带上造牌的家当** —— 计分过程中要造牌的小丑 (八号球那类) 走这条.
@@ -298,7 +337,38 @@ pub fn score_play_with_creation(
     creation: &mut crate::run::shop::Creation,
     rng: &mut crate::rng::Rng,
 ) -> Option<ScoreResult> {
-    score_play_inner(cards, held, table, env, back, jokers, rng, Some(creation))
+    score_play_inner(cards, held, table, env, back, jokers, rng, Some(creation), None)
+}
+
+/// 使用 before 阶段之前固定的牌型和计分名单, 但读取该阶段之后的牌实例效果.
+#[allow(clippy::too_many_arguments)]
+pub fn score_play_with_creation_pre_evaluated(
+    cards: &[HandCard],
+    held: &[HandCard],
+    table: &HandTable,
+    env: &EvalEnv,
+    back: BackEffect,
+    jokers: &mut [Joker],
+    creation: &mut crate::run::shop::Creation,
+    rng: &mut crate::rng::Rng,
+    evaluated: &EvaluatedHand,
+    scoring_cards: &[usize],
+) -> Option<ScoreResult> {
+    if scoring_cards.iter().any(|index| *index >= cards.len()) { return None; }
+    score_play_inner(cards, held, table, env, back, jokers, rng, Some(creation), Some((evaluated.clone(), scoring_cards.to_vec())))
+}
+
+/// 游戏在 before 之前识别牌型并确定计分名单. 石头牌和飞溅在这里加入名单.
+pub fn scoring_selection(cards: &[HandCard], env: &EvalEnv) -> Option<(EvaluatedHand, Vec<usize>)> {
+    let evaluated = evaluate_poker_hand(cards, env);
+    evaluated.top()?;
+    let mut scoring_cards = if env.splash { (0..cards.len()).collect() }
+        else { evaluated.top_group()?.clone() };
+    for (index, card) in cards.iter().enumerate() {
+        if card.stone && !scoring_cards.contains(&index) { scoring_cards.push(index); }
+    }
+    scoring_cards.sort_unstable();
+    Some((evaluated, scoring_cards))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -311,20 +381,13 @@ fn score_play_inner(
     jokers: &mut [Joker],
     rng: &mut crate::rng::Rng,
     mut creation: Option<&mut crate::run::shop::Creation>,
+    pre_evaluated: Option<(EvaluatedHand, Vec<usize>)>,
 ) -> Option<ScoreResult> {
-    let evaluated = evaluate_poker_hand(cards, env);
-    let hand = evaluated.top()?;
-    // 飞溅: 有它的时候**所有打出的牌**都进计分名单 (不只是凑成牌型的那几张).
-    // 游戏在 `state_events.lua` 里分配 `scoring_hand` 时就是这个分叉.
-    let mut scoring_cards = if env.splash {
-        (0..cards.len()).collect()
-    } else {
-        evaluated.top_group()?.clone()
+    let (evaluated, scoring_cards) = match pre_evaluated {
+        Some(selection) => selection,
+        None => scoring_selection(cards, env)?,
     };
-
-    // 计分名单按屏幕从左到右排序, 而输入已经是这个顺序, 所以只需要把下标排一下.
-    // 牌型判定返回的下标顺序是它自己找牌的顺序 (顺子按点数, 同花按花色), 不能直接用.
-    scoring_cards.sort_unstable();
+    let hand = evaluated.top()?;
     let scoring_views: Vec<HandCard> = scoring_cards.iter().map(|&index| cards[index]).collect();
 
     let level = table.get(hand);
@@ -349,12 +412,13 @@ fn score_play_inner(
     let mut dollars = 0.0;
     // 小丑顺手造出来的消耗牌 (八号球 / 叠加态), 交给运行层入槽.
     let mut created: Vec<String> = Vec::new();
+    let mut perma_bonuses = vec![0.0; cards.len()];
 
     // 上下文要在逐卡那一步**之前**建好 —— 照片那类逐卡效果也要看这手里有哪些牌,
     // 所以要提前拿到 `evaluated` 与 `scoring_views`.
     // 这一手型**之前**打过几次 (牌卡夏普看它). 引擎在计分之后才累加, 所以这里就是"之前".
     let played_this_round_before = table.get(hand).played_this_round;
-    let ctx = TriggerContext {
+    let mut ctx = TriggerContext {
         hand,
         hands: &evaluated,
         cards,
@@ -365,6 +429,7 @@ fn score_play_inner(
         // 这几个由调用方通过 `env` 传进来; 计分本身不碰局面, 所以从环境里取.
         discards_left: env.discards_left,
         dollars: env.dollars,
+        boss_triggered: env.boss_triggered,
         joker_count: jokers.len(),
         played_this_round: played_this_round_before,
         // 上古小丑看的花色由调用方通过 `env` 传进来 (与 flint 那几个同路).
@@ -381,6 +446,8 @@ fn score_play_inner(
         deck_total: env.deck_total,
         deck_stones: env.deck_stones,
         deck_enhanced: env.deck_enhanced,
+        deck_steels: env.deck_steels,
+        smeared: env.smeared,
         starting_deck_size: env.starting_deck_size,
         deck_nines: env.deck_nines,
         planets_used: env.planets_used,
@@ -388,7 +455,13 @@ fn score_play_inner(
         table,
     };
 
-    for &index in &scoring_cards {
+    // before 是逐卡计分之前的阶段. 复制不会重复成长, 本体按队列顺序成长一次.
+    for joker in jokers.iter_mut() {
+        joker.before(&ctx);
+    }
+    let targets: Vec<_> = (0..jokers.len()).map(|index| resolve_copy_index(jokers, index)).collect();
+
+    for (scoring_index, &index) in scoring_cards.iter().enumerate() {
         // 削弱牌仍参与牌型识别, 但整段逐卡计分都跳过, 包括版本, 蜡封与小丑.
         if cards[index].debuffed {
             continue;
@@ -397,8 +470,8 @@ fn score_play_inner(
         // (袜子与巴斯金 / 烂脱口秀演员 / 黄昏 / 挂账 / 汽水).
         // 游戏那边把这些收成一个列表, 再把整段逐卡效果重跑那么多次, 这里等价.
         let mut repeats = cards[index].repetitions.max(1);
-        for joker in jokers.iter() {
-            repeats += joker.retrigger(&cards[index], &ctx);
+        for target in targets.iter().flatten() {
+            repeats += jokers[*target].retrigger(&scoring_views[scoring_index], &ctx);
         }
         // 红封让这张牌多算一遍: 整段 (含它自己的筹码与逐卡小丑的效果) 都重跑, 不是只加倍率.
         for _ in 0..repeats {
@@ -406,26 +479,16 @@ fn score_play_inner(
             // 游戏把它记在牌自己身上 (`Card.lucky_trigger`), 并在这一遍的逐卡小丑跑完之后清掉,
             // 所以它的作用范围正好是"这一遍", 而且每多算一遍就多一次机会.
             let mut lucky_trigger = false;
+            let mut card_dollars = if cards[index].gold_seal { 3.0 } else { 0.0 };
             // 这一趟所有变动都算在**这张牌**头上 (它自己的筹码/强化, 以及逐卡小丑给它的),
             // 与游戏里屏幕上的飘字一致.
             let me = ScoreSource::Card {
                 index,
                 card: cards[index].card,
             };
-            // 金封: 这张牌被打出时直接给三块 (`Card:get_p_dollars`).
-            if cards[index].gold_seal {
-                ledger.add_dollars(&me, 3.0);
-                dollars += 3.0;
-            }
-            ledger.add_chips(&me, cards[index].chip_bonus());
+            ledger.add_chips(&me, cards[index].chip_bonus() + perma_bonuses[index]);
             // 强化牌在计分时各给一份: 倍率牌加倍率, 玻璃牌乘倍率.
             ledger.add_mult(&me, cards[index].mult_bonus());
-            // 注意这个 `> 0.0` 的门: 没有乘倍率时 `x_mult()` 给的是 **0**, 少了这一判就会把
-            // 倍率乘成零.
-            let x_mult = cards[index].x_mult();
-            if x_mult > 0.0 {
-                ledger.times_mult(&me, x_mult);
-            }
             // 幸运牌的两份都靠掷骰 (1/5 给 +20 倍率, 1/15 给 20 块), 顺序是**倍率在前, 钱在后**
             // (`eval_card` 里 `get_chip_mult` 排在 `get_p_dollars` 前面).
             // 骰子只在**参与计分**的牌上掷 —— 打出去但没进计分名单的牌不掷;
@@ -443,46 +506,18 @@ fn score_play_inner(
                     lucky_trigger = true;
                 }
                 if rng.pseudorandom("lucky_money") < (1.0 + env.probability_extra) / 15.0 {
-                    ledger.add_dollars(&me, 20.0);
-                    dollars += 20.0;
+                    card_dollars += 20.0;
                     lucky_trigger = true;
                 }
             }
 
-            // 逐张计分牌的小丑 (笑脸, 奇数托德那批): 每张牌各判一次, 按持有顺序.
-            // 这里拿的是可变引用而不是 `iter()`: 幸运猫要当场改自己的成长值, 改完的那一份
-            // 在**本次**的小丑主效果那一趟就要用上 (主效果排在逐卡之后), 不能等这一手结束再并回.
-            for joker in jokers.iter_mut() {
-                // 幸运猫: 这张幸运牌这一遍成功触发过就涨一份 (0.25 倍率).
-                // 游戏写在 `context.individual` 分支里, 认的是同一张牌上的 `lucky_trigger` 标志;
-                // 蓝图复制到它身上那一趟游戏会跳过成长, 这里同样只在它自己那一格长.
-                if lucky_trigger {
-                    joker.grow_on_lucky_trigger();
-                }
-                if let Some(effect) = joker.individual(&cards[index], &ctx, rng) {
-                    // 逐卡小丑给的分算在**这张牌**头上 (游戏里飘字挂在牌上), 但来源要说清是
-                    // 哪张小丑 —— 所以这里另给一个来源, 记成"哪张小丑给这张牌加了多少".
-                    let by = ScoreSource::Joker {
-                        key: joker.key.clone(),
-                    };
-                    ledger.add_mult(&by, effect.mult_mod);
-                    ledger.add_chips(&by, effect.chip_mod);
-                    ledger.add_dollars(&by, effect.dollars);
-                    dollars += effect.dollars;
-                    if let Some((kind, append)) = effect.create_consumable
-                        && let Some(creation) = creation.as_deref_mut()
-                    {
-                        let key = crate::run::shop::create_consumable(creation, rng, kind, append, true);
-                        created.push(key);
-                    }
-                    if effect.xmult_mod != 0.0 {
-                        ledger.times_mult(&by, effect.xmult_mod);
-                    }
-                }
-            }
+            let x_mult = cards[index].x_mult();
+            if x_mult > 0.0 { ledger.times_mult(&me, x_mult); }
+            ledger.add_dollars(&me, card_dollars);
+            dollars += card_dollars;
 
-            // 版本是**这一条里的最后一步** (`state_events` 里排在自身的筹码与倍率之后):
-            // 闪箔加筹码, 镭射加倍率, 多彩乘倍率. 负片没有计分效果.
+            // Steamodded 先结算牌自己的 playing_card/enhancement/edition/seals,
+            // 再结算逐卡小丑. 多彩必须先于照片等 individual 乘倍率.
             if let Some((chip, mult_mod, x_mult)) = edition_mods(cards[index].edition) {
                 ledger.add_chips(&me, chip);
                 ledger.add_mult(&me, mult_mod);
@@ -490,126 +525,97 @@ fn score_play_inner(
                     ledger.times_mult(&me, x_mult);
                 }
             }
+
+            for (source_index, target) in targets.iter().enumerate() {
+                let Some(target_index) = *target else { continue };
+                if jokers[target_index].key == "j_hiker" {
+                    perma_bonuses[index] += jokers[target_index].extra;
+                }
+                if target_index == source_index {
+                    if lucky_trigger {
+                        jokers[target_index].grow_on_lucky_trigger();
+                    }
+                    jokers[target_index].grow_on_scored_card(&scoring_views[scoring_index]);
+                }
+                ctx.consumable_room = env.consumable_room.saturating_sub(created.len());
+                if let Some(effect) = jokers[target_index].individual(&scoring_views[scoring_index], &ctx, rng) {
+                    // 复制触发挂在复制者上, 不复制目标的版本或成长.
+                    let by = ScoreSource::Joker { key: jokers[source_index].key.clone() };
+                    apply_joker_effect(&mut ledger, effect, &by, &mut dollars, &mut created, &mut creation, rng);
+                }
+            }
         }
     }
 
-    // 手牌阶段: 留在手里没打出去的牌各给自己的乘倍率 (钢铁牌), 以及看手牌的小丑
-    // (男爵, 射月, 致胜之拳). 它排在逐卡计分之后, 小丑主效果之前.
+    // 手牌区与出牌区一样, 红封和模仿重触发整段效果, 包括男爵和射月.
     for card in held {
         if card.debuffed {
             continue;
         }
         let mine = ScoreSource::Held { card: card.card };
-        let x = card.h_x_mult();
-        if x > 0.0 {
-            ledger.times_mult(&mine, x);
-        }
-        for joker in jokers.iter() {
-            if let Some(effect) = joker.held(card, held, &ctx, rng) {
-                let by = ScoreSource::Joker {
-                    key: joker.key.clone(),
-                };
-                ledger.add_mult(&by, effect.mult_mod);
-                ledger.add_chips(&by, effect.chip_mod);
-                ledger.add_dollars(&by, effect.dollars);
-                dollars += effect.dollars;
-                if let Some((kind, append)) = effect.create_consumable
-                    && let Some(creation) = creation.as_deref_mut()
-                {
-                    let key = crate::run::shop::create_consumable(creation, rng, kind, append, true);
-                    created.push(key);
-                }
-                if effect.xmult_mod != 0.0 {
-                    ledger.times_mult(&by, effect.xmult_mod);
+        let mut first_effects: Vec<_> = targets.iter().map(|target| target.and_then(|target| jokers[target].held(card, held, &ctx, rng))).collect();
+        let has_effect = card.h_x_mult() > 0.0 || first_effects.iter().flatten().any(|effect| !effect.is_empty());
+        let repeats = if has_effect {
+            card.repetitions.max(1) + targets.iter().flatten()
+                .map(|target| jokers[*target].held_repetitions(card, &ctx)).sum::<u32>()
+        } else { 1 };
+        for repeat in 0..repeats {
+            let x = card.h_x_mult();
+            if x > 0.0 {
+                ledger.times_mult(&mine, x);
+            }
+            for (source_index, target) in targets.iter().enumerate() {
+                let Some(target_index) = *target else { continue };
+                ctx.consumable_room = env.consumable_room.saturating_sub(created.len());
+                let effect = if repeat == 0 { first_effects[source_index].take() }
+                    else { jokers[target_index].held(card, held, &ctx, rng) };
+                if let Some(effect) = effect {
+                    let by = ScoreSource::Joker { key: jokers[source_index].key.clone() };
+                    apply_joker_effect(&mut ledger, effect, &by, &mut dollars, &mut created, &mut creation, rng);
                 }
             }
         }
     }
 
-    // 小丑的两个阶段, 顺序不能换:
-    //
-    // 1. `before`: 成长类小丑先改自己的值 (备用裤子加 2, 绿色小丑加 1),
-    // 2. `joker_main`: 每张按新值加筹码, 加倍率, 乘倍率, 与游戏里消费顺序一致
-    //    (`mult_mod` -> `chip_mod` -> `Xmult_mod`).
-    // "小丑互相看"那些 (棒球卡): 每张小丑问一遍别的小丑, 按答应的次数乘倍率.
-    // 排在 `before` 之前 —— 它们只看队里有什么, 与自己的成长值无关.
+    // 每个格子依次: 闪箔/镭射 -> 主效果 -> 其他小丑看本格 -> 多彩.
+    // 棒球不是预先合并的全局乘数, 否则会把后面的加倍率也乘上.
     for index in 0..jokers.len() {
-        for other_index in 0..jokers.len() {
-            if other_index == index {
-                continue;
-            }
-            let effect = jokers[index].other_joker(&jokers[other_index]);
-            if let Some(effect) = effect {
-                let by = ScoreSource::Joker {
-                    key: jokers[index].key.clone(),
-                };
-                ledger.add_mult(&by, effect.mult_mod);
-                ledger.add_chips(&by, effect.chip_mod);
-                ledger.add_dollars(&by, effect.dollars);
-                dollars += effect.dollars;
-                if effect.xmult_mod != 0.0 {
-                    ledger.times_mult(&by, effect.xmult_mod);
-                }
-            }
-        }
-    }
-
-    for joker in jokers.iter_mut() {
-        joker.before(&ctx);
-    }
-    for index in 0..jokers.len() {
-        let effect =
-            resolve_copy_target(jokers, index).and_then(|actual| actual.joker_main(&ctx, rng));
-        // 来源取**真正生效**的那张 (蓝图复制了谁就记谁), 与游戏里挂在哪张牌上一致.
-        let by = ScoreSource::Joker {
-            key: resolve_copy_target(jokers, index)
-                .unwrap_or(&jokers[index])
-                .key
-                .clone(),
-        };
-        if let Some(effect) = effect {
-            ledger.add_mult(&by, effect.mult_mod);
-            ledger.add_chips(&by, effect.chip_mod);
-            ledger.add_dollars(&by, effect.dollars);
-            dollars += effect.dollars;
-            if effect.xmult_mod != 0.0 {
-                ledger.times_mult(&by, effect.xmult_mod);
-            }
-            // 这一趟也会有"顺手造一张消耗牌"的小丑 (叠加态那类), 收集方式与逐卡那一趟一致.
-            if let Some((kind, append)) = effect.create_consumable
-                && let Some(creation) = creation.as_deref_mut()
-            {
-                let key = crate::run::shop::create_consumable(creation, rng, kind, append, true);
-                created.push(key);
-            }
-        }
-        // 版本在这个格子的效果**之后**生效, 而且属于**格子里的那张牌** ——
-        // 游戏里版本是单独一趟 (`context.edition`), 走的是卡自己, 蓝图复制的是别人的效果但不复制版本.
-        // 所以来源取**格子本身**那一个下标, 不是复制目标.
-        let slot = ScoreSource::Joker {
-            key: jokers[index].key.clone(),
-        };
-        if let Some((chip, mult_mod, x_mult)) = edition_mods(jokers[index].edition) {
+        let slot = ScoreSource::Joker { key: jokers[index].key.clone() };
+        if !jokers[index].debuffed
+            && let Some((chip, mult_mod, _)) = edition_mods(jokers[index].edition)
+        {
             ledger.add_chips(&slot, chip);
             ledger.add_mult(&slot, mult_mod);
-            if x_mult != 1.0 {
-                ledger.times_mult(&slot, x_mult);
+        }
+        if let Some(target_index) = targets[index] {
+            ctx.dollars = env.dollars + dollars;
+            ctx.consumable_room = env.consumable_room.saturating_sub(created.len());
+            if let Some(effect) = jokers[target_index].joker_main(&ctx, rng) {
+                apply_joker_effect(&mut ledger, effect, &slot, &mut dollars, &mut created, &mut creation, rng);
             }
+        }
+        for (source_index, target) in targets.iter().enumerate() {
+            let Some(target_index) = *target else { continue };
+            if let Some(effect) = jokers[target_index].other_joker(&jokers[index]) {
+                let by = ScoreSource::Joker { key: jokers[source_index].key.clone() };
+                apply_joker_effect(&mut ledger, effect, &by, &mut dollars, &mut created, &mut creation, rng);
+            }
+        }
+        if !jokers[index].debuffed
+            && let Some((_, _, x_mult)) = edition_mods(jokers[index].edition)
+            && x_mult != 1.0
+        {
+            ledger.times_mult(&slot, x_mult);
         }
     }
 
+    // 天文台属于消耗牌的主效果, 早于牌背的 final_scoring_step. 不提前取整.
+    for _ in 0..env.observatory_planets {
+        ledger.times_mult(&ScoreSource::Stage { name: "天文台" }, 1.5);
+    }
     if back == BackEffect::Plasma {
         let half = ((ledger.chips + ledger.mult) / 2.0).floor();
         ledger.reshape(&ScoreSource::Stage { name: "等离子" }, half, half);
-    }
-
-    // 天文台: 消耗区里对应本手牌型的行星牌, 每张给一次 ×1.5.
-    // 位置在**所有小丑的主效果之后** —— 游戏那边是小丑先遍历、消耗品后遍历 (同一个循环里).
-    if env.observatory_planets > 0 {
-        let factor = 1.5f64.powi(env.observatory_planets as i32);
-        // 天文台的落点是"先乘再向下取整", 不是纯粹的乘法, 所以先算好再交给账本.
-        let mult = (ledger.mult * factor).floor();
-        ledger.reshape(&ScoreSource::Stage { name: "天文台" }, ledger.chips, mult);
     }
 
     // 计分结束之后才跑 `after`: 它只改下一轮要用的值 (冰淇淋融化), 所以放在牌背处理之后
@@ -633,6 +639,7 @@ fn score_play_inner(
         melted,
         dollars,
         consumables: created,
+        perma_bonuses,
         blocked: false,
     })
 }

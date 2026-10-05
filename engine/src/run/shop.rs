@@ -47,6 +47,8 @@ pub struct ShopCard {
     pub eternal: bool,
     pub perishable: bool,
     pub rental: bool,
+    /// 标签给当前这张货架牌的免费标记, 不扩散到优惠券或之后重抽的新牌.
+    pub couponed: bool,
     /// 待办清单指定要打的牌型 —— **造出来时就掷好**并一路带着 (回放的 digest 里 `todo=` 段就是它).
     /// 别的牌型都是 `None`.
     pub todo: Option<crate::scoring::PokerHand>,
@@ -65,6 +67,7 @@ impl ShopCard {
             eternal: false,
             perishable: false,
             rental: false,
+            couponed: false,
             todo: None,
             enhancement: None,
             cost: 0.0,
@@ -97,12 +100,11 @@ pub fn shop_cost(base_cost: f64, edition: Option<Edition>, rental: bool, inflati
 pub(super) fn refresh_costs(run: &mut RunState) {
     let inflation = run.inflation;
     let discount = run.discount_percent;
-    let free = run.shop_free;
     let astronomer = run.jokers.iter().any(|joker| joker.key == "j_astronomer" && !joker.debuffed);
     if let Some(shop) = run.shop.as_mut() {
         for card in shop.jokers.iter_mut().chain(shop.voucher.iter_mut()).chain(shop.extra_voucher.iter_mut()).chain(shop.packs.iter_mut()) {
             let planet = Catalog::get().record(&card.key).is_some_and(|proto| proto.category == "Planet");
-            card.cost = if free || (astronomer && (planet || card.key.starts_with("p_celestial"))) {
+            card.cost = if card.couponed || (astronomer && (planet || card.key.starts_with("p_celestial"))) {
                 0.0
             } else {
                 shop_cost(base_cost_of(&card.key), card.edition, card.rental, inflation, discount)
@@ -124,17 +126,27 @@ pub(super) fn refresh_costs(run: &mut RunState) {
 /// `negative_ok` 为假时跳过负片那一档 —— 标准包就是不许出负片.
 pub fn poll_edition(run: &mut RunState, key: &str, rate: f64, negative_ok: bool) -> Option<Edition> {
     let poll = run.rng.pseudorandom(key);
-    if poll > 1.0 - 0.003 * rate && negative_ok {
-        Some(Edition::Negative)
-    } else if poll > 1.0 - 0.006 * rate {
-        Some(Edition::Polychrome)
-    } else if poll > 1.0 - 0.02 * rate {
-        Some(Edition::Holo)
-    } else if poll > 1.0 - 0.04 * rate {
-        Some(Edition::Foil)
-    } else {
-        None
+    // SMODS 用未乘券倍率的原始权重计算分母, 再用 get_weight 计算累计阈值.
+    // 负片被 _no_neg 排除时仍累加其权重; banned 才是整个从池中排除.
+    let mut options: Vec<(Edition, f64, f64)> = [
+        (Edition::Negative, "e_negative", 3.0, 3.0),
+        (Edition::Polychrome, "e_polychrome", 3.0, 6.0 * run.edition_rate - 3.0),
+        (Edition::Holo, "e_holo", 14.0, 14.0 * run.edition_rate),
+        (Edition::Foil, "e_foil", 20.0, 20.0 * run.edition_rate),
+    ].into_iter().filter(|(_, id, _, _)| matches!(key, "wheel_of_fortune" | "aura") || !run.banned_keys.contains(*id))
+        .map(|(edition, _, base, modified)| (edition, base, modified)).collect();
+    if options.is_empty() {
+        options.push((Edition::Foil, 20.0, 20.0 * run.edition_rate));
     }
+    let total: f64 = options.iter().map(|(_, base, _)| base).sum::<f64>() * 25.0;
+    let mut cumulative = 0.0;
+    for (edition, _, modified) in options {
+        cumulative += modified * rate;
+        if poll > 1.0 - cumulative / total && (negative_ok || edition != Edition::Negative) {
+            return Some(edition);
+        }
+    }
+    None
 }
 
 /// `create_card_for_shop`: 决定这一格摆什么, 然后生成它.
@@ -175,7 +187,7 @@ pub fn create_card_for_shop(run: &mut RunState, rates: &ShopRates) -> ShopCard {
     ];
     for (kind, weight) in kinds {
         if polled > check && polled <= check + weight {
-            return match kind {
+            let mut card = match kind {
                 "Joker" => create_joker(run, "sho"),
                 // 扑克牌那一格. 有幻象券时"基础牌 / 强化牌"由上面那一掷决定 (超过 0.6 是强化牌),
                 // 没有幻象券时游戏写的就是固定的 'Base'.
@@ -194,16 +206,22 @@ pub fn create_card_for_shop(run: &mut RunState, rates: &ShopRates) -> ShopCard {
                 // 塔罗, 行星与幻灵: 直接抽它们各自的池.
                 other => {
                     let mut card = ShopCard::plain(create_card_for_shop_slot(run, other, "sho"));
-                    card.cost = shop_cost(
-                        base_cost_of(&card.key),
-                        None,
-                        false,
-                        run.inflation,
-                        run.discount_percent,
-                    );
+                    card.cost = if other == "Planet" && run.jokers.iter().any(|joker| joker.key == "j_astronomer" && !joker.debuffed) {
+                        0.0
+                    } else {
+                        shop_cost(
+                            base_cost_of(&card.key),
+                            None,
+                            false,
+                            run.inflation,
+                            run.discount_percent,
+                        )
+                    };
                     card
                 }
             };
+            apply_edition_tag(run, &mut card);
+            return card;
         }
         check += weight;
     }
@@ -224,8 +242,8 @@ pub fn pick_joker_of_rarity(
     legendary: bool,
 ) -> Option<String> {
     let candidates = Catalog::get().jokers_by_rarity(rarity);
-    let showman = run.jokers.iter().any(|joker| joker.key == "j_ring_master");
-    let pool: Vec<String> = candidates
+    let showman = run.jokers.iter().any(|joker| joker.key == "j_ring_master" && !joker.debuffed);
+    let mut pool: Vec<String> = candidates
         .iter()
         .map(|proto| {
             // 用过的小丑默认不再出现, 但持有表演者时例外.
@@ -250,13 +268,16 @@ pub fn pick_joker_of_rarity(
                     .as_deref()
                     .is_some_and(|gate| !run.has_enhancement(gate));
             // 传奇无视解锁条件.
-            if (legendary || run.unlocked(proto)) && !used && !blocked {
+            if (legendary || run.unlocked(proto)) && !used && !blocked && !run.banned_keys.contains(&proto.id) {
                 proto.id.clone()
             } else {
                 "UNAVAILABLE".to_owned()
             }
         })
         .collect();
+    if pool.iter().all(|key| key == "UNAVAILABLE") {
+        pool = vec!["j_joker".to_owned()];
+    }
     // 池键的构造 (`get_current_pool`): `'Joker'..稀有度..((not _legendary and 追加) or '')`,
     // 而函数末尾又是 `_pool_key..(not _legendary and 底注 or '')` ——
     // 也就是**传奇那条路既不带追加、也不带底注**, 键就是光秃秃的 `Joker4`.
@@ -299,7 +320,11 @@ pub fn create_joker(run: &mut RunState, key_append: &str) -> ShopCard {
     // 底注参与, 但实测结果如此, 所以以实测为准, 别照源码"简化".
     let key = pick_joker_of_rarity(run, rarity, key_append, false)
         .unwrap_or_else(|| "j_joker".to_owned());
+    finish_joker(run, key, key_append)
+}
 
+/// 原型已选好后仍要完整执行待办, 贴纸, 租赁与版本随机数. 标签只跳过稀有度骰.
+fn finish_joker(run: &mut RunState, key: String, key_append: &str) -> ShopCard {
     let mut card = ShopCard::plain(key);
 
     // 待办清单的"这一回合指定哪个牌型"是**造出来那一刻**就掷的 —— 挂在 `Card:set_ability` 里
@@ -316,10 +341,11 @@ pub fn create_joker(run: &mut RunState, key_append: &str) -> ShopCard {
     let poll = run
         .rng
         .pseudorandom(&format!("etperpoll{}", run.ante));
+    let proto = Catalog::get().record(&card.key);
     if run.modifiers.enable_eternals_in_shop && poll > 0.7 {
-        card.eternal = true;
+        card.eternal = proto.is_some_and(|p| p.eternal_compat);
     } else if run.modifiers.enable_perishables_in_shop && poll > 0.4 && poll <= 0.7 {
-        card.perishable = true;
+        card.perishable = proto.is_some_and(|p| p.perishable_compat);
     }
     if run.modifiers.enable_rentals_in_shop
         && run.rng.pseudorandom(&format!("ssjr{}", run.ante)) > 0.7
@@ -344,45 +370,58 @@ pub fn create_joker(run: &mut RunState, key_append: &str) -> ShopCard {
 /// 游戏那边的顺序是: 先找 `store_joker_create` 拿到一张小丑, 再拿它去问每个
 /// `store_joker_modify`, 第一个答应的给它加版本.
 fn shop_card_from_tags(run: &mut RunState, _rates: &ShopRates) -> Option<ShopCard> {
-    // `store_joker_create`: 罕见标签给 2 级, 稀有标签给 3 级.
-    let (rarity, key_append) = run.tags.iter().find_map(|tag| match tag.as_str() {
-        "tag_uncommon" => Some((2, "uta")),
-        "tag_rare" => Some((3, "rta")),
-        _ => None,
-    })?;
-    // **用掉的标签要离场** —— 游戏里 `Tag:yep` 与 `Tag:nope` 两条路都会 `self:remove()`,
-    // 也就是"触发一次就没了". 少了这一步, 它会在**之后每一格**货架上继续生效:
-    // 一张"罕见标签"会把整面货架全变成稀有二的小丑.
-    // (整局对拍里 `LG7RIX92` 那份第 26 步就是这么差的: 引擎连着两格都出了稀有二.)
-    run.tags.retain(|tag| tag != "tag_uncommon" && tag != "tag_rare");
-
-    // 画一张那个稀有度的小丑. 这里不走 `create_joker` 的主路径, 因为它会先掷一次稀有度 ——
-    // 而标签已经指定了, 再掷一次就把随机数序列带偏了. 过滤本身仍然是共用那一份.
-    let key = pick_joker_of_rarity(run, rarity, key_append, false)?;
-    let mut card = ShopCard::plain(key);
-
-    // `store_joker_modify`: 第一个版本标签给它加版本. 它原本没有版本才加.
-    // 它同样是"触发一次就离场" —— 否则之后每一格商店小丑都会白带一个版本.
-    let edition = run.tags.iter().find_map(|tag| match tag.as_str() {
-        "tag_foil" => Some(Edition::Foil),
-        "tag_holo" => Some(Edition::Holo),
-        "tag_polychrome" => Some(Edition::Polychrome),
-        "tag_negative" => Some(Edition::Negative),
-        _ => None,
-    });
-    if edition.is_some() {
-        run.tags
-            .retain(|tag| !matches!(tag.as_str(), "tag_foil" | "tag_holo" | "tag_polychrome" | "tag_negative"));
+    while let Some(index) = run.tags.iter().position(|tag| matches!(tag.as_str(), "tag_uncommon" | "tag_rare")) {
+        let tag = run.tags.remove(index);
+        let (rarity, key_append) = if tag == "tag_rare" { (3, "rta") } else { (2, "uta") };
+        // 稀有小丑全在手里时这个标签作废, 继续检查后面的生成标签.
+        if rarity == 3 {
+            let held: std::collections::HashSet<&str> = run.jokers.iter()
+                .filter(|joker| Catalog::get().record(&joker.key).is_some_and(|p| p.rarity == Some(3)))
+                .map(|joker| joker.key.as_str()).collect();
+            if held.len() >= Catalog::get().jokers_by_rarity(3).len() { continue; }
+        }
+        let key = pick_joker_of_rarity(run, rarity, key_append, false)?;
+        let mut card = finish_joker(run, key, key_append);
+        card.couponed = true;
+        card.cost = 0.0;
+        apply_edition_tag(run, &mut card);
+        return Some(card);
     }
-    card.edition = edition;
-    card.cost = shop_cost(
-        base_cost_of(&card.key),
-        card.edition,
-        false,
-        run.inflation,
-        run.discount_percent,
-    );
-    Some(card)
+    None
+}
+
+/// 每个货架小丑至多消费一个版本标签, 已有版本或非小丑不会消费.
+fn apply_edition_tag(run: &mut RunState, card: &mut ShopCard) {
+    if card.edition.is_some() || !Catalog::get().record(&card.key).is_some_and(|p| p.category == "Joker") {
+        return;
+    }
+    let picked = run.tags.iter().enumerate().find_map(|(index, tag)| {
+        let edition = match tag.as_str() {
+            "tag_foil" => Edition::Foil,
+            "tag_holo" => Edition::Holo,
+            "tag_polychrome" => Edition::Polychrome,
+            "tag_negative" => Edition::Negative,
+            _ => return None,
+        };
+        Some((index, edition))
+    });
+    if let Some((index, edition)) = picked {
+        run.tags.remove(index);
+        card.edition = Some(edition);
+        card.couponed = true;
+        card.cost = 0.0;
+    }
+}
+
+/// 强化池保留禁用占位, 空池按游戏使用小丑原型兜底而不是省略抽取.
+fn enhancement_pool(run: &RunState) -> Vec<String> {
+    let mut pool: Vec<String> = Catalog::get().pool("Enhanced").iter()
+        .map(|proto| if run.banned_keys.contains(&proto.id) { "UNAVAILABLE".to_owned() } else { proto.id.clone() })
+        .collect();
+    if pool.iter().all(|key| key == "UNAVAILABLE") {
+        pool = vec!["j_joker".to_owned()];
+    }
+    pool
 }
 
 /// 商店摆的那张扑克牌.
@@ -402,11 +441,7 @@ fn shop_card_from_tags(run: &mut RunState, _rates: &ShopRates) -> Option<ShopCar
 /// 注意这一支**不受蜡封与永恒那类影响**: 商店里的扑克牌只可能有强化与版本, 没有蜡封.
 fn playing_card_for_shop(run: &mut RunState, enhanced: bool) -> ShopCard {
     let enhancement = if enhanced {
-        let pool: Vec<String> = Catalog::get()
-            .pool("Enhanced")
-            .iter()
-            .map(|proto| proto.id.clone())
-            .collect();
+        let pool = enhancement_pool(run);
         let key = format!("Enhancedsho{}", run.ante);
         Enhancement::from_key(&pick_or_resample(&mut run.rng, &pool, &key))
     } else {
@@ -553,13 +588,15 @@ pub fn creation_from(run: &RunState) -> Creation {
     let showman = run
         .jokers
         .iter()
-        .any(|joker| joker.key == "j_ring_master");
+        .any(|joker| joker.key == "j_ring_master" && !joker.debuffed);
     // 这两样是从牌堆与手牌表**现算**的: 与其把整个牌堆借出来, 不如只带这两个小集合,
     // 免得 `Creation` 的借用面铺得太开 (借得越少, 越容易在计分那一层用上).
     let enhanced: std::collections::HashSet<String> = run
         .deck
         .iter()
-        .filter_map(|card| card.enhancement.map(|e| e.key().to_owned()))
+        .chain(run.hand.iter())
+        .chain(run.discard_pile.iter())
+        .filter_map(|card| card.enhancement.map(|e| format!("m_{}", e.key())))
         .collect();
     let played: std::collections::HashSet<String> = crate::scoring::PokerHand::BY_PRIORITY
         .iter()
@@ -587,29 +624,31 @@ pub fn create_consumable(
     key_append: &str,
     soulable: bool,
 ) -> String {
-    // 灵魂 / 黑洞那两骰: 命中就不抽池, 直接给那一张. 这两道门除了"有没有这张牌"还看
-    // **用过没有** (已经进过 `used_jokers` 时整段跳过, 表演者例外) —— 注意是跳过**整段**,
-    // 连那一骰都不掷, 所以随机序列也会跟着不同.
+    assert_ne!(kind, "Tarot_Planet", "NotImplemented: Tarot_Planet 的跨类别同 order 排序依赖实际 Lua 进程, 需要快照提供实际池顺序");
+    // Steamodded 即使没有新增隐藏消耗牌, 也会先消耗 soul_smods 那一颗.
+    // 两道原版门仍是独立 if: 灵魂命中后不能提前返回, 黑洞可能覆盖它.
     let soul_key = format!("soul_{kind}{}", creation.ante);
-    let soul_used = creation.used.contains("c_soul") && !creation.showman;
-    let black_hole_used = creation.used.contains("c_black_hole") && !creation.showman;
-    if soulable
-        && !soul_used
-        && matches!(kind, "Tarot" | "Spectral" | "Tarot_Planet")
-        && !creation.banned.contains("c_soul")
-        && rng.pseudorandom(&soul_key) > 0.997
-    {
-        creation.used.insert("c_soul".to_owned());
-        return "c_soul".to_owned();
+    let mut forced = None;
+    if soulable && !creation.banned.contains("c_soul") {
+        rng.pseudorandom(&format!("soul_smods_{kind}{}", creation.ante));
+        let soul_used = creation.used.contains("c_soul") && !creation.showman;
+        let black_hole_used = creation.used.contains("c_black_hole") && !creation.showman;
+        if !soul_used
+            && matches!(kind, "Tarot" | "Spectral" | "Tarot_Planet")
+            && rng.pseudorandom(&soul_key) > 0.997
+        {
+            forced = Some("c_soul");
+        }
+        if !black_hole_used
+            && matches!(kind, "Planet" | "Spectral")
+            && rng.pseudorandom(&soul_key) > 0.997
+        {
+            forced = Some("c_black_hole");
+        }
     }
-    if soulable
-        && !black_hole_used
-        && matches!(kind, "Planet" | "Spectral")
-        && !creation.banned.contains("c_black_hole")
-        && rng.pseudorandom(&soul_key) > 0.997
-    {
-        creation.used.insert("c_black_hole".to_owned());
-        return "c_black_hole".to_owned();
+    if let Some(key) = forced.filter(|key| !creation.banned.contains(*key)) {
+        creation.used.insert(key.to_owned());
+        return key.to_owned();
     }
     // 池键同样要带上底注.
     let pool_key = format!("{kind}{key_append}{}", creation.ante);
@@ -632,13 +671,18 @@ pub fn create_card_inner(
     // 指定卡 (游戏的 `forced_key`): **灵魂 / 黑洞那两骰都不掷, 池也不抽**, 直接给这一张.
     // 游戏那句写的是 `if not forced_key and soulable and …` —— 少掷一骰就意味着后面整条
     // 随机序列都不同, 所以"指定卡"必须走这条短路, 不能"先照常抽一张再替换成它".
-    if let Some(key) = forced {
+    if let Some(key) = forced.filter(|key| !run.banned_keys.contains(*key)) {
+        run.used_jokers.insert(key.to_owned());
         return key.to_owned();
     }
     // 小丑要走**稀有度分流**那条路 —— 与商店货架上的小丑一样: 先掷稀有度, 再从那个稀有度的
     // 池子里选. 少了这一步会从**全部**小丑里挑, 而且连稀有度那一掷都省了, 两边的序列都会偏
     // (`create_card` 的其余几类没有稀有度分流, 所以只有小丑要单独走).
+    let soulable = soulable && forced.is_none();
     if kind == "Joker" {
+        if soulable && !run.banned_keys.contains("c_soul") {
+            run.rng.pseudorandom(&format!("soul_smods_Joker{}", run.ante));
+        }
         let roll = run
             .rng
             .pseudorandom(&format!("rarity{}{key_append}", run.ante));
@@ -661,14 +705,10 @@ pub fn create_card_inner(
     key
 }
 
-/// 塔罗, 行星与幻灵的池: 只要没被禁用就都在里面, 筛空了退到兜底项.
-///
-/// 与小丑池不同, 这几类没有稀有度分流, 也没有"用过就不再出现"的规则 —— 塔罗可以重复出现.
+/// 塔罗, 行星与幻灵的池: 按隐藏, 强化门, softlock, 禁用与已用状态保留占位.
+/// 池被筛空时与游戏一样使用该类别的兜底项.
 fn consumable_pool(kind: &str, creation: &Creation) -> Vec<String> {
-    let category = match kind {
-        "Tarot_Planet" => "Tarot",
-        other => other,
-    };
+    let category = kind;
     let showman = creation.showman;
     let mut pool: Vec<String> = Vec::new();
     let mut usable = 0usize;
@@ -776,13 +816,17 @@ impl Shop {
             .map(|_| {
                 let key = get_pack(run, SHOP_PACK_KEY);
                 let mut card = ShopCard::plain(key);
-                card.cost = shop_cost(
-                    base_cost_of(&card.key),
-                    None,
-                    false,
-                    run.inflation,
-                    run.discount_percent,
-                );
+                card.cost = if card.key.starts_with("p_celestial") && run.jokers.iter().any(|joker| joker.key == "j_astronomer" && !joker.debuffed) {
+                    0.0
+                } else {
+                    shop_cost(
+                        base_cost_of(&card.key),
+                        None,
+                        false,
+                        run.inflation,
+                        run.discount_percent,
+                    )
+                };
                 card
             })
             .collect();
@@ -810,12 +854,19 @@ impl Shop {
             );
             card
         });
-        Shop {
+        let mut shop = Shop {
             jokers,
             voucher,
             extra_voucher,
             packs,
+        };
+        if run.shop_free {
+            for card in shop.jokers.iter_mut().chain(shop.packs.iter_mut()) {
+                card.couponed = true;
+                card.cost = 0.0;
+            }
         }
+        shop
     }
 
     /// 重抽小丑那两格. 优惠券与补充包不动 —— 游戏里 `reroll_shop` 只清 `shop_jokers`.
@@ -889,26 +940,22 @@ pub fn poll_edition_guaranteed(run: &mut RunState, key: &str) -> Option<Edition>
 /// 张数取自原型的 `config.extra`. 包里有什么在这一刻就定了, 与玩家后来挑哪张无关 ——
 /// 所以挑剩下的那些也照样消耗掉了随机数.
 pub fn open_pack(run: &mut RunState, pack_key: &str) -> Vec<PackCard> {
-    // 幻觉: 开包时掷一次 (键 `halu{底注}`, 概率 1/2), 中了就额外给一张塔罗.
-    // 它先看**消耗槽有没有位子** —— 游戏是"有位子才掷", 没位子时连骰子都不掷.
-    if run.consumables.len() < run.consumable_capacity()
-        && run
-            .jokers
-            .iter()
-            .any(|joker| joker.key == "j_hallucination" && !joker.debuffed)
-    {
-        let odds = run
-            .jokers
-            .iter()
-            .find(|joker| joker.key == "j_hallucination")
-            .map(|joker| joker.extra)
-            .unwrap_or(2.0);
-        let key = format!("halu{}", run.ante);
-        if odds > 0.0 && run.rng.pseudorandom(&key) < run.probability_scale / odds {
-            let tarot = create_card(run, "Tarot", "hal");
-            run.consumables
-                .push(super::consumable::Consumable::plain(tarot));
+    // 每个有效实例和兼容复制单独触发, buffer 先预留槽位, 事件在所有骰结束后造牌.
+    let sources = run.joker_effect_sources();
+    let mut reserved = 0;
+    for (source, _) in sources {
+        let joker = &run.jokers[source];
+        if joker.key == "j_hallucination"
+            && run.consumables.len() + reserved < run.consumable_capacity()
+            && joker.extra > 0.0
+            && run.rng.pseudorandom(&format!("halu{}", run.ante)) < run.probability_scale / joker.extra
+        {
+            reserved += 1;
         }
+    }
+    for _ in 0..reserved {
+        let tarot = create_card_inner(run, "Tarot", "hal", false, None);
+        run.consumables.push(super::consumable::Consumable::plain(tarot));
     }
 
     let kind = pack_kind_of(pack_key).unwrap_or("Tarot");
@@ -951,7 +998,8 @@ pub fn open_pack(run: &mut RunState, pack_key: &str) -> Vec<PackCard> {
             } else {
                 None
             };
-            if let Some(key) = telescope {
+            if let Some(key) = telescope.filter(|key| !run.banned_keys.contains(key)) {
+                run.used_jokers.insert(key.clone());
                 return PackCard {
                     key,
                     edition: None,
@@ -999,10 +1047,11 @@ pub fn open_pack(run: &mut RunState, pack_key: &str) -> Vec<PackCard> {
             // 用错键就等于这两项取的是另一条序列 (按键独立, 所以错的只是这两项本身).
             if kind == "Joker" {
                 let poll = run.rng.pseudorandom(&format!("packetper{}", run.ante));
+                let proto = Catalog::get().record(&card.key);
                 if run.modifiers.enable_eternals_in_shop && poll > 0.7 {
-                    card.eternal = true;
+                    card.eternal = proto.is_some_and(|p| p.eternal_compat);
                 } else if run.modifiers.enable_perishables_in_shop && poll > 0.4 && poll <= 0.7 {
-                    card.perishable = true;
+                    card.perishable = proto.is_some_and(|p| p.perishable_compat);
                 }
                 if run.modifiers.enable_rentals_in_shop
                     && run.rng.pseudorandom(&format!("packssjr{}", run.ante)) > 0.7
@@ -1032,17 +1081,21 @@ pub fn open_pack(run: &mut RunState, pack_key: &str) -> Vec<PackCard> {
 ///
 /// 之后才是版本与蜡封. 这四件事的顺序不能换, 换了随机数就对不上.
 fn standard_pack_card(run: &mut RunState, key_append: &str) -> PackCard {
+    // Steamodded 先生成 create_card 的 flags: 版本, 蜡封, 基础/强化.
+    // 随后 create_card 才执行灵魂门, 强化池与牌面抽取, 全局 PRNG 顺序不能交换.
+    let edition = poll_edition(run, &format!("standard_edition{}", run.ante), 2.0, false);
+    let seal = poll_seal(run, "stdseal", None, 10.0, false);
     let enhanced = run
         .rng
         .pseudorandom(&format!("stdset{}", run.ante))
         > 0.6;
+    if !run.banned_keys.contains("c_soul") {
+        let kind = if enhanced { "Enhanced" } else { "Base" };
+        run.rng.pseudorandom(&format!("soul_smods_{kind}{}", run.ante));
+    }
 
     let enhancement = if enhanced {
-        let pool: Vec<String> = Catalog::get()
-            .pool("Enhanced")
-            .iter()
-            .map(|proto| proto.id.clone())
-            .collect();
+        let pool = enhancement_pool(run);
         let enhanced_key = format!("Enhanced{key_append}{}", run.ante);
         let picked = pick_or_resample(&mut run.rng, &pool, &enhanced_key);
         Enhancement::from_key(&picked)
@@ -1054,10 +1107,10 @@ fn standard_pack_card(run: &mut RunState, key_append: &str) -> PackCard {
     let front_key = format!("front{key_append}{}", run.ante);
     let face = pick_or_resample(&mut run.rng, &faces, &front_key);
 
-    let mut card = PackCard {
+    PackCard {
         key: face,
-        edition: None,
-        seal: None,
+        edition,
+        seal,
         enhancement,
         // 标准包开出来的是扑克牌, 没有待办清单那回事.
         todo: None,
@@ -1065,32 +1118,24 @@ fn standard_pack_card(run: &mut RunState, key_append: &str) -> PackCard {
         eternal: false,
         perishable: false,
         rental: false,
-    };
-
-    card.edition = poll_edition(
-        run,
-        &format!("standard_edition{}", run.ante),
-        2.0,
-        false,
-    );
-
-    // 蜡封的几率是 2%, 写成 `1 - 0.02 * 10` 与游戏一致.
-    let seal_rate = 10.0;
-    let seal_poll = run.rng.pseudorandom(&format!("stdseal{}", run.ante));
-    if seal_poll > 1.0 - 0.02 * seal_rate {
-        let seal_type = run.rng.pseudorandom(&format!("stdsealtype{}", run.ante));
-        card.seal = Some(if seal_type > 0.75 {
-            Seal::Red
-        } else if seal_type > 0.5 {
-            Seal::Blue
-        } else if seal_type > 0.25 {
-            Seal::Gold
-        } else {
-            Seal::Purple
-        });
     }
+}
 
-    card
+/// Lovely 初始化补丁把 Seal 池重排为 Red, Blue, Gold, Purple, SMODS 接管只原位替换.
+/// `type_key` 为 None 时沿用 key_base + type + ante, guaranteed 跳过存在性骰.
+pub fn poll_seal(run: &mut RunState, key_base: &str, type_key: Option<&str>, rate: f64, guaranteed: bool) -> Option<Seal> {
+    let options: Vec<Seal> = Catalog::get().pool("Seal").iter()
+        .filter(|proto| !run.banned_keys.contains(&proto.id))
+        .filter_map(|proto| match proto.id.as_str() { "Purple" => Some(Seal::Purple), "Gold" => Some(Seal::Gold), "Blue" => Some(Seal::Blue), "Red" => Some(Seal::Red), _ => None })
+        .collect();
+    if options.is_empty() { return None; }
+    if !guaranteed && run.rng.pseudorandom(&format!("{key_base}{}", run.ante)) <= 1.0 - 0.02 * rate { return None; }
+    let default_key = format!("{key_base}type{}", run.ante);
+    let seal_type = run.rng.pseudorandom(type_key.unwrap_or(&default_key));
+    for (index, seal) in options.iter().enumerate() {
+        if seal_type > 1.0 - (index + 1) as f64 / options.len() as f64 { return Some(*seal); }
+    }
+    None
 }
 
 /// `get_pack`: 抽一个补充包原型.
@@ -1131,8 +1176,8 @@ pub fn get_pack(run: &mut RunState, key: &str) -> String {
             return proto.id.clone();
         }
     }
-    // 兜底: 与游戏一样, 落在边界之外时不给东西, 但这里宁可报出来.
-    panic!("卡包加权抽签落到了区间之外 (poll={poll}, total={total})");
+    // SMODS 在空池或未命中区间时回退基础小丑包, 即使它也被禁用.
+    "p_buffoon_normal_1".to_owned()
 }
 
 /// 补充包的权重, 没有 `weight` 字段时按 1 算 (对应 `v.weight or 1`).
@@ -1175,13 +1220,13 @@ pub fn roll_todo(
     let pool: Vec<String> = PokerHand::BY_PRIORITY
         .iter()
         .filter(|hand| hands.get(**hand).visible)
-        .filter(|hand| Some(**hand) != old)
         .map(|hand| hand.index().to_string())
         .collect();
     loop {
         let picked = rng.pick(&pool, "to_do").clone();
         if let Ok(index) = picked.parse::<usize>()
             && index < PokerHand::BY_PRIORITY.len()
+            && Some(PokerHand::BY_PRIORITY[index]) != old
         {
             return PokerHand::BY_PRIORITY[index];
         }

@@ -109,6 +109,10 @@ pub struct RunState {
     pub extra_voucher_key: Option<String>,
     /// 这一局跳过过几个盲注, 对应 `G.GAME.skips`.
     pub skips: i64,
+    /// 本局累计已出牌次数, 对应 `G.GAME.hands_played`.
+    pub total_hands_played: i64,
+    /// 成功回合累计剩余弃牌次数, 对应 `G.GAME.unused_discards`.
+    pub unused_discards: i64,
     /// 跳过小盲注 / 大盲注能拿到的标签, 对应 `round_resets.blind_tags`.
     ///
     /// 底注之内不换 —— 只有开局与底注提升时才重抽, 所以这两个键在一底里是固定的.
@@ -229,6 +233,10 @@ pub struct RunState {
     pub discards_per_round: i64,
     /// 手牌上限的临时扣减, 由镣铐 (The Manacle) 之类的 Boss 给.
     pub hand_size_sub: i64,
+    pub blind_hands_sub: i64,
+    pub blind_discards_sub: i64,
+    pub heart_chosen_sort_id: Option<u32>,
+    pub heart_prepped: bool,
     /// 手牌上限的永久加成, 由牌组, 优惠券与小丑给.
     pub hand_size_bonus: i64,
     /// 杂耍标签给当前盲注的临时手牌上限, 成功结算时清零.
@@ -242,6 +250,8 @@ pub struct RunState {
     pub bankrupt_at: f64,
     /// 本局用掉过几张行星牌 (卫星那类小丑要看).
     pub planets_used: usize,
+    /// 卫星只计不同的行星原型, 与星座的总使用次数分开.
+    pub unique_planets_used: HashSet<String>,
     /// 本赛局一共用过几张**塔罗** (`G.GAME.consumeable_usage_total.tarot`). 占卜师要看它,
     /// 而且它算的是**全局**数量 —— 包括在小丑进队之前用的那些.
     pub tarots_used: usize,
@@ -345,6 +355,8 @@ impl RunState {
             tags: Vec::new(),
             extra_voucher_key: None,
             skips: 0,
+            total_hands_played: 0,
+            unused_discards: 0,
             blind_tags: [None, None],
             hands_played: HashMap::new(),
             uda: HashMap::new(),
@@ -398,6 +410,10 @@ impl RunState {
             hands_per_round: 4,
             discards_per_round: discards,
             hand_size_sub: 0,
+            blind_hands_sub: 0,
+            blind_discards_sub: 0,
+            heart_chosen_sort_id: None,
+            heart_prepped: false,
             hand_size_bonus: 0,
             temporary_hand_size_bonus: 0,
             base_joker_slots: 5,
@@ -408,6 +424,7 @@ impl RunState {
             pack_return_phase: Phase::Shop,
             shop: None,
             planets_used: 0,
+            unique_planets_used: HashSet::new(),
             tarots_used: 0,
             starting_deck_size: 0,
             next_card_id: 0,

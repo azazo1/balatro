@@ -132,6 +132,19 @@ play *args:
         *sys.argv[1:],
     ]).returncode)
 
+# just engine-replay <回放文件或 fixture> [更多文件]
+# 离线逐步核对游戏回放, 不启动游戏, 每局报告首次分歧.
+[positional-arguments]
+engine-replay *args:
+    #!{{ python_shebang }}
+    import subprocess
+    import sys
+    sys.exit(subprocess.run([
+        "cargo", "run", "--release", "--offline", "--quiet",
+        "--manifest-path", "engine/Cargo.toml", "--bin", "replay_check", "--",
+        *sys.argv[1:],
+    ]).returncode)
+
 # 删除打包产物 dist/.
 clean:
     {{ python }} scripts/clean.py

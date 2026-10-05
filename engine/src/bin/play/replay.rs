@@ -41,7 +41,11 @@ pub fn record_of(step: &Json, run: &RunState, wall: f64) -> String {
 /// `snapshot` 与版本号这类字段**原样取自模板**: 那是 LÖVE 自己的存档格式, 引擎既造不出也不该造.
 /// 只覆盖 `run` (这局的开局参数), `actions` (agent 打的每一步) 与 `result`.
 pub fn render(spec: &RunSpec, records: &[String], won: bool) -> String {
-    let parsed = Json::parse(&session::template_raw()).expect("模板能解析");
+    render_with_template(spec, records, won, &session::template_raw())
+}
+
+fn render_with_template(spec: &RunSpec, records: &[String], won: bool, template: &str) -> String {
+    let parsed = Json::parse(template).expect("模板能解析");
     let Json::Object(entries) = parsed else {
         panic!("模板顶层应当是个对象");
     };
@@ -173,9 +177,13 @@ mod tests {
     #[test]
     fn exported_result_keeps_the_engine_win_flag() {
         let spec = RunSpec { seed: "4AH77J5E".to_owned(), deck: "PLASMA".to_owned(), stake: "GOLD".to_owned() };
+        let template = r#"{"version":1,"snapshot":{"uda":{},"profile":"return {}","unlock_notify":"","settings":{"GAMESPEED":1}},"actions":[]}"#;
         for won in [false, true] {
-            let file = Json::parse(&render(&spec, &[], won)).unwrap();
+            let file = Json::parse(&render_with_template(&spec, &[], won, template)).unwrap();
             assert_eq!(file.get("result").unwrap().get("won").and_then(Json::as_bool), Some(won));
+            let snapshot = file.get("snapshot").unwrap();
+            assert_eq!(snapshot.get("profile").and_then(Json::as_str), Some("return {}"));
+            assert_eq!(snapshot.get("settings").unwrap().get("GAMESPEED").and_then(Json::as_f64), Some(4.0));
         }
     }
 }

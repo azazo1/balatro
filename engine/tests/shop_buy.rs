@@ -19,6 +19,7 @@ fn shop_card(key: &str, cost: f64) -> ShopCard {
         eternal: false,
         perishable: false,
         rental: false,
+        couponed: false,
         enhancement: None,
         todo: None,
         cost,
@@ -162,15 +163,15 @@ fn the_pack_contents_are_fixed_when_it_is_opened() {
     );
 }
 
-/// 卖出价是买入价的一半向下取整, 最低一元.
+/// 卖价由当前持有区的正常价格计算, 不是历史购买付款额.
 #[test]
-fn selling_a_joker_pays_half_its_price() {
+fn selling_a_joker_pays_half_its_current_price() {
     let mut run = ready_to_buy(10.0);
-    run.buy(&shop_card("j_jolly", 5.0)).expect("买下");
-    assert_eq!(run.dollars, 5.0);
+    run.buy(&shop_card("j_jolly", 3.0)).expect("买下");
+    assert_eq!(run.dollars, 7.0);
 
-    assert_eq!(run.sell_joker(0).expect("卖掉"), 2.0, "5 的一半向下取整");
-    assert_eq!(run.dollars, 7.0, "钱回到手里");
+    assert_eq!(run.sell_joker(0).expect("卖掉"), 1.0, "正常价 3 的一半向下取整");
+    assert_eq!(run.dollars, 8.0, "钱回到手里");
     assert!(run.jokers.is_empty(), "卖掉的从持有区消失");
 
     // 基础价 1 的小丑卖不出 0 元, 至少给 1.
@@ -360,35 +361,37 @@ fn reroll_respects_the_debt_limit_too() {
     assert_eq!(run.dollars, -4.0);
 }
 
-/// 代金券标签让这一轮的商店免费: 买什么都不花钱, 卖掉也换不回钱.
-///
-/// 它是"这一轮商店"的效果, 所以每次进商店时按持有列表重算一次 —— 不然会一路免费下去.
+/// 代金券标签只让当前货架的小丑和卡包免费, 不改变持有卡的正常卖价.
 #[test]
-fn coupon_tag_makes_the_shop_free() {
-    let mut run = ready_to_buy(10.0);
+fn coupon_tag_marks_only_the_initial_joker_and_booster_shelf() {
+    let mut run = ready_to_buy(50.0);
     run.tags.push("tag_coupon".to_owned());
-    // 进商店那一步会把它打开.
     run.phase = Phase::RoundEval;
     run.round_eval = Some(balatro_engine::run::RoundEval::default());
     run.cash_out().expect("这一回合在结算");
-    assert!(run.shop_free, "进商店时标记上");
+    let shop = run.shop.as_ref().unwrap();
+    assert!(shop.jokers.iter().all(|card| card.couponed && card.cost == 0.0));
+    assert!(shop.packs.iter().all(|card| card.couponed && card.cost == 0.0));
+    assert!(shop.voucher.as_ref().is_some_and(|card| !card.couponed && card.cost > 0.0));
 
+    let picked = shop.jokers[0].clone();
     let before = run.dollars;
-    let paid = run.buy(&shop_card("j_jolly", 5.0)).expect("买下");
-    assert_eq!(paid, 0.0, "免费就拿 0 元");
-    assert_eq!(run.dollars, before, "钱没动");
-    assert_eq!(
-        run.jokers.last().expect("有张小丑").cost,
-        0.0,
-        "买入价记 0, 卖掉也换不回钱"
-    );
+    assert_eq!(run.buy(&picked).unwrap(), 0.0);
+    assert_eq!(run.dollars, before);
+    if picked.key.starts_with("j_") {
+        let owned = run.jokers.last().unwrap();
+        assert!(owned.cost > 0.0);
+        assert!(owned.sell_price() >= 1.0);
+    }
+    run.reroll_shop().unwrap();
+    assert!(run.shop.as_ref().unwrap().jokers.iter().all(|card| !card.couponed));
+    run.next_round().unwrap();
 
-    // 下一轮商店不再免费.
-    run.tags.retain(|t| t != "tag_coupon");
     run.phase = Phase::RoundEval;
     run.round_eval = Some(balatro_engine::run::RoundEval::default());
-    run.cash_out().expect("这一回合在结算");
-    assert!(!run.shop_free, "标签用掉之后就没了");
+    run.cash_out().unwrap();
+    assert!(!run.shop_free);
+    assert!(run.shop.as_ref().unwrap().jokers.iter().all(|card| !card.couponed));
 }
 
 /// D6 标签让这一轮的商店重抽免费.

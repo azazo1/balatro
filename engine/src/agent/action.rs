@@ -31,7 +31,10 @@ pub fn amount(params: Option<&Json>, field: &str) -> Option<f64> {
 /// 这里刻意保持一致的参数键 (`pack` 用单数 `card`, 与 `play` 的复数 `cards` 不同),
 /// 否则同一条记录在两边会解释成不同的意思.
 pub fn apply(step: &Json, run: &mut RunState, env: &EvalEnv) -> Result<String, ActionError> {
-    let method = step.get("method").and_then(Json::as_str).expect("有 method");
+    let method = step
+        .get("method")
+        .and_then(Json::as_str)
+        .ok_or(ActionError::NotAllowed("动作必须包含 method"))?;
     let back = run.back_effect();
     let params = step.get("params");
     let cards = numbers_of(params.and_then(|p| p.get("cards")));
@@ -63,7 +66,18 @@ pub fn apply(step: &Json, run: &mut RunState, env: &EvalEnv) -> Result<String, A
             })
         }
         "rearrange" => {
+            if !matches!(run.phase, Phase::SelectingHand | Phase::Shop | Phase::BoosterOpened) {
+                return Err(ActionError::NotAllowed("当前阶段不能重排"));
+            }
+            let count = ["hand", "jokers", "consumables"].iter()
+                .filter(|key| params.and_then(|p| p.get(key)).is_some()).count();
+            if count != 1 {
+                return Err(ActionError::NotAllowed("重排必须指定一个区域"));
+            }
             if let Some(order) = params.and_then(|p| p.get("hand")) {
+                if run.phase == Phase::Shop || (run.phase == Phase::BoosterOpened && run.hand.is_empty()) {
+                    return Err(ActionError::NotAllowed("当前没有可重排的手牌"));
+                }
                 run.rearrange_hand(&numbers_of(Some(order)))
                     .map(|()| "重排手牌".to_owned())
             } else if let Some(order) = params.and_then(|p| p.get("jokers")) {
@@ -86,34 +100,40 @@ pub fn apply(step: &Json, run: &mut RunState, env: &EvalEnv) -> Result<String, A
         "cash_out" => run.cash_out().map(|gained| format!("结算, 进账 {gained}")),
         "next_round" => run.next_round().map(|()| "离开商店".to_owned()),
         "reroll" => run.reroll_shop().map(|cost| format!("重抽货架, 花了 {cost}")),
-        "buy" => {
+        "buy" | "buy_and_use" => {
+            let mut targets = ["card", "voucher", "pack"]
+                .into_iter()
+                .filter_map(|key| params.and_then(|p| p.get(key)).map(|value| (key, value)));
+            let target = targets
+                .next()
+                .ok_or(ActionError::NotAllowed("购买必须指定一个目标"))?;
+            if targets.next().is_some() {
+                return Err(ActionError::NotAllowed("购买只能指定一个目标"));
+            }
+            let slot = target.1.as_f64().filter(|n| n.is_finite() && *n >= 0.0 && n.fract() == 0.0)
+                .ok_or(ActionError::NotAllowed("购买下标必须是非负整数"))? as usize;
+            let use_now = method == "buy_and_use"
+                || params.and_then(|p| p.get("use")).and_then(Json::as_bool) == Some(true);
+            if use_now && target.0 != "card" {
+                return Err(ActionError::NotAllowed("买并使用只能指向商店消耗牌"));
+            }
             let Some(shop) = run.shop.as_ref() else {
                 return Err(ActionError::NotInPhase {
                     expected: Phase::Shop,
                     actual: run.phase,
                 });
             };
-            // 三种目标: `card` (小丑 / 消耗牌那一格), `voucher`, `pack`.
-            let picked = if let Some(slot) = amount(params, "voucher") {
-                shop.voucher
-                    .clone()
-                    .or_else(|| shop.extra_voucher.clone())
-                    .ok_or(ActionError::BadIndex(slot as usize))
-            } else if let Some(slot) = amount(params, "pack") {
-                shop.packs
-                    .get(slot as usize)
-                    .cloned()
-                    .ok_or(ActionError::BadIndex(slot as usize))
+            let picked = match target.0 {
+                "voucher" => shop.voucher.iter().chain(shop.extra_voucher.iter()).nth(slot).cloned(),
+                "pack" => shop.packs.get(slot).cloned(),
+                _ => shop.jokers.get(slot).cloned(),
+            }.ok_or(ActionError::BadIndex(slot))?;
+            let outcome = if use_now {
+                run.buy_and_use(&picked)
             } else {
-                let slot = amount(params, "card").unwrap_or(0.0) as usize;
-                shop.jokers
-                    .get(slot)
-                    .cloned()
-                    .ok_or(ActionError::BadIndex(slot))
-            }?;
-            let _ = method;
-            run.buy(&picked)
-                .map(|cost| format!("买下 {} (花了 {cost})", picked.key))
+                run.buy(&picked)
+            };
+            outcome.map(|cost| format!("买下 {} (花了 {cost})", picked.key))
         }
         "sell" => {
             if let Some(slot) = amount(params, "joker") {

@@ -16,6 +16,7 @@ fn voucher(key: &str) -> ShopCard {
         eternal: false,
         perishable: false,
         rental: false,
+        couponed: false,
         enhancement: None,
         todo: None,
         // 券的价签不影响它买下之后的效果, 给个买得起的数就行.
