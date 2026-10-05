@@ -68,6 +68,7 @@ function M.new(deps)
   local prompt = deps.prompt or assert(deps.load("prompt"))
   local history_mod = deps.history or assert(deps.load("history"))
   local summary_mod = deps.summary or assert(deps.load("summary"))
+  local expect_mod = deps.expect or assert(deps.load("expect"))
   local text = deps.text or assert(deps.load("text"))
 
   local self = {
@@ -594,11 +595,31 @@ function M.new(deps)
       reject_proposal(call, "混合模式必须通过 propose_actions 提案")
       return
     end
-    local method, params, reason = tools.to_request(name, args)
+    local method, params, reason, expect = tools.to_request(name, args)
     if selected then reason = selected.reason end
     if not method then
       tool_result(call, "失败: " .. tostring(reason))
       return
+    end
+    -- 出牌与弃牌的自我核对: expect 声明了这几张是什么牌, 组成什么牌型, 拿当前局面比对.
+    -- 不符就不执行 (选错牌这一手的分就白丢了), 让它按真值重选.
+    -- 这里不计入 fail_count: 属于校验拦截, 不是同一个操作执行失败, 否则连写错三次就被当成失控暂停.
+    if expect and (method == "play" or method == "discard") then
+      local gs = deps.gamestate()
+      local preview = deps.hand_preview
+      if not preview and deps.capabilities then
+        preview = deps.capabilities.snapshot(gs).preview_hand
+      end
+      local why = expect_mod.check(gs, params.cards or {}, expect, preview)
+      if why then
+        transcript({ type = "expect", method = method, expect = expect, params = params, ok = false, reason = why })
+        tool_result(call, why)
+        history:note(string.format("%s 被 expect 拦下 (%s %s)", method, method, deps.json.encode(params)))
+        skip_rest("选牌与声明不符")
+        fresh = false
+        return
+      end
+      transcript({ type = "expect", method = method, expect = expect, params = params, ok = true })
     end
     -- 设置页给了固定种子时, 开局一律用它, 模型给的种子 (或没给) 都不算.
     local fixed_seed = nil

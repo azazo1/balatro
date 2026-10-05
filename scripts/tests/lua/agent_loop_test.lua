@@ -50,6 +50,7 @@ local function harness()
     busy = false,
     requests = {}, -- 每次请求时的 messages 快照
     calls = {}, -- 端点调用记录
+    transcript = {}, -- 转录记录
     cancelled = 0,
     cfg = { token_limit = 0, after_win = "menu" },
   }
@@ -138,6 +139,13 @@ local function harness()
       env.decision_requests[#env.decision_requests + 1] = r; return r
     end },
   })
+  deps.hand_preview = function(gs, indices)
+    return dofile("mods/balatrobot/agent/decision/hand_options.lua").preview(gs, indices)
+  end
+  deps.expect = dofile(DIR .. "expect.lua")
+  deps.transcript = function(entry)
+    env.transcript[#env.transcript + 1] = entry
+  end
   env.driver = Driver.new(deps)
   function env.decision_reply(answer)
     env.decision_requests[#env.decision_requests].callbacks.on_done({ answers = { select_action = answer } },
@@ -970,6 +978,68 @@ do -- 连续无有效提案达到上限, 不会绕过 Decision.
   end
   check("连续无效提案暂停且无网络动作", env.driver.state == "halted" and #env.calls == 0 and #env.decision_requests == 0)
   check("连续无效提案历史配对", paired(env.driver._history.messages))
+end
+
+do -- expect 声明与实际不符时拦下, 不动游戏. 复现 2026-10-05 那手:
+  -- 手牌 S_Q,C_J,D_J,H_9,C_9,H_7,S_5,H_5, 模型选 [1,2,4,7] = C_J,D_J,C_9,H_5, 却声称打两对.
+  local env = harness()
+  env.gs.hand.cards = {}
+  for i, key in ipairs({ "S_Q", "C_J", "D_J", "H_9", "C_9", "H_7", "S_5", "H_5" }) do
+    local suit, rank = key:match("^(%a)_(.+)$")
+    env.gs.hand.cards[i] = { key = key, value = { suit = suit, rank = rank }, modifier = {}, state = {} }
+  end
+  env.driver.start(); env.tick()
+  env.reply({ { "play", { cards = { 1, 2, 4, 7 }, expect = { hand = "Two Pair" }, reason = "打两对 J+5" } } })
+  env.settle()
+  check("牌型声明不符时不执行", #env.calls == 0)
+  local said = ""
+  for _, m in ipairs(env.driver._history.messages) do
+    if m.role == "tool" and type(m.content) == "string" then said = said .. m.content end
+  end
+  check("拒绝信息说清实际牌型", said:find("对子", 1, true) and said:find("两对", 1, true), said:sub(1, 200))
+end
+
+do -- 同样一手声明对子则放行.
+  local env = harness()
+  env.gs.hand.cards = {}
+  for i, key in ipairs({ "S_Q", "C_J", "D_J", "H_9", "C_9", "H_7", "S_5", "H_5" }) do
+    local suit, rank = key:match("^(%a)_(.+)$")
+    env.gs.hand.cards[i] = { key = key, value = { suit = suit, rank = rank }, modifier = {}, state = {} }
+  end
+  env.driver.start(); env.tick()
+  env.reply({ { "play", { cards = { 1, 2, 4, 7 }, expect = { hand = "Pair" }, reason = "打一对 J" } } })
+  env.settle()
+  check("牌型声明正确时照常执行", #env.calls == 1 and env.calls[1].method == "play")
+end
+
+do -- 牌值声明不符时拦下.
+  local env = harness()
+  env.driver.start(); env.tick()
+  env.reply({ { "play", { cards = { 0 }, expect = { cards = { "S_T" } }, reason = "打黑桃10" } } })
+  env.settle()
+  check("牌值声明不符时不执行", #env.calls == 0)
+end
+
+do -- 不传 expect 时行为不变.
+  local env = harness()
+  env.driver.start(); env.tick()
+  env.reply({ { "play", { cards = { 0 }, reason = "打一张" } } })
+  env.settle()
+  check("不带 expect 照常执行", #env.calls == 1)
+end
+
+do -- expect 不进端点参数, 但留在转录里.
+  local env = harness()
+  env.driver.start(); env.tick()
+  env.reply({ { "play", { cards = { 1, 2 }, expect = { hand = "Pair" }, reason = "打一对" } } })
+  env.settle()
+  local sent = env.calls[1]
+  check("端点参数里没有 expect", sent and sent.params.expect == nil and sent.params.cards ~= nil)
+  local logged = nil
+  for _, e in ipairs(env.transcript) do
+    if e.type == "expect" then logged = e end
+  end
+  check("转录里保留了 expect 与核对结果", logged and logged.expect and logged.expect.hand == "Pair" and logged.ok == true)
 end
 
 if failures > 0 then

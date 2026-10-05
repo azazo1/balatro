@@ -20,6 +20,17 @@ local REASON = {
   maxLength = 200,
   description = "这一步的解说 (30~60 字): 做什么, 为什么, 估分. 先显示给观众, 读完后动作才生效, 不要再另发 notify 重复",
 }
+-- 出牌与弃牌的自我核对: 声明这几张分别是哪些牌, 组成什么牌型, 系统拿当前局面比对, 不符就不执行.
+-- cards 要与 cards 参数同序等长, 写内部键 (C_K 是梅花 K); hand 写牌型内部键 (Two Pair).
+local EXPECT = {
+  type = "object",
+  description = "这一步的自我核对. cards 与 cards 参数同序等长, 每项写内部键 (C_K 是梅花 K, H_9 是红桃 9);"
+    .. " hand 写牌型内部键 (Two Pair, Pair, Flush 等). 系统会拿当前手牌核对, 不符则动作不执行并告诉你实际是什么.",
+  properties = {
+    cards = { type = "array", items = { type = "string" }, description = "按 cards 的顺序, 每张的内部键" },
+    hand = { type = "string", description = "这手组成的牌型内部键" },
+  },
+}
 
 ---@param props table
 ---@param required string[]?
@@ -64,13 +75,14 @@ local DEFS = {
   },
   {
     name = "play",
-    description = "打出手牌. cards 是手牌下标 (从 0 开始), 1~5 张.",
-    parameters = object({ cards = INDICES, reason = REASON }, { "cards", "reason" }),
+    description = "打出手牌. cards 是手牌下标 (从 0 开始), 1~5 张. 建议带上 expect 声明这几张是什么牌, 组成什么牌型"
+      .. " (系统核对, 说错会打回重选).",
+    parameters = object({ cards = INDICES, expect = EXPECT, reason = REASON }, { "cards", "reason" }),
   },
   {
     name = "discard",
-    description = "弃掉手牌并补牌, 消耗一次弃牌次数. cards 是手牌下标 (从 0 开始), 1~5 张.",
-    parameters = object({ cards = INDICES, reason = REASON }, { "cards", "reason" }),
+    description = "弃掉手牌并补牌, 消耗一次弃牌次数. cards 是手牌下标 (从 0 开始), 1~5 张. 可选 expect 同 play.",
+    parameters = object({ cards = INDICES, expect = EXPECT, reason = REASON }, { "cards", "reason" }),
   },
   {
     name = "buy",
@@ -274,9 +286,11 @@ function M.definitions(opts)
 end
 
 --- 把模型给出的工具调用转成 dispatcher 请求.
+--- reason 与 expect 都是 agent 侧的元数据, 端点不认识它们, 所以在这里就拆出来:
+--- reason 交给调用方显示, expect 交给调用方核对 (端点只该收到游戏认识的字段).
 ---@param name string
 ---@param args table? 已解码的 arguments
----@return string? method, table? params, string? reason_or_error
+---@return string? method, table? params, string? reason_or_error, table? expect
 function M.to_request(name, args)
   if not BY_NAME[name] then
     return nil, nil, "没有这个工具: " .. tostring(name)
@@ -293,8 +307,13 @@ function M.to_request(name, args)
   if type(reason) ~= "string" or reason == "" then
     reason = nil
   end
+  local expect = params.expect
+  params.expect = nil
+  if type(expect) ~= "table" then
+    expect = nil
+  end
   -- 空对象编码成 JSON 时要是 {}, 由调用方处理; 这里保证是表.
-  return name, params, reason
+  return name, params, reason, expect
 end
 
 return M
