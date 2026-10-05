@@ -97,6 +97,7 @@ do -- 回放写入链路: 模型来源独立于输出记录, 去重, 脱敏, 换
   os.rename = function() return true end
   local Log = dofile("mods/bbreplay/replay/log.lua")
   Log.init({
+    config_enabled = true,
     activity = { on = function() end },
     recorder = { current = function() return { base = "test-replay", started = clock, stem = "test" } end },
     overlay = { kind = function() end },

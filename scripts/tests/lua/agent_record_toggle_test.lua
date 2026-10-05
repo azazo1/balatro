@@ -40,9 +40,9 @@ SMODS = {
   current_mod = nil, -- 运行中通常已经不是本 mod, 正是省 id 会失败的情形
   load_file = function(path, id)
     loads[#loads + 1] = { path = path, id = id }
-    if path == "record/quality.lua" then
+    if path == "record/quality.lua" or path == "record/output.lua" then
       return function()
-        return dofile("mods/bbreplay/record/quality.lua")
+        return dofile("mods/bbreplay/" .. path)
       end
     end
     return function()

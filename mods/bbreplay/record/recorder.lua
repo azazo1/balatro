@@ -1,5 +1,5 @@
 --[[
-整局录制. 由 BALATROBOT_RECORD=on 或设置页的录像开关开启, 每局 (start_run 到回主菜单/下一局/退出) 输出.
+整局录制. 由 BALATROBOT_RECORD_VIDEO=on 或设置页的录像开关开启, 每局 (start_run 到回主菜单/下一局/退出) 输出.
 一局的产物放在录像目录下以局名命名的文件夹里 (<stem>/), 文件名仍带局名前缀:
 - <stem>/<stem>-full.mp4: 按墙钟原样录制, 带声音.
 - <stem>/<stem>.json: 关键时间点 (视频里的时间).
@@ -37,7 +37,7 @@ local MOD_ID = "bbreplay"
 local MAX_QUEUE = 8
 local QUIT_WAIT = 5
 
-local Timeline, Audio, Post, Quality -- 在 setup 中加载
+local Timeline, Audio, Post, Quality, Output -- 在 setup 中加载
 
 local M = {
   enabled = false,
@@ -506,15 +506,6 @@ local function log_event(s, kind, fields)
   return s.timeline:event(wall_now(s), kind, fields)
 end
 
-local function file_exists(path)
-  local file = io.open(path, "rb")
-  if file then
-    file:close()
-    return true
-  end
-  return false
-end
-
 --- 写出或覆盖草稿合成脚本, 崩溃后用它补做合成. 局末由 Post.spawn 用最终版覆盖.
 local function write_draft(s)
   -- 只有 ffmpeg 后端有 post (合成参数); Android 后端自己写 mp4, 没有这一步.
@@ -545,37 +536,18 @@ end
 ---@param resumed boolean 读档开局
 ---@param reason string? run_start 事件的 reason, 局中重新开始录制时给出
 local function start_session(resumed, reason)
-  -- Game.start_run 的钩子在第一次打开录像时装上, 之后关不掉. 游戏内回放选 "不录"
-  -- 时只把 enabled 设为 false, 这里必须再挡一次, 否则仍会写出 replay-* 视频.
+  -- 开局钩子始终存在, 视频关闭时不创建目录也不加载编码器.
   if not M.enabled then
     return
   end
   local game = G.GAME or {}
   local seed = game.pseudorandom and game.pseudorandom.seed or "noseed"
-  local stem = cfg.prefix .. os.date("%Y%m%d-%H%M%S") .. "-" .. tostring(seed):gsub("[^%w%-_]", "")
-  -- 同一秒内结束一段又开始新的一段时 (M.end_segment 后 M.start_segment), 名字加序号区分.
-  -- 一局一个文件夹, 所以看文件夹在不在.
-  local suffix = 1
-  while file_exists(cfg.dir .. "/" .. stem .. (suffix > 1 and ("-" .. suffix) or "")) do
-    suffix = suffix + 1
+  local output, output_err = Output.create(cfg.prefix)
+  if not output then
+    sendErrorMessage("Recording output unavailable: " .. tostring(output_err), LOGGER)
+    return
   end
-  if suffix > 1 then
-    stem = stem .. "-" .. suffix
-  end
-  -- 一局的产物 (时间轴, 回放文件, 视频, agent 转录, 中间文件) 都放在这个文件夹里.
-  local folder = cfg.dir .. "/" .. stem
-  local made, folder_err = SMODS.NFS.createDirectory(folder)
-  if made then
-    fix_permissions(folder)
-  else
-    -- 建不出来时退回平铺写法: 别为了目录结构丢掉整局录像. 回放列表两种布局都认.
-    sendWarnMessage(
-      string.format("建不了录像文件夹 %s (%s), 这一局还是平铺着写", folder, tostring(folder_err)),
-      LOGGER
-    )
-    folder = cfg.dir
-  end
-  local base = folder .. "/" .. stem
+  local stem, base = output.stem, output.base
 
   local sw, sh = love.graphics.getPixelDimensions()
   local h = cfg.height - cfg.height % 2
@@ -598,7 +570,7 @@ local function start_session(resumed, reason)
   session = {
     stem = stem,
     base = base,
-    started = now(),
+    started = output.started,
     timeline = Timeline.new(base .. ".json", meta),
     size = { w, h },
     -- 本段的帧率. 设置页可以在录制中改 cfg.fps, 只影响下一段, 这一段的帧数一直按开始时的帧率算.
@@ -748,7 +720,7 @@ local function end_session(reason)
     finishing[#finishing + 1] = item
   end
   -- 编码线程中途退出时不在局末合成, 开局写出的草稿脚本仍在, 之后可以用它或 recordings_recover 补做.
-  M.status = "on"
+  M.status = M.enabled and "on" or "off"
   sendInfoMessage(string.format("Recording ended (%s): %.1fs", reason, length), LOGGER)
 end
 
@@ -862,7 +834,7 @@ local function apply_quality()
   cfg.height, cfg.fps, cfg.bitrate = q.height, q.fps, q.bitrate
 end
 
---- 装载模块, 定下输出参数, 装全局钩子. 只做一次, 由第一次 M.set_enabled(true) 触发.
+--- 装载编码模块, 定下输出参数, 装视频与时间轴钩子. 只做一次, 由第一次 M.set_enabled(true) 触发.
 ---@return boolean ok 可以录制
 local function setup()
   if setup_done then
@@ -878,6 +850,7 @@ local function setup()
   Timeline = assert(SMODS.load_file("record/timeline.lua", MOD_ID))()
   Audio = assert(SMODS.load_file("record/audio.lua", MOD_ID))()
   Post = assert(SMODS.load_file("record/post.lua", MOD_ID))()
+  Output = assert(SMODS.load_file("record/output.lua", MOD_ID))()
 
   -- Android 上只走 MediaCodec (没有 ffmpeg). 清晰度, 帧率与码率的默认值与取舍见 record/quality.lua.
   local android = love._os == "Android"
@@ -891,8 +864,7 @@ local function setup()
   if cfg.prefix == nil then
     cfg.prefix = (os.getenv("BALATROBOT_RECORD_PREFIX") or ""):gsub("[^%w%-_]", "")
   end
-  local dir = os.getenv("BALATROBOT_RECORD_DIR")
-  cfg.dir = (dir and dir ~= "") and dir:gsub("/+$", "") or (love.filesystem.getSaveDirectory() .. "/recordings")
+  cfg.dir = Output.directory()
   local created, err = SMODS.NFS.createDirectory(cfg.dir)
   if not created then
     M.status = "unavailable (output dir)"
@@ -957,6 +929,33 @@ local function setup()
     log_event(session, "message", { title = title, text = text })
   end)
 
+  sendInfoMessage(
+    string.format(
+      "Recording ready: %d fps, height %d, bitrate %s, dir %s, backend %s%s",
+      cfg.fps,
+      cfg.height,
+      cfg.bitrate > 0 and (cfg.bitrate .. " Mbps") or "auto",
+      cfg.dir,
+      tostring(cfg.backend or "none"),
+      cfg.backend == "ffmpeg" and (" (" .. tostring(cfg.ffmpeg) .. ", codec " .. tostring(cfg.codec) .. ")") or ""
+    ),
+    LOGGER
+  )
+  if not cfg.backend then
+    sendWarnMessage("没有可用的编码后端 (Android 上见上面的原因, 桌面上设 BALATROBOT_FFMPEG), 只写时间轴 JSON", LOGGER)
+  end
+  return true
+end
+
+---@param options {activity: table, mod_path: string, config_enabled: boolean?, config_keep: string?, config_quality: table?}
+--- activity: bbcore 的 BB_ACTIVITY, 用来在时间线上记 agent 的操作与消息.
+--- config_enabled: 设置页的录像开关. 设了 BALATROBOT_RECORD_VIDEO 环境变量时以环境变量为准 (Android 没有环境变量).
+--- config_keep: 设置页的保留方式, "keep" 时合成成功后保留中间文件. 设了 BALATROBOT_RECORD_KEEP 时以它为准.
+--- config_quality: 设置页的 {height, fps, bitrate}, 0 为默认. 设了对应环境变量的项以环境变量为准.
+function M.init(options)
+  deps = options
+  -- 生命周期钩子先于回放文件安装, 之后打开视频也不改变嵌套顺序.
+  -- 只录回放文件时, 这些钩子不会触发编码器初始化.
   local start_run = Game.start_run
   function Game:start_run(args) ---@diagnostic disable-line: duplicate-set-field
     end_session("restart")
@@ -979,34 +978,9 @@ local function setup()
     end
   end
 
-  sendInfoMessage(
-    string.format(
-      "Recording ready: %d fps, height %d, bitrate %s, dir %s, backend %s%s",
-      cfg.fps,
-      cfg.height,
-      cfg.bitrate > 0 and (cfg.bitrate .. " Mbps") or "auto",
-      cfg.dir,
-      tostring(cfg.backend or "none"),
-      cfg.backend == "ffmpeg" and (" (" .. tostring(cfg.ffmpeg) .. ", codec " .. tostring(cfg.codec) .. ")") or ""
-    ),
-    LOGGER
-  )
-  if not cfg.backend then
-    sendWarnMessage("没有可用的编码后端 (Android 上见上面的原因, 桌面上设 BALATROBOT_FFMPEG), 只写时间轴 JSON", LOGGER)
-  end
-  return true
-end
-
----@param options {activity: table, mod_path: string, config_enabled: boolean?, config_keep: string?, config_quality: table?}
---- activity: bbcore 的 BB_ACTIVITY, 用来在时间线上记 agent 的操作与消息.
---- config_enabled: 设置页的录像开关. 设了 BALATROBOT_RECORD 环境变量时以环境变量为准 (Android 没有环境变量).
---- config_keep: 设置页的保留方式, "keep" 时合成成功后保留中间文件. 设了 BALATROBOT_RECORD_KEEP 时以它为准.
---- config_quality: 设置页的 {height, fps, bitrate}, 0 为默认. 设了对应环境变量的项以环境变量为准.
-function M.init(options)
-  deps = options
   local q = options.config_quality or {}
   cfg.wanted = { height = q.height, fps = q.fps, bitrate = q.bitrate }
-  local mode = os.getenv("BALATROBOT_RECORD")
+  local mode = os.getenv("BALATROBOT_RECORD_VIDEO")
   local wanted
   if mode ~= nil and mode ~= "" then
     wanted = ENABLE_VALUES[mode] == true
@@ -1020,7 +994,7 @@ function M.init(options)
   end
   cfg.keep = keep == "keep"
   if not wanted then
-    -- 录像关着: 不装载也不挂钩子, 需要时 (游戏内回放选了录像) 由 M.set_enabled 补上.
+    -- 录像关着: 不装载编码模块, 需要时 (游戏内回放选了录像) 由 M.set_enabled 补上.
     M.status = "off"
     return
   end

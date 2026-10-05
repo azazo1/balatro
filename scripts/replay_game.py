@@ -68,7 +68,7 @@ def replay_environment(base, replay_file, pacing, recordings):
         BALATRO_SAVE_IDENTITY="Balatro-Replay",
         BALATROBOT_REPLAY=str(replay_file),
         BALATROBOT_REPLAY_PACING=pacing,
-        BALATROBOT_RECORD="on",
+        BALATROBOT_RECORD_VIDEO="on",
         BALATROBOT_RECORD_DIR=str(recordings),
         BALATROBOT_RECORD_PREFIX="replay-",
         BALATROBOT_FAST=None,

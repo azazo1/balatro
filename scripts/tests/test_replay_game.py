@@ -66,7 +66,7 @@ class ReplayEnvironmentTest(unittest.TestCase):
         self.assertEqual(env["BALATRO_SAVE_IDENTITY"], "Balatro-Replay")
         self.assertEqual(env["BALATROBOT_REPLAY"], "/tmp/now.replay.json")
         self.assertEqual(env["BALATROBOT_REPLAY_PACING"], "tight")
-        self.assertEqual(env["BALATROBOT_RECORD"], "on")
+        self.assertEqual(env["BALATROBOT_RECORD_VIDEO"], "on")
         self.assertEqual(env["BALATROBOT_RECORD_PREFIX"], "replay-")
         self.assertNotIn("BALATROBOT_FAST", env)
 

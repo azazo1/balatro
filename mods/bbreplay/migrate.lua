@@ -3,10 +3,11 @@ bbreplay 的配置迁移: 每次加载都执行, 按版本号逐步迁移, 已�
 
 0 -> 1: 录像设置 (record, record_keep) 原来在 balatrobot 的配置 (config/balatrobot.jkr) 里. 第一次加载时
         搬到这里, 再从 balatrobot 的配置里删掉. balatrobot 先加载 (priority 0), 这时它的配置已经读好.
+1 -> 2: 原来的 record 同时录两者, 用它初始化 record_video 与 record_replay, 再移除旧字段.
 ]]
 
 local LOGGER = "BB.REPLAY.MIGRATE"
-local CONFIG_VERSION = 1
+local CONFIG_VERSION = 2
 
 local M = {}
 
@@ -41,6 +42,13 @@ function M.run(mod)
   end
   if version < 1 and take_from_balatrobot(config) then
     sendInfoMessage("Recording settings moved from balatrobot config", LOGGER)
+  end
+  if version < 2 then
+    if type(config.record) == "boolean" then
+      config.record_video = config.record
+      config.record_replay = config.record
+    end
+    config.record = nil
   end
   config.version = CONFIG_VERSION
   SMODS.save_mod_config(mod)

@@ -50,6 +50,7 @@ test-scripts:
 test-agent:
     luajit scripts/tests/lua/agent_record_test.lua
     luajit scripts/tests/lua/agent_record_toggle_test.lua
+    luajit scripts/tests/lua/agent_replay_record_toggle_test.lua
     luajit scripts/tests/lua/agent_media_ffi_test.lua
     luajit scripts/tests/lua/agent_replay_test.lua
     luajit scripts/tests/lua/agent_replay_stream_test.lua

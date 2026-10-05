@@ -350,7 +350,8 @@ just macos run-agent           # macOS 使用同样的参数
 
 | 环境变量 | 默认 | 作用 |
 | --- | --- | --- |
-| `BALATROBOT_RECORD` | 关闭 | `on` 开启 |
+| `BALATROBOT_RECORD_VIDEO` | 设置页的值, 默认关闭 | `on` 开启视频与时间轴录制 |
+| `BALATROBOT_RECORD_REPLAY` | 设置页的值, 默认关闭 | `on` 开启回放文件录制, 不依赖视频 |
 | `BALATROBOT_RECORD_DIR` | `<存档目录>/recordings` | 输出目录, `run-agent` 设为 `recordings/` |
 | `BALATROBOT_RECORD_FPS` | 设置页的值, 默认 30 | 视频帧率 |
 | `BALATROBOT_RECORD_HEIGHT` | 设置页的值, 默认 720 | 视频高度, 宽度按窗口比例 |
@@ -362,7 +363,9 @@ just macos run-agent           # macOS 使用同样的参数
 
 录像由 bbreplay 负责, 设置在 模组 -> BB Replay -> 配置. 设置页的 "保留方式" 与 `BALATROBOT_RECORD_KEEP` 对应: `skip` 在局末合成成功后删掉 `.video.mp4` 与 `.pcm`,
 `keep` 留着只删脚本自身 (想事后重跑时有用). 合成失败时无论哪种都保留中间文件.
-录像的开关与保留方式改完后立刻生效 (下一次录像段开始起算), 桌面端设了对应环境变量时以环境变量为准.
+视频与回放文件在设置页分别由 `record_video` 与 `record_replay` 控制, 环境变量也分别覆盖.
+视频关闭时结束当前录像段, 回放文件关闭时保存当前记录, 再次开启从下一局起录制.
+`run-agent` 的录制参数默认同时设置两者, 可以单独设 `BALATROBOT_RECORD_REPLAY=on/off` 覆盖回放文件开关.
 
 JSON 的时间都是秒. `wall` 为开局起的实际时间, 即视频里的时间:
 
@@ -397,7 +400,7 @@ JSON 的时间都是秒. `wall` 为开局起的实际时间, 即视频里的时�
 
 ## 回放
 
-录制时每局还会写一份回放文件 `<开始时间>-<种子>.replay.json`, 记下开局参数, 开局那一刻的存档进度,
+开启回放文件录制时每局写一份 `<开始时间>-<种子>.replay.json`, 不依赖视频录制, 记下开局参数, 开局那一刻的存档进度,
 agent 的每一步操作 (含讲解), 以及内置 agent 的模型输出 (第一个字和结束的时间). 回放在真实游戏里
 按顺序重做这些操作, 画面和声音都由游戏自己产生; 顶部流式条按这段时间的平均字速滚输出. 节奏有三种:
 original (原速) 与原局思考时间对齐; tight (紧凑) 把这段输出压进两步之间的短等待, 讲解退去更快;

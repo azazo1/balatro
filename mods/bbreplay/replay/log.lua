@@ -1,5 +1,6 @@
 --[[
-录制时写回放文件 <stem>.replay.json, 与录像同名. 回放见 replay/player.lua.
+录制时写回放文件 <stem>.replay.json. 视频同时开启时与录像同名, 只开回放文件时独立分配目录.
+回放见 replay/player.lua.
 
 内容:
 - run: 牌组, 赌注, 种子, 是否指定过种子 (seeded), 是否读档开局; 读档时附带存档.
@@ -17,18 +18,18 @@
 ]]
 
 local json = require("json")
+local Output = assert(SMODS.load_file("record/output.lua", "bbreplay"))()
 local StreamPlay = assert(SMODS.load_file("replay/stream_play.lua", "bbreplay"))()
 
 local LOGGER = "BB.AGENT.REPLAY"
 local FLUSH_INTERVAL = 3
 
-local M = {}
+local M = { enabled = false, status = "off" }
+local ENABLE_VALUES = { on = true, ["1"] = true, ["true"] = true, yes = true }
 
 local deps = {} -- activity, recorder, overlay, gamestate, format, snapshot, game_version, mod_version, replaying
 local log = nil -- 当前一局
 local unsettled = nil -- 最近一步还没取状态摘要的手动步骤
-local pending = nil -- 开局时录像还没开始的一段, 见 M.update 里的补写
-local PENDING_LIMIT = 2 -- 等录像段出现的时间上限
 local stream_acc = StreamPlay.new_acc()
 local stream_wall = nil -- 当前这段输出第一个字的 wall
 
@@ -266,25 +267,39 @@ local function finish(reason)
   flush(true)
   sendInfoMessage(string.format("Replay file saved: %s (%d actions)", log.path, #log.data.actions), LOGGER)
   log = nil
+  M.status = M.enabled and "on" or "off"
+end
+
+--- 回放文件只能从开局开始记录. 关闭时保存当前文件, 再次打开等下一局, 不生成缺少前半局的回放.
+---@param value boolean
+---@param reason string?
+function M.set_enabled(value, reason)
+  M.enabled = value == true
+  if not M.enabled then
+    finish("disabled")
+  end
+  M.status = log and ("recording " .. log.data.source) or (M.enabled and "on" or "off")
+  sendInfoMessage("Replay file recording " .. (M.enabled and "enabled" or "disabled")
+    .. " by " .. tostring(reason or "request"), LOGGER)
 end
 
 ---@param resumed_save string? 读档开局时序列化的存档
 ---@param snap table 开局前取的存档进度
 ---@param tutorial boolean 是否受教程影响
 local function begin(resumed_save, snap, tutorial)
-  if deps.replaying() then
-    -- 回放自己的一局不再写回放文件 (录制仍然照常).
+  if not M.enabled or deps.replaying() then
+    -- 回放自己的一局不再写回放文件 (视频录制仍然照常).
     return
   end
   local session = deps.recorder.current()
   if not session then
-    if not deps.recorder.enabled then
+    local err
+    session, err = Output.create()
+    if not session then
+      M.status = "unavailable (output dir)"
+      sendWarnMessage("Replay output unavailable: " .. tostring(err), LOGGER)
       return
     end
-    -- 录像段还没开始: 录制是运行中才打开时, 录制器的 start_run 钩子装在这里之外, 它的录像段
-    -- 要等这里返回之后才建立. 记下来, 由 M.update 在短时间里补上.
-    pending = { resumed_save = resumed_save, snap = snap, tutorial = tutorial, until_at = now() + PENDING_LIMIT }
-    return
   end
   local game = G.GAME or {}
   local deck_key = game.selected_back and game.selected_back.effect and game.selected_back.effect.center
@@ -319,12 +334,19 @@ local function begin(resumed_save, snap, tutorial)
       streams = {},
     },
   }
+  M.status = "recording " .. session.stem
   flush(true)
 end
 
 ---@param options table
 function M.init(options)
   deps = options
+  local mode = os.getenv("BALATROBOT_RECORD_REPLAY")
+  local wanted = options.config_enabled == true
+  if mode and mode ~= "" then
+    wanted = ENABLE_VALUES[mode] == true
+  end
+  M.set_enabled(wanted, "startup")
   local activity = deps.activity
   local format = deps.format
 
@@ -371,6 +393,9 @@ function M.init(options)
   local start_run = Game.start_run
   function Game:start_run(args) ---@diagnostic disable-line: duplicate-set-field
     finish("restart")
+    if not M.enabled or deps.replaying() then
+      return start_run(self, args)
+    end
     -- 开局前取存档进度; 读档时 savetext 会在这一局里被改写, 先序列化.
     local snap_ok, snap = pcall(deps.snapshot.capture)
     local resumed_save = args and args.savetext and STR_PACK(args.savetext) or nil
@@ -402,22 +427,10 @@ function M.init(options)
     end
   end
 
-  sendInfoMessage("Replay files enabled, written next to each recording", LOGGER)
 end
 
 function M.update()
   flush(false)
-  if not pending then
-    return
-  end
-  if deps.recorder.current() then
-    local waiting = pending
-    pending = nil
-    begin(waiting.resumed_save, waiting.snap, waiting.tutorial)
-  elseif now() > pending.until_at then
-    sendWarnMessage("录像没有开始, 这一局不写回放文件", LOGGER)
-    pending = nil
-  end
 end
 
 return M

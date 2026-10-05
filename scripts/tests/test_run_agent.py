@@ -22,7 +22,7 @@ class RunAgentTest(unittest.TestCase):
             "PATH": "保留",
             "BALATROBOT_ENABLE": "0",
             "BALATROBOT_FAST": "1",
-            "BALATROBOT_RECORD": "on",
+            "BALATROBOT_RECORD_VIDEO": "on",
             "BALATROBOT_RECORD_DIR": "旧目录",
             "BALATROBOT_REPLAY": "旧回放",
             "BALATROBOT_REPLAY_PACING": "fast",
@@ -34,12 +34,19 @@ class RunAgentTest(unittest.TestCase):
         self.assertEqual(env["PATH"], original["PATH"])
         self.assertEqual(env["BALATROBOT_ENABLE"], "1")
         self.assertEqual(env["BALATROBOT_FAST"], "0")
-        self.assertEqual(env["BALATROBOT_RECORD"], "off")
+        self.assertEqual(env["BALATROBOT_RECORD_VIDEO"], "off")
+        self.assertEqual(env["BALATROBOT_RECORD_REPLAY"], "off")
         self.assertEqual(env["BALATRO_SAVE_IDENTITY"], "Balatro-Agent")
         self.assertEqual(env["BALATROBOT_RECORD_DIR"], str(Path("recordings").resolve()))
         self.assertNotIn("BALATROBOT_REPLAY", env)
         self.assertNotIn("BALATROBOT_REPLAY_PACING", env)
         self.assertNotIn("BALATROBOT_RECORD_PREFIX", env)
+
+    def test_replay_recording_is_independent_of_video_argument(self):
+        for video, replay in (("on", "off"), ("off", "on")):
+            env = run_agent.game_environment({"BALATROBOT_RECORD_REPLAY": replay}, video, "0", "recordings")
+            self.assertEqual(env["BALATROBOT_RECORD_VIDEO"], video)
+            self.assertEqual(env["BALATROBOT_RECORD_REPLAY"], replay)
 
     def test_executable_matches_current_build(self):
         windows = run_agent.game_executable("windows", "1.0.1o+abcdef0")

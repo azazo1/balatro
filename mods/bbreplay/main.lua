@@ -2,8 +2,9 @@
 BB Replay 入口: 按局录像与写回放文件, 游戏内与命令行回放. 只依赖 bbcore; 装了 balatrobot 时录下 agent 的动作,
 agent 停止时结束录像段. 加载顺序在 bbcore 与 balatrobot 之后 (priority 1).
 
-- BALATROBOT_RECORD=on (或设置页的开关) 时按局录制视频 (带声音) 和时间线 JSON, 见 record/recorder.lua.
-  同时写回放文件 <stem>.replay.json (replay/log.lua), 人手动的操作也换算成回放步骤 (replay/manual.lua).
+- BALATROBOT_RECORD_VIDEO=on (或设置页的视频开关) 时按局录制视频 (带声音) 和时间线 JSON, 见 record/recorder.lua.
+- BALATROBOT_RECORD_REPLAY=on (或设置页的回放文件开关) 时写 <stem>.replay.json (replay/log.lua),
+  人手动的操作也换算成回放步骤 (replay/manual.lua), 不依赖视频录制.
 - 回放: 主菜单 选项 -> 回放 (ui/replay_menu.lua), 或启动时设 BALATROBOT_REPLAY=<回放文件> (命令行, 按退出码结束).
   回放进行时在 bbcore 的 BB_CONTROL 上独占游戏, balatrobot 据此不开端口, 内置 loop 不能开始.
   右上角有暂停/继续和中止, 输入锁仍丢掉其它操作.
@@ -66,7 +67,7 @@ BB_REPLAY.init_early({
 BB_RECORDER.init({
   activity = BB_ACTIVITY,
   mod_path = MOD.path,
-  config_enabled = MOD.config.record == true,
+  config_enabled = MOD.config.record_video == true,
   config_keep = MOD.config.record_keep,
   config_quality = {
     height = MOD.config.record_height,
@@ -74,13 +75,14 @@ BB_RECORDER.init({
     bitrate = MOD.config.record_bitrate,
   },
 })
--- 回放文件与录像同名, 只在有录像段时写. 录像可以在运行中才打开, 所以不看启动时的录像开关;
+-- 回放文件的开关独立于视频, 两者都开时共用视频的输出位置.
 -- 回放的一局不写, 命令行回放在这里排除, 游戏内回放由 replaying 排除.
 if not BB_REPLAY.active then
   BB_REPLAY_LOG = assert(SMODS.load_file("replay/log.lua"))()
   BB_REPLAY_LOG.init({
     activity = BB_ACTIVITY,
     recorder = BB_RECORDER,
+    config_enabled = MOD.config.record_replay == true,
     overlay = BB_OVERLAY,
     gamestate = BB_GAMESTATE,
     format = REPLAY_FORMAT,
@@ -132,13 +134,15 @@ love.draw = function() ---@diagnostic disable-line: duplicate-set-field
   BB_RECORDER.draw(love_draw)
 end
 
--- 设置页 (录像开关与保留方式), 选项菜单的 "回放" 入口.
+-- 设置页 (视频与回放文件的独立开关, 视频保留方式), 选项菜单的 "回放" 入口.
 local SETTINGS_TAB = assert(SMODS.load_file("ui/settings_tab.lua"))()
 SETTINGS_TAB.init({
   mod = MOD,
   recorder = BB_RECORDER,
   replay = BB_REPLAY,
-  record_env = os.getenv("BALATROBOT_RECORD"),
+  replay_log = BB_REPLAY_LOG,
+  record_replay_env = os.getenv("BALATROBOT_RECORD_REPLAY"),
+  record_video_env = os.getenv("BALATROBOT_RECORD_VIDEO"),
   widgets = BB_WIDGETS,
 })
 MOD.config_tab = SETTINGS_TAB.build

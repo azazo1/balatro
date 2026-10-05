@@ -30,7 +30,8 @@ def game_environment(base, record, fast, recordings):
         "BALATROBOT_ENABLE": "1",
         "BALATROBOT_FAST": fast,
         "BALATRO_SAVE_IDENTITY": "Balatro-Agent",
-        "BALATROBOT_RECORD": record,
+        "BALATROBOT_RECORD_VIDEO": record,
+        "BALATROBOT_RECORD_REPLAY": base.get("BALATROBOT_RECORD_REPLAY", record),
         "BALATROBOT_RECORD_DIR": str(Path(recordings).resolve()),
     })
     # 普通 agent 启动不应被之前回放任务的环境切换成回放模式.

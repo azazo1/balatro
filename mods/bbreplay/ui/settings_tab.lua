@@ -1,7 +1,7 @@
 --[[
 bbreplay 的设置页 (模组 -> BB Replay -> 配置), 即 MOD.config_tab.
 
-录像的开关, 保留方式, 清晰度, 帧率与码率, 录像与回放的状态行. 回放本身从 选项 -> 回放 进入,
+视频与回放文件的独立开关, 视频保留方式, 清晰度, 帧率与码率, 录制与回放的状态行. 回放本身从 选项 -> 回放 进入,
 节奏与是否录像每次在确认页选. 状态行每帧由根节点的 func 刷新.
 ]]
 
@@ -26,12 +26,15 @@ local QUALITY_ROWS = {
 ---@field mod table SMODS mod 对象
 ---@field recorder table record/recorder.lua
 ---@field replay table replay/player.lua
----@field record_env string? 启动时的 BALATROBOT_RECORD
+---@field replay_log table? replay/log.lua, 命令行回放时不加载
+---@field record_replay_env string? 启动时的 BALATROBOT_RECORD_REPLAY
+---@field record_video_env string? 启动时的 BALATROBOT_RECORD_VIDEO
 ---@field widgets table bbcore 的 ui/widgets.lua (已 init)
 local deps
 
 local view = {
   record_line = "",
+  record_replay_line = "",
   replay_line = "",
 }
 
@@ -50,7 +53,8 @@ local function save()
 end
 
 local function refresh_status()
-  view.record_line = "录像: " .. tostring(deps.recorder.status)
+  view.record_line = "视频录制: " .. tostring(deps.recorder.status)
+  view.record_replay_line = "回放文件录制: " .. (deps.replay_log and tostring(deps.replay_log.status) or "回放中不录制")
   view.replay_line = "回放: " .. tostring(deps.replay.status)
 end
 
@@ -95,16 +99,38 @@ local function quality_row(row)
 end
 
 local function record_nodes()
-  local nodes = { W.title("录像") }
-  if deps.record_env and deps.record_env ~= "" then
+  local nodes = { W.title("录制") }
+  if deps.record_replay_env and deps.record_replay_env ~= "" then
     nodes[#nodes + 1] = W.row({
-      W.text("以环境变量 BALATROBOT_RECORD=" .. deps.record_env .. " 为准", SCALE, G.C.UI.TEXT_INACTIVE),
+      W.text("以环境变量 BALATROBOT_RECORD_REPLAY=" .. deps.record_replay_env .. " 为准", SCALE, G.C.UI.TEXT_INACTIVE),
     })
   else
     nodes[#nodes + 1] = W.localize_tree(create_toggle({
-      label = "录制对局",
+      label = "录制回放文件",
       ref_table = config(),
-      ref_value = "record",
+      ref_value = "record_replay",
+      w = 3.2,
+      label_scale = SCALE,
+      callback = function(value)
+        save()
+        if deps.replay_log then
+          deps.replay_log.set_enabled(value, "settings")
+        end
+      end,
+    }))
+  end
+  nodes[#nodes + 1] = W.row({
+    W.text("回放文件从下一局起录制; 关闭时保存当前记录", 0.26, G.C.UI.TEXT_INACTIVE),
+  })
+  if deps.record_video_env and deps.record_video_env ~= "" then
+    nodes[#nodes + 1] = W.row({
+      W.text("以环境变量 BALATROBOT_RECORD_VIDEO=" .. deps.record_video_env .. " 为准", SCALE, G.C.UI.TEXT_INACTIVE),
+    })
+  else
+    nodes[#nodes + 1] = W.localize_tree(create_toggle({
+      label = "录制视频",
+      ref_table = config(),
+      ref_value = "record_video",
       w = 3.2,
       label_scale = SCALE,
       callback = function(value)
@@ -144,6 +170,7 @@ function M.build()
   local nodes = record_nodes()
   nodes[#nodes + 1] = W.title("状态")
   nodes[#nodes + 1] = W.row({ W.live(view, "record_line", 0.28) })
+  nodes[#nodes + 1] = W.row({ W.live(view, "record_replay_line", 0.28) })
   nodes[#nodes + 1] = W.row({ W.live(view, "replay_line", 0.28) })
   nodes[#nodes + 1] = W.row({ W.text("回放: 主菜单 选项 -> 回放", 0.26, G.C.UI.TEXT_INACTIVE) })
   return {
