@@ -281,7 +281,7 @@ fn overstock_immediately_refills_the_expanded_shop_without_replacing_survivors()
     let mut shop = balatro_engine::run::shop::Shop::restock(&mut run);
     shop.jokers.truncate(1);
     let survivor = shop.jokers[0].clone();
-    let voucher = shop.voucher.clone();
+    let voucher = shop.vouchers.clone();
     let packs = shop.packs.clone();
     run.shop = Some(shop);
     let mut reference = run.clone();
@@ -292,7 +292,7 @@ fn overstock_immediately_refills_the_expanded_shop_without_replacing_survivors()
     assert_eq!(shop.jokers.len(), 3);
     assert_eq!(shop.jokers[0], survivor);
     assert_eq!(shop.jokers[1..], expected);
-    assert_eq!(shop.voucher, voucher);
+    assert_eq!(shop.vouchers, voucher);
     assert_eq!(shop.packs, packs);
 }
 
@@ -338,6 +338,7 @@ fn creator_consumables_from_shop_and_pack_do_not_borrow_the_temporary_held_slot(
     run.last_tarot_planet = Some("c_mercury".to_owned());
     for key in ["c_emperor", "c_high_priestess", "c_fool"] {
         let card = balatro_engine::run::shop::ShopCard {
+            sort_id: 0,
             key: key.to_owned(), edition: None, eternal: false, perishable: false,
             rental: false, couponed: false, enhancement: None, todo: None, cost: 3.0,
         };
@@ -401,6 +402,95 @@ fn consumable_creation_emits_hologram_contexts() {
     let hologram = run.jokers[0].x_mult;
     use_card(&mut run, "c_cryptid", &[0]);
     assert_eq!(run.jokers[0].x_mult, hologram + 0.5);
+}
+
+#[test]
+fn random_joker_consumables_select_birth_identity_after_legal_reorder() {
+    for key in ["c_ankh", "c_wheel_of_fortune", "c_ectoplasm", "c_hex"] {
+        let mut run = ready("AUDITBIRTHJOKER");
+        for (position, joker_key) in ["j_joker", "j_greedy_joker", "j_lusty_joker"].iter().enumerate() {
+            let mut joker = Joker::new(joker_key).unwrap();
+            // 永恒仍可成为目标,并让 Hex/Ankh 的其余对象保留,便于核对身份不变.
+            joker.eternal = true;
+            joker.extra_value = (position + 1) as f64;
+            run.add_joker(joker);
+        }
+        let mut excluded = Joker::new("j_zany").unwrap();
+        excluded.edition = Some(Edition::Foil);
+        excluded.eternal = true;
+        run.add_joker(excluded);
+        run.probability_scale = 4.0;
+        let originals = run.jokers.clone();
+        let max_birth = originals.iter().map(|joker| joker.sort_id).max().unwrap();
+        let mut pool: Vec<_> = originals.iter().filter(|joker| key == "c_ankh" || joker.edition.is_none()).cloned().collect();
+        pool.sort_by_key(|joker| joker.sort_id);
+        let mut reference = run.rng.clone();
+        let seed_key = match key {
+            "c_ankh" => "ankh_choice", "c_hex" => "hex",
+            "c_ectoplasm" => "ectoplasm", _ => "wheel_of_fortune",
+        };
+        if key == "c_wheel_of_fortune" { reference.pseudorandom(seed_key); }
+        let expected = reference.pick(&pool, seed_key).clone();
+        run.rearrange_jokers(&[3, 2, 1, 0]).unwrap();
+        use_card(&mut run, key, &[]);
+        if key == "c_ankh" {
+            let duplicate = run.jokers.iter().find(|joker| joker.sort_id > max_birth).unwrap();
+            assert_eq!(duplicate.key, expected.key);
+            assert_eq!(duplicate.extra_value, expected.extra_value);
+            assert_eq!(duplicate.edition, expected.edition);
+            assert_eq!(run.jokers.iter().filter(|joker| joker.sort_id > max_birth).count(), 1);
+        } else {
+            let expected_edition = match key {
+                "c_hex" => Some(Edition::Polychrome), "c_ectoplasm" => Some(Edition::Negative),
+                _ => None,
+            };
+            let target = run.jokers.iter().find(|joker| joker.sort_id == expected.sort_id).unwrap();
+            if key == "c_wheel_of_fortune" { assert!(target.edition.is_some()); }
+            else { assert_eq!(target.edition, expected_edition); }
+            for original in &originals {
+                let current = run.jokers.iter().find(|joker| joker.sort_id == original.sort_id).unwrap();
+                if original.sort_id != expected.sort_id { assert_eq!(current.edition, original.edition, "{key}"); }
+            }
+        }
+        for original in &originals {
+            assert!(run.jokers.iter().any(|joker| joker.sort_id == original.sort_id && joker.key == original.key), "{key}");
+        }
+    }
+}
+
+#[test]
+fn perkeo_selects_consumable_birth_identity_and_gives_copy_a_fresh_identity() {
+    for seed in ["AUDITPERKEOBIRTH1", "AUDITPERKEOBIRTH2"] {
+        let mut run = ready(seed);
+        run.phase = balatro_engine::run::Phase::Shop;
+        run.add_joker(Joker::new("j_perkeo").unwrap());
+        for (key, edition, extra) in [("c_hermit", Edition::Foil, 3.0), ("c_mercury", Edition::Holo, 7.0)] {
+            let card = balatro_engine::run::shop::ShopCard {
+                sort_id: 0, key: key.to_owned(), edition: Some(edition), eternal: false,
+                perishable: false, rental: false, couponed: false, todo: None,
+                enhancement: None, cost: 0.0,
+            };
+            run.buy(&card).unwrap();
+            let held = run.consumables.last_mut().unwrap();
+            held.extra_value = extra;
+            assert_ne!(held.sort_id, 0);
+        }
+        let originals = run.consumables.clone();
+        let max_birth = originals.iter().map(|card| card.sort_id).max().unwrap();
+        let mut reference = run.rng.clone();
+        let expected = reference.pick(&originals, "perkeo").clone();
+        run.rearrange_consumables(&[1, 0]).unwrap();
+        run.next_round().unwrap();
+        let copies: Vec<_> = run.consumables.iter().filter(|card| card.sort_id > max_birth).collect();
+        assert_eq!(copies.len(), 1);
+        assert_eq!(copies[0].key, expected.key);
+        assert_eq!(copies[0].extra_value, expected.extra_value);
+        assert_eq!(copies[0].edition, Some(Edition::Negative));
+        assert_ne!(copies[0].sort_id, expected.sort_id);
+        for original in &originals {
+            assert_eq!(run.consumables.iter().find(|card| card.sort_id == original.sort_id), Some(original));
+        }
+    }
 }
 
 #[test]

@@ -61,7 +61,9 @@ fn voucher_available(proto: &Prototype, run: &RunState) -> bool {
     if run.used_vouchers.contains(&proto.id) {
         return false;
     }
-    if run.shop_vouchers.contains(&proto.id) {
+    if run.shop_vouchers.contains(&proto.id)
+        || run.extra_voucher_keys.contains(&proto.id)
+        || run.shop.as_ref().is_some_and(|shop| shop.vouchers.iter().any(|card| card.key == proto.id)) {
         return false;
     }
     // 前置条件: 数组里的每一项都要已经兑换过.

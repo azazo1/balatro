@@ -11,6 +11,7 @@ use balatro_engine::scoring::{BackEffect, EvalEnv, HandTable, score_play};
 
 fn item(key: &str, cost: f64) -> ShopCard {
     ShopCard {
+        sort_id: 0,
         key: key.to_owned(), cost, edition: None, eternal: false,
         perishable: false, rental: false, couponed: false, enhancement: None, todo: None,
     }
@@ -30,18 +31,17 @@ fn discount_reprices_the_existing_shelf_and_owned_jokers() {
     run.jokers.push(Joker::new("j_scholar").unwrap());
     run.shop = Some(Shop {
         jokers: vec![foil, rental, playing],
-        voucher: Some(item("v_clearance_sale", 10.0)),
-        extra_voucher: Some(item("v_blank", 10.0)),
+        vouchers: vec![item("v_clearance_sale", 10.0), item("v_blank", 10.0)],
         packs: vec![item("p_celestial_jumbo_1", 6.0)],
     });
-    let voucher = run.shop.as_ref().unwrap().voucher.clone().unwrap();
+    let voucher = run.shop.as_ref().unwrap().vouchers[0].clone();
     run.buy(&voucher).unwrap();
     let shop = run.shop.as_ref().unwrap();
     assert_eq!(shop.packs[0].cost, 4.0);
     assert_eq!(shop.jokers[0].cost, 5.0);
     assert_eq!(shop.jokers[1].cost, 1.0);
     assert_eq!(shop.jokers[2].cost, 2.0, "扑克牌使用基础价 1");
-    assert_eq!(shop.extra_voucher.as_ref().unwrap().cost, 7.0);
+    assert_eq!(shop.vouchers[0].cost, 7.0);
     assert_eq!(run.jokers[0].cost, 3.0);
     let pack = shop.packs[0].clone();
     assert_eq!(run.buy(&pack).unwrap(), 4.0);

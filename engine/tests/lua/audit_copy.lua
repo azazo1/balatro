@@ -121,6 +121,15 @@ for i = 1, 13 do
     math.random = function(count) assert(count == 13); return i end
     final_ranks[i] = pseudorandom_element(SMODS.Ranks).card_key
 end
+-- 同一终端 picker 对 Card 对象按出生身份选择,不因合法区域重排而改变候选顺序.
+local born_first, born_second = {sort_id=17, key='first'}, {sort_id=29, key='second'}
+for index = 1, 2 do
+    math.random = function(count) assert(count == 2); return index end
+    local forward = pseudorandom_element({born_first, born_second})
+    local reverse = pseudorandom_element({born_second, born_first})
+    assert(forward == reverse)
+    assert(forward == (index == 1 and born_first or born_second))
+end
 math.random = original_random
 assert(table.concat(final_suits, ',') == 'S,H,D,C')
 assert(table.concat(final_ranks, ',') == '2,3,4,5,6,7,8,9,T,J,Q,K,A')

@@ -11,6 +11,7 @@ use balatro_engine::run::{Phase, RunState};
 /// 造一张带价签的券.
 fn voucher(key: &str) -> ShopCard {
     ShopCard {
+        sort_id: 0,
         key: key.to_owned(),
         edition: None,
         eternal: false,

@@ -14,6 +14,7 @@ use common::aleeb_run;
 /// 造一张带价签的商店卡, 免得每个用例都写一遍全部字段.
 fn shop_card(key: &str, cost: f64) -> ShopCard {
     ShopCard {
+        sort_id: 0,
         key: key.to_owned(),
         edition: None,
         eternal: false,
@@ -272,7 +273,7 @@ fn cash_out_stocks_the_shelf_and_reroll_only_touches_jokers() {
     assert_eq!(before.packs.len(), 2, "两个补充包");
 
     // 优惠券那一格摆的是开局就算好的那张, 键与 `shop_vouchers` 一致.
-    let voucher = before.voucher.clone().expect("开局抽了券, 货架上有");
+    let voucher = before.vouchers.first().cloned().expect("开局抽了券, 货架上有");
     assert_eq!(run.shop_vouchers, vec![voucher.key.clone()]);
     assert_eq!(voucher.cost, 10.0, "券的原型基础价是 10");
 
@@ -289,8 +290,8 @@ fn cash_out_stocks_the_shelf_and_reroll_only_touches_jokers() {
         "卡包不该被重抽"
     );
     assert_eq!(
-        after.voucher.map(|c| c.key),
-        Some(voucher.key),
+        after.vouchers.first().map(|card| card.key.as_str()),
+        Some(voucher.key.as_str()),
         "优惠券也不该被重抽"
     );
     assert_eq!(run.rerolls, 1, "记了一次");
@@ -372,7 +373,7 @@ fn coupon_tag_marks_only_the_initial_joker_and_booster_shelf() {
     let shop = run.shop.as_ref().unwrap();
     assert!(shop.jokers.iter().all(|card| card.couponed && card.cost == 0.0));
     assert!(shop.packs.iter().all(|card| card.couponed && card.cost == 0.0));
-    assert!(shop.voucher.as_ref().is_some_and(|card| !card.couponed && card.cost > 0.0));
+    assert!(shop.vouchers.first().is_some_and(|card| !card.couponed && card.cost > 0.0));
 
     let picked = shop.jokers[0].clone();
     let before = run.dollars;

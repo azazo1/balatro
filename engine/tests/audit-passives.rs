@@ -8,7 +8,7 @@ use balatro_engine::run::shop::{Shop, ShopCard};
 use balatro_engine::scoring::{BackEffect, EvalEnv};
 
 fn card(key: &str, cost: f64) -> ShopCard {
-    ShopCard { key: key.into(), edition: None, eternal: false, perishable: false,
+    ShopCard { sort_id: 0, key: key.into(), edition: None, eternal: false, perishable: false,
         rental: false, couponed: false, enhancement: None, todo: None, cost }
 }
 
@@ -21,7 +21,7 @@ fn ready(seed: &str) -> RunState {
 
 fn stock(run: &mut RunState, free: bool) {
     run.shop = Some(Shop { jokers: vec![card("c_mercury", if free { 0.0 } else { 3.0 }), card("c_fool", 3.0)],
-        voucher: None, extra_voucher: None,
+        vouchers: Vec::new(),
         packs: vec![card("p_celestial_normal_1", if free { 0.0 } else { 4.0 })] });
 }
 

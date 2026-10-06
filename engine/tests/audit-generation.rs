@@ -194,6 +194,26 @@ use balatro_engine::run::shop::{create_joker, create_card_inner, pick_joker_of_r
 use balatro_engine::scoring::{HandTable, PokerHand};
 
 #[test]
+fn generated_stock_and_all_pack_choices_have_birth_order_ids() {
+    let mut run = RunState::new("BIRTHORDER", 1);
+    let first = create_joker(&mut run, "test");
+    let second = create_joker(&mut run, "test");
+    assert!(first.sort_id > 0 && first.sort_id < second.sort_id);
+    let mut last = second.sort_id;
+    for pack in ["p_standard_mega_1", "p_buffoon_mega_1", "p_celestial_mega_1", "p_arcana_mega_1", "p_spectral_mega_1"] {
+        for card in open_pack(&mut run, pack) {
+            assert!(card.sort_id > last, "未选包牌同样出生, 且每实体只分配一次");
+            last = card.sort_id;
+        }
+    }
+    let shop = balatro_engine::run::shop::Shop::restock(&mut run);
+    let mut ids: Vec<u32> = shop.jokers.iter().chain(shop.packs.iter()).chain(shop.vouchers.iter()).map(|card| card.sort_id).collect();
+    assert!(ids.iter().all(|id| *id > last));
+    ids.sort_unstable();
+    assert!(ids.windows(2).all(|pair| pair[1] == pair[0] + 1));
+}
+
+#[test]
 fn rarity_tags_create_free_stickered_jokers_and_consume_only_one_tag() {
     let mut run = RunState::new("RARITYTAG", 8);
     run.tags = vec!["tag_uncommon".to_owned(), "tag_uncommon".to_owned()];

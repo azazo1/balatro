@@ -147,7 +147,7 @@ pub fn digest(run: &RunState) -> String {
     // 而游戏自己的 `format.diff` 是双向的.
     if run.shop_seen {
         let jokers = run.shop.as_ref().map(|shop| &shop.jokers);
-        let voucher = run.shop.as_ref().and_then(|shop| shop.voucher.as_ref());
+        let vouchers = run.shop.as_ref().map(|shop| &shop.vouchers);
         let packs = run.shop.as_ref().map(|shop| &shop.packs);
         parts.push(format!(
             "shop={}",
@@ -162,9 +162,11 @@ pub fn digest(run: &RunState) -> String {
         ));
         parts.push(format!(
             "vouchers={}",
-            voucher
-                .map(|c| token_of(&c.key, c.edition, None, c.enhancement, c.eternal, c.rental))
-                .unwrap_or_default()
+            joining(vouchers
+                .map(|cards| cards.iter()
+                    .map(|card| token_of(&card.key, card.edition, None, card.enhancement, card.eternal, card.rental))
+                    .collect())
+                .unwrap_or_default())
         ));
         parts.push(format!(
             "packs={}",

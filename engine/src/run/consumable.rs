@@ -17,6 +17,8 @@ pub struct Consumable {
     pub edition: Option<Edition>,
     /// 礼物卡累加的卖出价, 对应 `ability.extra_value`.
     pub extra_value: f64,
+    /// 对象出生身份,对应 Card:init 的 sort_id. 转移保留,新复制重新分配.
+    pub sort_id: u32,
 }
 
 impl Consumable {
@@ -26,6 +28,7 @@ impl Consumable {
             key: key.into(),
             edition: None,
             extra_value: 0.0,
+            sort_id: 0,
         }
     }
 
@@ -35,6 +38,7 @@ impl Consumable {
             key: key.into(),
             edition,
             extra_value: 0.0,
+            sort_id: 0,
         }
     }
 }

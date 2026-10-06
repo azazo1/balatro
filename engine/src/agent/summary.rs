@@ -516,14 +516,9 @@ pub fn render(run: &RunState, extras: &Extras) -> String {
                 out.push(shop_card_line(card, "card ", index));
             }
         }
-        let vouchers: Vec<&ShopCard> = shop
-            .voucher
-            .iter()
-            .chain(shop.extra_voucher.iter())
-            .collect();
-        if !vouchers.is_empty() {
+        if !shop.vouchers.is_empty() {
             out.push("优惠券:".to_owned());
-            for (index, card) in vouchers.iter().enumerate() {
+            for (index, card) in shop.vouchers.iter().enumerate() {
                 out.push(shop_card_line(card, "voucher ", index));
             }
         }

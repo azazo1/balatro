@@ -100,13 +100,12 @@ pub struct RunState {
     /// **这一底的券已经用掉了** —— 买下之后那一格就空着, 直到下个底注换新.
     ///
     /// 单看 `shop_vouchers` 空不空分不出两种情形: "这一底还没摆券" 与 "券已经被买走".
-    /// 游戏那边靠 `G.GAME.current_round.voucher` 是不是 `nil` 来分 (`Card:redeem` 会把它清成
-    /// `nil`, 而铺货时"没有键就不摆券"), 这里用一个标志位表达.
+    /// 补丁版通过普通券的 spawn 标记区分, 这里用标志表达下一次铺货是否应生成普通券.
     pub voucher_spent: bool,
     /// 已经拿到手的标签, 对应 `G.GAME.tags`.
     pub tags: Vec<String>,
-    /// 优惠券标签额外摆出来的那张券的键.
-    pub extra_voucher_key: Option<String>,
+    /// 待铺货的优惠券标签键列表, 含 Double 标签产生的多个实例.
+    pub extra_voucher_keys: Vec<String>,
     /// 这一局跳过过几个盲注, 对应 `G.GAME.skips`.
     pub skips: i64,
     /// 本局累计已出牌次数, 对应 `G.GAME.hands_played`.
@@ -353,7 +352,7 @@ impl RunState {
             shop_vouchers: Vec::new(),
             voucher_spent: false,
             tags: Vec::new(),
-            extra_voucher_key: None,
+            extra_voucher_keys: Vec::new(),
             skips: 0,
             total_hands_played: 0,
             unused_discards: 0,
@@ -590,8 +589,7 @@ impl RunState {
                 true,
                 Some(key.as_str()),
             );
-            self.consumables
-                .push(super::consumable::Consumable::plain(created));
+            self.add_consumable(super::consumable::Consumable::plain(created));
         }
     }
 

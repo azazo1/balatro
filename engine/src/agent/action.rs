@@ -124,11 +124,13 @@ pub fn apply(step: &Json, run: &mut RunState, env: &EvalEnv) -> Result<String, A
                 });
             };
             let picked = match target.0 {
-                "voucher" => shop.voucher.iter().chain(shop.extra_voucher.iter()).nth(slot).cloned(),
+                "voucher" => shop.vouchers.get(slot).cloned(),
                 "pack" => shop.packs.get(slot).cloned(),
                 _ => shop.jokers.get(slot).cloned(),
             }.ok_or(ActionError::BadIndex(slot))?;
-            let outcome = if use_now {
+            let outcome = if target.0 == "voucher" {
+                run.buy_voucher_index(slot)
+            } else if use_now {
                 run.buy_and_use(&picked)
             } else {
                 run.buy(&picked)

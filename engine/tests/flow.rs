@@ -1143,8 +1143,9 @@ fn voucher_tag_adds_a_second_voucher() {
     assert_eq!(run.phase, Phase::Shop, "进商店了");
 
     let shop = run.shop.as_ref().expect("有货架");
-    let first = shop.voucher.as_ref().expect("本来那张券").key.clone();
-    let extra = shop.extra_voucher.as_ref().expect("标签多摆的那张");
+    assert_eq!(shop.vouchers.len(), 2);
+    let first = shop.vouchers[0].key.clone();
+    let extra = &shop.vouchers[1];
     assert!(extra.key.starts_with("v_"), "多摆的也是券: {}", extra.key);
     assert_ne!(extra.key, first, "两张券不一样 (池子会排掉已经在售的)");
 }
@@ -1390,6 +1391,7 @@ fn buffoon_pack_jokers_can_carry_flags() {
         run.phase = balatro_engine::run::Phase::Shop;
         run.dollars = 20.0;
         run.buy(&ShopCard {
+            sort_id: 0,
             key: "p_buffoon_normal_1".to_owned(),
             edition: None,
             eternal: false,
@@ -1920,7 +1922,7 @@ fn showdown_bosses_have_their_effects() {
     heart.boss_key = Some("bl_final_heart".to_owned());
     heart.blind_on_deck = BlindKind::Boss;
     for key in ["j_joker", "j_duo", "j_trio"] {
-        heart.jokers.push(Joker::new(key).expect("有这张"));
+        heart.add_joker(Joker::new(key).expect("有这张"));
     }
     common::place_blind(&mut heart);
     assert_eq!(
@@ -2038,7 +2040,7 @@ fn crimson_heart_never_redebuffs_the_same_joker() {
     run.boss_key = Some("bl_final_heart".to_owned());
     run.blind_on_deck = BlindKind::Boss;
     for key in ["j_joker", "j_duo", "j_trio", "j_family", "j_sly"] {
-        run.jokers.push(Joker::new(key).expect("有这张"));
+        run.add_joker(Joker::new(key).expect("有这张"));
     }
     common::place_blind(&mut run);
     run.hands_left = 31;

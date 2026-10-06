@@ -41,6 +41,8 @@ impl Default for ShopRates {
 /// 商店里的一件商品. 真游戏里是一张 `Card` 实例, 这里只留判定货架需要的那几项.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ShopCard {
+    /// 实体创建时分配的全局序号, 移入持有区时保持; 0 仅用于外部未赋号 fixture.
+    pub sort_id: u32,
     /// 原型键.
     pub key: String,
     pub edition: Option<Edition>,
@@ -62,6 +64,7 @@ pub struct ShopCard {
 impl ShopCard {
     fn plain(key: String) -> Self {
         ShopCard {
+            sort_id: 0,
             key,
             edition: None,
             eternal: false,
@@ -102,7 +105,7 @@ pub(super) fn refresh_costs(run: &mut RunState) {
     let discount = run.discount_percent;
     let astronomer = run.jokers.iter().any(|joker| joker.key == "j_astronomer" && !joker.debuffed);
     if let Some(shop) = run.shop.as_mut() {
-        for card in shop.jokers.iter_mut().chain(shop.voucher.iter_mut()).chain(shop.extra_voucher.iter_mut()).chain(shop.packs.iter_mut()) {
+        for card in shop.jokers.iter_mut().chain(shop.vouchers.iter_mut()).chain(shop.packs.iter_mut()) {
             let planet = Catalog::get().record(&card.key).is_some_and(|proto| proto.category == "Planet");
             card.cost = if card.couponed || (astronomer && (planet || card.key.starts_with("p_celestial"))) {
                 0.0
@@ -206,6 +209,7 @@ pub fn create_card_for_shop(run: &mut RunState, rates: &ShopRates) -> ShopCard {
                 // 塔罗, 行星与幻灵: 直接抽它们各自的池.
                 other => {
                     let mut card = ShopCard::plain(create_card_for_shop_slot(run, other, "sho"));
+                    card.sort_id = run.next_sort_id();
                     card.cost = if other == "Planet" && run.jokers.iter().any(|joker| joker.key == "j_astronomer" && !joker.debuffed) {
                         0.0
                     } else {
@@ -326,6 +330,7 @@ pub fn create_joker(run: &mut RunState, key_append: &str) -> ShopCard {
 /// 原型已选好后仍要完整执行待办, 贴纸, 租赁与版本随机数. 标签只跳过稀有度骰.
 fn finish_joker(run: &mut RunState, key: String, key_append: &str) -> ShopCard {
     let mut card = ShopCard::plain(key);
+    card.sort_id = run.next_sort_id();
 
     // 待办清单的"这一回合指定哪个牌型"是**造出来那一刻**就掷的 —— 挂在 `Card:set_ability` 里
     // (键 `to_do`), 而 `set_ability` 在构造那张牌时就被调用了, 所以它排在下面"永恒 / 易腐"
@@ -453,6 +458,7 @@ fn playing_card_for_shop(run: &mut RunState, enhanced: bool) -> ShopCard {
     let face = pick_or_resample(&mut run.rng, &faces, &frontsho_key);
 
     let mut card = ShopCard::plain(face);
+    card.sort_id = run.next_sort_id();
     card.enhancement = enhancement;
 
     if run.used_vouchers.contains("v_illusion")
@@ -764,14 +770,12 @@ fn fallback_for_category(category: &str) -> &'static str {
     }
 }
 
-/// 商店的一整面货架. 优惠券一格, 小丑两格, 补充包两个.
+/// 商店的一整面货架. 标签可追加多张优惠券, 购买后实际位置压紧.
 #[derive(Clone, Debug, Default)]
 pub struct Shop {
     pub jokers: Vec<ShopCard>,
-    /// 这一底的优惠券, 开局就算好了, 重抽不动它.
-    pub voucher: Option<ShopCard>,
-    /// 优惠券标签额外多摆出来的那一张.
-    pub extra_voucher: Option<ShopCard>,
+    /// 当前主券在首位 (若仍在售), 其后按事件顺序保存全部标签券.
+    pub vouchers: Vec<ShopCard>,
     pub packs: Vec<ShopCard>,
 }
 
@@ -816,6 +820,7 @@ impl Shop {
             .map(|_| {
                 let key = get_pack(run, SHOP_PACK_KEY);
                 let mut card = ShopCard::plain(key);
+                card.sort_id = run.next_sort_id();
                 card.cost = if card.key.starts_with("p_celestial") && run.jokers.iter().any(|joker| joker.key == "j_astronomer" && !joker.debuffed) {
                     0.0
                 } else {
@@ -830,34 +835,20 @@ impl Shop {
                 card
             })
             .collect();
-        // 优惠券那一格: 键在开局 (或打败 Boss 之后) 就算好了, 这里只摆上货架并标价.
-        let voucher = run.shop_vouchers.first().map(|key| {
-            let mut card = ShopCard::plain(key.clone());
-            card.cost = shop_cost(
-                base_cost_of(&card.key),
-                None,
-                false,
-                run.inflation,
-                run.discount_percent,
-            );
-            card
-        });
-        // 优惠券标签让券那一格多摆一张.
-        let extra_voucher = run.extra_voucher_key.clone().map(|key| {
-            let mut card = ShopCard::plain(key);
-            card.cost = shop_cost(
-                base_cost_of(&card.key),
-                None,
-                false,
-                run.inflation,
-                run.discount_percent,
-            );
-            card
-        });
+        // 主券在前, 标签事件追加的全部券随后按原事件顺序摆放. pending 仅消费一次.
+        let tagged = std::mem::take(&mut run.extra_voucher_keys);
+        let vouchers = run.shop_vouchers.first().cloned().into_iter()
+            .chain(tagged)
+            .map(|key| {
+                let mut card = ShopCard::plain(key);
+                card.sort_id = run.next_sort_id();
+                card.cost = shop_cost(base_cost_of(&card.key), None, false, run.inflation, run.discount_percent);
+                card
+            })
+            .collect();
         let mut shop = Shop {
             jokers,
-            voucher,
-            extra_voucher,
+            vouchers,
             packs,
         };
         if run.shop_free {
@@ -888,6 +879,8 @@ impl Shop {
 /// 包里的一张牌. 标准包开出来的会有版本与蜡封, 其他的各自不同.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PackCard {
+    /// 包内实体出生时分配, 无论随后是否被选取都消费序号.
+    pub sort_id: u32,
     pub key: String,
     pub edition: Option<Edition>,
     pub seal: Option<Seal>,
@@ -955,7 +948,9 @@ pub fn open_pack(run: &mut RunState, pack_key: &str) -> Vec<PackCard> {
     }
     for _ in 0..reserved {
         let tarot = create_card_inner(run, "Tarot", "hal", false, None);
-        run.consumables.push(super::consumable::Consumable::plain(tarot));
+        let mut card = super::consumable::Consumable::plain(tarot);
+        card.sort_id = run.next_sort_id();
+        run.consumables.push(card);
     }
 
     let kind = pack_kind_of(pack_key).unwrap_or("Tarot");
@@ -1001,6 +996,7 @@ pub fn open_pack(run: &mut RunState, pack_key: &str) -> Vec<PackCard> {
             if let Some(key) = telescope.filter(|key| !run.banned_keys.contains(key)) {
                 run.used_jokers.insert(key.clone());
                 return PackCard {
+                    sort_id: run.next_sort_id(),
                     key,
                     edition: None,
                     seal: None,
@@ -1029,6 +1025,7 @@ pub fn open_pack(run: &mut RunState, pack_key: &str) -> Vec<PackCard> {
                 (kind, key_append)
             };
             let mut card = PackCard {
+                sort_id: run.next_sort_id(),
                 key: create_card(run, kind, key_append),
                 edition: None,
                 seal: None,
@@ -1108,6 +1105,7 @@ fn standard_pack_card(run: &mut RunState, key_append: &str) -> PackCard {
     let face = pick_or_resample(&mut run.rng, &faces, &front_key);
 
     PackCard {
+        sort_id: run.next_sort_id(),
         key: face,
         edition,
         seal,

@@ -8,7 +8,7 @@ use balatro_engine::run::{Phase, RunState};
 use balatro_engine::scoring::{EvalEnv, PokerHand};
 
 fn shop_card(key: &str) -> ShopCard {
-    ShopCard { key: key.to_owned(), cost: 3.0, edition: None, eternal: false,
+    ShopCard { sort_id: 0, key: key.to_owned(), cost: 3.0, edition: None, eternal: false,
         perishable: false, rental: false, couponed: false, enhancement: None, todo: None }
 }
 
@@ -21,8 +21,7 @@ fn in_shop() -> RunState {
     card.cost = 3.0;
     run.shop = Some(Shop {
         jokers: vec![card],
-        voucher: Some(shop_card("v_grabber")),
-        extra_voucher: Some(shop_card("v_wasteful")),
+        vouchers: vec![shop_card("v_grabber"), shop_card("v_wasteful")],
         packs: Vec::new(),
     });
     run
@@ -52,6 +51,25 @@ fn voucher_index_selects_the_second_voucher() {
     assert_eq!(run.discards_per_round, before + 1);
     assert!(run.used_vouchers.contains("v_wasteful"));
     assert!(!run.used_vouchers.contains("v_grabber"));
+}
+
+#[test]
+fn voucher_index_can_address_the_third_offer_then_compacts() {
+    let mut run = in_shop();
+    run.shop.as_mut().unwrap().vouchers = vec![
+        shop_card("v_blank"), shop_card("v_grabber"), shop_card("v_wasteful"),
+    ];
+    let step = Json::parse(r#"{"method":"buy","params":{"voucher":2}}"#).unwrap();
+    action::apply(&step, &mut run, &EvalEnv::default()).unwrap();
+    assert_eq!(run.shop.as_ref().unwrap().vouchers.len(), 2);
+    assert_eq!(run.dollars, 47.0);
+    let first = Json::parse(r#"{"method":"buy","params":{"voucher":0}}"#).unwrap();
+    action::apply(&first, &mut run, &EvalEnv::default()).unwrap();
+    action::apply(&first, &mut run, &EvalEnv::default()).unwrap();
+    assert!(run.shop.as_ref().unwrap().vouchers.is_empty());
+    let before = run.dollars;
+    assert!(action::apply(&first, &mut run, &EvalEnv::default()).is_err());
+    assert_eq!(run.dollars, before);
 }
 
 #[test]

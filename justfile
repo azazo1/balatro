@@ -145,6 +145,33 @@ engine-replay *args:
         *sys.argv[1:],
     ]).returncode)
 
+# 运行完整 engine 回归, 已有 Lua 源码裁判, 零警告检查和永久记录基准.
+engine-audit:
+    #!{{ python_shebang }}
+    import os
+    from pathlib import Path
+    import subprocess
+    import sys
+    tree = Path(".tmp/engine-audit/modded-tree").resolve()
+    if not all((tree / name).is_file() for name in ["game.lua", "functions/common_events.lua"]):
+        sys.exit("需要已有完整 Lovely 补丁树 .tmp/engine-audit/modded-tree; 不自动安装或启动游戏")
+    env = dict(os.environ, BALATRO_PATCHED_TREE=str(tree))
+    fixtures = [
+        "rec-20261005-23z315qp", "rec-20261005-t5tf8s49",
+        "rec-20261005-s6cftc2v", "rec-20261005-vv8pfes1",
+        "diagnostic-20261005-9af1bgs8", "diagnostic-20261005-a48x6zym",
+    ]
+    commands = [
+        ["cargo", "test", "--offline", "--quiet", "--manifest-path", "engine/Cargo.toml", "--no-fail-fast", "--", "--include-ignored"],
+        ["cargo", "clippy", "--offline", "--manifest-path", "engine/Cargo.toml", "--all-targets", "--", "-D", "warnings"],
+        ["just", "engine-replay", "--strict", *[f"engine/tests/data/{name}.jsonl" for name in fixtures]],
+    ]
+    for command in commands:
+        print("运行: " + " ".join(command), flush=True)
+        result = subprocess.run(command, env=env)
+        if result.returncode:
+            sys.exit(result.returncode)
+
 # 删除打包产物 dist/.
 clean:
     {{ python }} scripts/clean.py

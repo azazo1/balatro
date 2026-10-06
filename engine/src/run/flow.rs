@@ -482,15 +482,16 @@ impl RunState {
                 }
                 "j_cartomancer" if self.consumables.len() < self.consumable_capacity() => {
                     let key = super::shop::create_card(self, "Tarot", "car");
-                    self.consumables.push(super::consumable::Consumable::plain(key));
+                    self.add_consumable(super::consumable::Consumable::plain(key));
                 }
                 "j_burglar" => {
                     self.discards_left = 0;
                     self.hands_left += extra as i64;
                 }
                 "j_madness" if !copying && !self.blind.as_ref().is_some_and(|blind| blind.kind == BlindKind::Boss) => {
-                    let choices: Vec<usize> = (0..original_len).filter(|&slot| slot != source
+                    let mut choices: Vec<usize> = (0..original_len).filter(|&slot| slot != source
                         && !self.jokers[slot].eternal && !sliced[slot]).collect();
+                    choices.sort_by_key(|&slot| self.jokers[slot].sort_id);
                     if !choices.is_empty() {
                         let chosen = *self.rng.pick(&choices, "madness");
                         sliced[chosen] = true;
@@ -639,9 +640,15 @@ impl RunState {
     ///
     /// 收成一个入口是为了不再出现"某个新加的小丑忘了发号"—— 那种漏发的表现是
     /// 洗小丑时它的位置与游戏不同, 而中间隔着好几层, 很难追回来.
-    pub fn add_joker(&mut self, mut joker: Joker) -> usize {
+    pub fn add_joker(&mut self, joker: Joker) -> usize {
+        let sort_id = self.next_sort_id();
+        self.add_created_joker(joker, sort_id)
+    }
+
+    // 移动物件保留出生序号, 克隆与现场创建则经 add_joker 分配新序号.
+    fn add_created_joker(&mut self, mut joker: Joker, sort_id: u32) -> usize {
         let previous_size = self.hand_size();
-        joker.sort_id = self.next_sort_id();
+        joker.sort_id = if sort_id == 0 { self.next_sort_id() } else { sort_id };
         let is_chicot = joker.key == "j_chicot";
         let key = joker.key.clone();
         let extra = joker.extra;
@@ -828,9 +835,12 @@ impl RunState {
         let perkeos = self.joker_effect_sources().iter().filter(|(source, _)| self.jokers[*source].key == "j_perkeo").count();
         for _ in 0..perkeos {
             if self.consumables.is_empty() { break; }
-            let mut picked = self.rng.pick(&self.consumables, "perkeo").clone();
-            picked.edition = Some(crate::cards::Edition::Negative);
-            self.consumables.push(picked);
+                let mut pool: Vec<usize> = (0..self.consumables.len()).collect();
+                pool.sort_by_key(|&slot| self.consumables[slot].sort_id);
+                let slot = *self.rng.pick(&pool, "perkeo");
+                let mut picked = self.consumables[slot].clone();
+                picked.edition = Some(crate::cards::Edition::Negative);
+                self.add_consumable(picked);
         }
         // 离开商店就把货架收掉: 回放 digest 里这一格的 `shop` / `vouchers` / `packs` 都是空的,
         // 而下一次进商店时会重新铺一遍 (`cash_out` -> `restock`).
@@ -888,7 +898,10 @@ impl RunState {
             // Boss 标签: 白重抽一次这一底的 Boss (正常重抽要花 10 块).
             "tag_boss" => self.boss_key = Some(self.next_boss()),
             // 优惠券标签: 商店的券那一格再多摆一张.
-            "tag_voucher" => self.extra_voucher_key = Some(self.next_voucher_key_from_tag()),
+            "tag_voucher" => {
+                let key = self.next_voucher_key_from_tag();
+                self.extra_voucher_keys.push(key);
+            }
             // 标签包排队打开. 双倍标签可能给多个包, 不可覆盖正在挑选的包.
             "tag_charm" | "tag_meteor" | "tag_ethereal" | "tag_standard" | "tag_buffoon" => {},
             // 补货标签: 白送两个小丑. 稀有度由原型里那个 `_rarity = 0` 决定 ——
@@ -1032,7 +1045,16 @@ impl RunState {
     /// 那样一遇到"最大的那张正拿在手里"就会发出一个比它小的号, 于是两张牌的先后关系
     /// 与造牌顺序相反 —— 而后果是*整副牌洗完的顺序都不一样*, 表现成"某一手发出的牌对不上",
     /// 与真实原因隔得很远. (第 89 步那两张 S_K 的先后就是这么来的.)
-    fn next_sort_id(&mut self) -> u32 {
+    fn add_created_consumable(&mut self, mut card: super::consumable::Consumable, sort_id: u32) {
+        card.sort_id = if sort_id == 0 { self.next_sort_id() } else { sort_id };
+        self.consumables.push(card);
+    }
+
+    pub(crate) fn add_consumable(&mut self, card: super::consumable::Consumable) {
+        self.add_created_consumable(card, 0);
+    }
+
+    pub(crate) fn next_sort_id(&mut self) -> u32 {
         self.next_card_id += 1;
         self.next_card_id
     }
@@ -1204,6 +1226,7 @@ impl RunState {
             let mut choices: Vec<usize> = active.iter().copied()
                 .filter(|&index| Some(self.jokers[index].sort_id) != previous).collect();
             if choices.is_empty() { choices = active; }
+            choices.sort_by_key(|&slot| self.jokers[slot].sort_id);
             if !self.jokers.is_empty() {
                 let seed = self.rng.pseudoseed("crimson_heart");
                 if !choices.is_empty() {
@@ -1226,8 +1249,9 @@ impl RunState {
             && !self.hand.is_empty()
             && !self.hand.iter().any(|card| card.forced_selection)
         {
-            let seed = self.rng.pseudoseed("cerulean_bell");
-            let index = self.rng.pick_index(self.hand.len(), seed);
+            let mut choices: Vec<usize> = (0..self.hand.len()).collect();
+            choices.sort_by_key(|&index| self.hand[index].card.sort_id);
+            let index = *self.rng.pick(&choices, "cerulean_bell");
             self.hand[index].forced_selection = true;
         }
 
@@ -1438,8 +1462,7 @@ impl RunState {
                 break;
             }
             let key = super::shop::create_card(self, "Tarot", "8ba");
-            self.consumables
-                .push(super::consumable::Consumable::plain(key));
+            self.add_consumable(super::consumable::Consumable::plain(key));
         }
         // 卡牌交易销毁掉的那一张**不进弃牌堆** (游戏是 `remove = true`); 其余照常进弃牌堆.
         if !trading {
@@ -1766,7 +1789,7 @@ impl RunState {
                 let mut creation = super::shop::creation_from(self);
                 let key = super::shop::create_consumable(&mut creation, &mut self.rng, "Spectral", "sixth", true);
                 creation.merge_back(self);
-                self.consumables.push(crate::run::consumable::Consumable::plain(key));
+                self.add_consumable(crate::run::consumable::Consumable::plain(key));
             }
         }
 
@@ -1828,8 +1851,7 @@ impl RunState {
             // 计分过程中小丑造出来的消耗牌 (八号球那类) **由这里入槽** ——
             // 计分那一层只负责"报告造了什么", 持有区归运行层管.
             for key in &result.consumables {
-                self.consumables
-                    .push(crate::run::consumable::Consumable::plain(key.clone()));
+                self.add_consumable(crate::run::consumable::Consumable::plain(key.clone()));
             }
             result
         };
@@ -2188,7 +2210,7 @@ impl RunState {
                     && let Some(played) = self.last_hand_played
                     && let Some(key) = planet_for_hand(played)
                 {
-                    self.consumables.push(super::consumable::Consumable::plain(key));
+                    self.add_consumable(super::consumable::Consumable::plain(key));
                 }
             }
         }
@@ -2448,8 +2470,9 @@ impl RunState {
                 if self.jokers.is_empty() {
                     return Ok(());
                 }
-                let seed = self.rng.pseudoseed("ankh_choice");
-                let chosen = self.rng.pick_index(self.jokers.len(), seed);
+                let mut choices: Vec<usize> = (0..self.jokers.len()).collect();
+                choices.sort_by_key(|&index| self.jokers[index].sort_id);
+                let chosen = *self.rng.pick(&choices, "ankh_choice");
                 let mut copy = self.jokers[chosen].clone();
                 if copy.edition == Some(crate::cards::Edition::Negative) {
                     copy.edition = None;
@@ -2478,13 +2501,14 @@ impl RunState {
             //    (`ecto_minus` 从 1 起, 每用一次加一).
             "c_hex" | "c_ectoplasm" => {
                 let hex = key == "c_hex";
-                let pool: Vec<usize> = self
+                let mut pool: Vec<usize> = self
                     .jokers
                     .iter()
                     .enumerate()
                     .filter(|(_, joker)| joker.edition.is_none())
                     .map(|(index, _)| index)
                     .collect();
+                pool.sort_by_key(|&index| self.jokers[index].sort_id);
                 if pool.is_empty() {
                     return Ok(());
                 }
@@ -2659,8 +2683,7 @@ impl RunState {
                     .saturating_sub(self.consumables.len().saturating_sub(1));
                 for _ in 0..want.min(room) {
                     let new = super::shop::create_card(self, kind, append);
-                    self.consumables
-                        .push(super::consumable::Consumable::plain(new));
+                    self.add_consumable(super::consumable::Consumable::plain(new));
                 }
             }
             // 审判: 白送一张小丑.
@@ -2701,9 +2724,10 @@ impl RunState {
             // 中了再用**同一条键**的下一枚挑是谁, 最后走"保证给版本"那条链.
             "c_wheel_of_fortune" => {
                 let odds = super::shop::consumable_count(&key, "extra") as f64;
-                let eligible: Vec<usize> = self.jokers.iter().enumerate()
+                let mut eligible: Vec<usize> = self.jokers.iter().enumerate()
                     .filter(|(_, joker)| joker.edition.is_none())
                     .map(|(slot, _)| slot).collect();
+                eligible.sort_by_key(|&index| self.jokers[index].sort_id);
                 if !eligible.is_empty() && self.rng.pseudorandom("wheel_of_fortune") < self.probability_scale / odds {
                     let picked = *self.rng.pick(&eligible, "wheel_of_fortune");
                     if let Some(edition) = super::shop::poll_edition_guaranteed(self, "wheel_of_fortune") {
@@ -2719,8 +2743,7 @@ impl RunState {
                     && last != "c_fool"
                     && self.consumables.len() < self.consumable_capacity() + 1
                 {
-                    self.consumables
-                        .push(super::consumable::Consumable::plain(last));
+                    self.add_consumable(super::consumable::Consumable::plain(last));
                 }
             }
             // 其余塔罗与行星还没做, 明说而不是假装成功.
@@ -2772,12 +2795,7 @@ impl RunState {
         let mut keys: Vec<String> = Vec::new();
         keys.extend(shop.jokers.iter().map(|card| card.key.clone()));
         keys.extend(shop.packs.iter().map(|card| card.key.clone()));
-        if let Some(voucher) = &shop.voucher {
-            keys.push(voucher.key.clone());
-        }
-        if let Some(extra) = &shop.extra_voucher {
-            keys.push(extra.key.clone());
-        }
+        keys.extend(shop.vouchers.iter().map(|card| card.key.clone()));
         for key in keys {
             self.forget_used_if_gone(&key);
         }
@@ -2956,10 +2974,8 @@ impl RunState {
             // 所以槽位满了照样取得出来 —— 于是会出现"3 张挤在 2 格里".
             // 整局对拍里第 48 步就是这样: 消耗槽满着, 里面那张灵魂照样被取走并当场用掉.
             // (商店那条路不一样: 那边槽位满了"使用"按钮就是灰的, 所以 `buy` 里仍然查槽位.)
-            self.consumables.push(super::consumable::Consumable::with_edition(
-                key.clone(),
-                picked.edition,
-            ));
+            self.add_created_consumable(super::consumable::Consumable::with_edition(
+                key.clone(), picked.edition), picked.sort_id);
         } else if key.starts_with("j_") {
             if self.jokers.len() >= self.joker_capacity() {
                 return Err(ActionError::NoRoom {
@@ -2983,7 +2999,7 @@ impl RunState {
             if picked.perishable {
                 joker.perish_tally = PERISHABLE_ROUNDS;
             }
-            self.add_joker(joker);
+            self.add_created_joker(joker, picked.sort_id);
         } else {
             // 标准包里开出来的扑克牌进牌堆, 版本, 蜡封与强化一起带过去.
             let mut card =
@@ -2991,19 +3007,16 @@ impl RunState {
             card.edition = picked.edition;
             card.seal = picked.seal;
             card.enhancement = picked.enhancement;
-            // **建牌序号必须发一个**: 游戏里每造一张牌都会把全局计数器加一 (`Card:init` 里
-            // `G.sort_id = (G.sort_id or 0) + 1`), 所以从包里取出的这张是**最新**的, 洗牌前
-            // 按序号排序时排在**最后**. `CardInstance::from_key` 给的是 0 (那是给"只用牌面"的
-            // 场合准备的), 照 0 排它就跑到最前面, 整副牌洗完的顺序全变 ——
-            // 整局对拍里 133 步那份第 59 步那手牌就是这么差的 (张数一样, 牌面全不同).
-            card.card.sort_id = self.next_sort_id();
+            // 卡在开包时已经出生, 取牌只移动原物件, 不按玩家选择次序重发序号.
+            // 序号 0 只用于测试构造的合成牌, 没有出生身份时才分配后备序号.
+            card.card.sort_id = if picked.sort_id == 0 { self.next_sort_id() } else { picked.sort_id };
             // 进牌堆的位置: 游戏那边是 `G.deck:emplace(card)`, 而 `CardArea:emplace` 对
             // **牌堆**是插到数组**第 1 位** —— 牌堆的取牌端在数组**末尾** (`remove_card` 取
             // `_cards[#_cards]`), 所以插第 1 位就是"塞到最底下".
             // 用 `push` 反而是塞到**顶上**, 会先被发出来 —— 洗牌前的排序能抹平这个差别,
             // 但**同一个底注里**再开一次发牌的包 (秘术 / 幽灵包) 时, 那时牌堆还没排序,
             // 差别就直接显出来了.
-            self.deck.insert(0, card);
+            self.add_playing_card_to_deck(card);
         }
 
         let pack = self.open_pack.as_mut().expect("刚刚还在这里");
@@ -3086,7 +3099,8 @@ impl RunState {
         // 隐形小丑: 攒够回合之后卖掉, 它会把**另一个**随机小丑复制一份 (`pseudoseed('invisible')`).
         // 判在**移除之前** —— 移除之后再按下标取, 取到的就是别人了 (这里踩过一次).
         if !joker.debuffed && joker.key == "j_invisible" && joker.invis_rounds >= joker.extra {
-            let others: Vec<usize> = (0..self.jokers.len()).filter(|&slot| slot != index).collect();
+            let mut others: Vec<usize> = (0..self.jokers.len()).filter(|&slot| slot != index).collect();
+            others.sort_by_key(|&slot| self.jokers[slot].sort_id);
             if !others.is_empty() && self.jokers.len() <= self.joker_capacity() {
                 let picked = *self.rng.pick(&others, "invisible");
                 let mut copy = self.jokers[picked].clone();
@@ -3189,6 +3203,23 @@ impl RunState {
         Ok(price)
     }
 
+    /// 优惠券按当前实际货架位置购买, 移除后数组压紧, 不用键值相等推断对象身份.
+    pub fn buy_voucher_index(&mut self, index: usize) -> Result<f64, ActionError> {
+        if self.phase != Phase::Shop {
+            return Err(ActionError::NotInPhase { expected: Phase::Shop, actual: self.phase });
+        }
+        let card = self.shop.as_ref().and_then(|shop| shop.vouchers.get(index))
+            .cloned().ok_or(ActionError::BadIndex(index))?;
+        if card.cost > self.dollars - self.bankrupt_at {
+            return Err(ActionError::NotEnoughMoney { cost: card.cost, have: self.dollars });
+        }
+        let mut trial = self.clone();
+        trial.shop.as_mut().expect("货架已校验").vouchers.remove(index);
+        let paid = trial.place_purchase(&card, card.cost)?;
+        *self = trial;
+        Ok(paid)
+    }
+
     /// 买下一张消耗牌并**当场用掉** —— 对应商店里那个"买并使用"按钮 (`buy_and_use`).
     ///
     /// 与"买下来放进消耗槽"是**两条不同的规矩**, 差别不只是省一步:
@@ -3227,11 +3258,8 @@ impl RunState {
         // **用完不用自己撤** —— `use_consumable` 结尾会 `remove(index)` 把那一格拿掉,
         // 而且它排在"造产物"之后, 所以下标仍然指着这张牌 (产物都追加在它后面).
         // 这里再撤一次就会删掉一张**刚造出来的**产物: 女祭司该爆两张行星牌, 结果只剩一张.
-        self.consumables
-            .push(super::consumable::Consumable::with_edition(
-                card.key.clone(),
-                card.edition,
-            ));
+        self.add_created_consumable(super::consumable::Consumable::with_edition(
+            card.key.clone(), card.edition), card.sort_id);
         let slot = self.consumables.len() - 1;
         self.use_consumable(slot, &[])?;
         Ok(cost)
@@ -3278,8 +3306,8 @@ impl RunState {
                 shop.packs.remove(index);
             } else if let Some(index) = shop.jokers.iter().position(|item| item == card) {
                 shop.jokers.remove(index);
-            } else if shop.voucher.as_ref() == Some(card) {
-                shop.voucher = None;
+            } else if let Some(index) = shop.vouchers.iter().position(|item| item == card) {
+                shop.vouchers.remove(index);
             }
         }
         Ok(cost)
@@ -3293,13 +3321,8 @@ impl RunState {
             key if key.starts_with("v_") => {
                 self.used_vouchers.insert(key.to_owned());
                 super::voucher::apply(self, key);
-                // 券那一格是**这一底**的: 买下之后它就空着, 这一底剩下的商店里都不会再摆券,
-                // 直到下一个底注开局才换新 (`Card:redeem` 里那两句
-                // `G.GAME.current_round.voucher = nil`, 而铺货时"没有键就不摆券").
-                // 只清货架上那张 (`shop.voucher`) 是不够的 —— 键还在 `shop_vouchers` 里,
-                // 下一次铺货会照着它把**已经买过**的那张又摆回去.
-                // 清空之后还要立个"这一底买过了"的标志, 否则铺货会当成"还没摆券"再抽一张新的.
-                // 整局对拍里第 52 步买完券、第 57 步进商店时就是这么差的.
+                // 补丁版 Card:redeem 会关闭普通券的 spawn 标记, 标签券亦然.
+                // 仅清未来普通券来源, 当前货架上的其他实际券对象仍保持原位.
                 self.shop_vouchers.clear();
                 self.voucher_spent = true;
                 // **只有"库存过剩"那两张券**会当场把货架多摆一件: 游戏里那两张各有一句
@@ -3344,10 +3367,8 @@ impl RunState {
                         });
                     }
                     // 商店里买下的消耗牌也**带上它的版本**.
-                    self.consumables.push(super::consumable::Consumable::with_edition(
-                        key.to_owned(),
-                        card.edition,
-                    ));
+                    self.add_created_consumable(super::consumable::Consumable::with_edition(
+                        key.to_owned(), card.edition), card.sort_id);
                 } else if is_playing_card_key(key) {
                     // **扑克牌进牌堆, 不进小丑区** —— 游戏里那一段写的是
                     // `if c1.ability.set == 'Default' or c1.ability.set == 'Enhanced' then ... G.deck:emplace(c1)`.
@@ -3364,7 +3385,7 @@ impl RunState {
                         .ok_or(ActionError::UnknownCard(key.to_owned()))?;
                     instance.enhancement = card.enhancement;
                     instance.edition = card.edition;
-                    instance.card.sort_id = self.next_sort_id();
+                    instance.card.sort_id = if card.sort_id == 0 { self.next_sort_id() } else { card.sort_id };
                     self.add_playing_card_to_deck(instance);
                 } else {
                     if self.jokers.len() >= self.joker_capacity() + extra_room {
@@ -3374,8 +3395,7 @@ impl RunState {
                         });
                     }
                     let mut joker = Joker::new(key).ok_or(ActionError::UnknownCard(key.to_owned()))?;
-                    // 卖出价按实际花的钱算, 不是原型的基础价 (可能带版本加价或折扣).
-                    // 商店免费时这一份记 0, 卖掉也就不值钱 —— 与游戏的 `set_cost` 一致.
+                    // 优惠只影响购买价, 持有对象的卖价使用原型, 版本与折扣后的正常价格.
                     joker.cost = super::shop::shop_cost(joker.cost, card.edition, card.rental,
                         self.inflation, self.discount_percent);
                     joker.couponed = card.couponed;
@@ -3394,7 +3414,7 @@ impl RunState {
                     if key == "j_todo_list" {
                         joker.todo_hand = card.todo;
                     }
-                    self.add_joker(joker);
+                    self.add_created_joker(joker, card.sort_id);
                 }
             }
         }

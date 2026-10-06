@@ -98,7 +98,7 @@ fn aleeb_first_shop_matches_the_game() {
     assert_eq!(jokers.join(","), "j_trading!e,j_rocket", "货架上的两张小丑");
 
     assert_eq!(
-        shop.voucher.as_ref().map(|card| card.key.as_str()),
+        shop.vouchers.first().map(|card| card.key.as_str()),
         Some("v_magic_trick"),
         "券那一格"
     );

@@ -219,8 +219,8 @@ fn apply_step(
             let slot = |key: &str| amount(params, key).map(|n| n as usize);
             let target = if let Some(slot) = slot("pack") {
                 run.shop.as_ref().and_then(|shop| shop.packs.get(slot)).cloned()
-            } else if slot("voucher").is_some() {
-                run.shop.as_ref().and_then(|shop| shop.voucher.clone())
+            } else if let Some(slot) = slot("voucher") {
+                return run.buy_voucher_index(slot).map(|_| ());
             } else if let Some(slot) = slot("card") {
                 run.shop
                     .as_ref()
