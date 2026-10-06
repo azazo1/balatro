@@ -147,7 +147,7 @@ pub fn check(header: &Json, steps: &[Json], strict: bool) -> Report {
     for (offset, step) in steps.iter().enumerate() {
         let index = step.get("source_index").and_then(Json::as_f64).map_or(offset+1, |n| n as usize);
         let method = step.get("method").and_then(Json::as_str).unwrap_or("<missing>");
-        if ["notify", "menu", "continue", "endless"].contains(&method) {
+        if ["notify", "menu", "continue"].contains(&method) {
             report.skipped_observations += 1;
             continue;
         }

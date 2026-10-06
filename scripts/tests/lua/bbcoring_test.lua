@@ -343,6 +343,23 @@ do -- 背面朝上的牌报的是 '?' 而不是数字, 不该污染基础
   check("非数字的基础不记", record.base == nil, record.base and tostring(record.base.chips))
 end
 
+do -- 背面留手和小丑的来源身份不能从计分记录或旧名字缓存泄露
+  local deps = Scoring.game_deps({ suit_enum = function(suit) return suit end, rank_enum = function(rank) return rank end })
+  local c = { base = { suit = "Hearts", value = "King" }, config = { card_key = "H_K" }, area = G.hand }
+  local visible = deps.card(c)
+  c.facing = "back"
+  local hidden = deps.card(c)
+  check("隐藏计分来源不含身份字段", hidden.key == "" and hidden.suit == nil and hidden.rank == nil)
+  check("隐藏来源不用正面名字缓存", hidden.label ~= visible.label)
+  local reason = deps.reason(c, { edition = true })
+  c.base = { suit = "Spades", value = "Ace" }
+  c.config.card_key = "S_A"
+  c.edition = { key = "e_holo" }
+  check("改变隐藏身份和版本不改变来源描述", deps.reason(c, { edition = true }) == reason and deps.card(c).label == hidden.label)
+  c.facing = "front"
+  check("重新揭示后恢复结构化身份", deps.card(c).key == "S_A" and deps.card(c).suit == "Spades")
+end
+
 if failures > 0 then
   print(failures .. " failed")
   os.exit(1)

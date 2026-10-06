@@ -93,9 +93,9 @@ impl TapSortedById for Vec<(Rank, usize)> {
     }
 }
 
-/// 摸牌堆的统计 (还没抽到手上的牌).
+/// 未见牌集合的统计. 背面手牌并入集合, 不借摸牌堆差值反推暗牌身份.
 pub fn deck_pile(run: &RunState) -> Pile {
-    tally(run.deck.iter())
+    tally(run.deck.iter().chain(run.hand.iter().filter(|card| card.face_down)))
 }
 
 /// 弃牌堆的统计 (这一回合弃掉与打出的牌).
@@ -131,7 +131,7 @@ pub fn pile_line(label: &str, pile: &Pile) -> String {
 pub fn render(run: &RunState) -> String {
     let mut out: Vec<String> = Vec::new();
     let holds = |key: &str| {
-        run.jokers
+        !run.jokers_face_down() && run.jokers
             .iter()
             .any(|joker| joker.key == key && !joker.debuffed)
     };
@@ -170,7 +170,7 @@ pub fn render(run: &RunState) -> String {
     }
     // 待办清单: 认一个牌型, 打中才给加成.
     for (index, joker) in run.jokers.iter().enumerate() {
-        if joker.key == "j_todo_list" {
+        if !run.jokers_face_down() && joker.key == "j_todo_list" {
             let hand = joker
                 .todo_hand
                 .map(|hand| hand_zh(hand).to_owned())
@@ -192,6 +192,9 @@ pub fn render(run: &RunState) -> String {
 
     // 小丑的成长值: 手册里这些是占位, 只有当前值说了算.
     for (index, joker) in run.jokers.iter().enumerate() {
+        if run.jokers_face_down() {
+            continue;
+        }
         let live = super::summary::joker_current(joker);
         if !live.is_empty() {
             let name = crate::data::knowledge::describe(&joker.key)
@@ -222,7 +225,12 @@ pub fn render(run: &RunState) -> String {
         ));
     }
 
-    out.push(pile_line("摸牌堆", &deck_pile(run)));
+    let deck_label = if run.hand.iter().any(|card| card.face_down) {
+        "未见牌集合(摸牌堆及背面手牌)"
+    } else {
+        "摸牌堆"
+    };
+    out.push(pile_line(deck_label, &deck_pile(run)));
     out.push(pile_line("弃牌堆(本回合)", &discard_pile(run)));
     out.join("\n")
 }

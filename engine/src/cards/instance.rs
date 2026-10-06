@@ -105,6 +105,8 @@ pub struct CardInstance {
     pub seal: Option<Seal>,
     /// 被当前盲注削弱. 仍参与牌型识别, 但自身计分与版本蜡封都停用.
     pub debuffed: bool,
+    /// 手牌背面朝上时, 观察层不得暴露身份或修饰, 计分仍使用真实牌面.
+    pub face_down: bool,
     /// 蓝铃 (决战 Boss) 强行锁定的那张: 它在手里时**不能取消选中**, 所以每次出牌都要带上它.
     pub forced_selection: bool,
     /// 这一底注里有没有被打出去过. 柱子 (The Pillar) 靠它决定削哪些牌, 换底注时清空.
@@ -125,6 +127,7 @@ impl CardInstance {
             edition: None,
             seal: None,
             debuffed: false,
+            face_down: false,
             forced_selection: false,
             played_this_ante: false,
             bonus: 0.0,
@@ -253,10 +256,12 @@ impl CardInstance {
         let sort_id = self.card.sort_id;
         let original_suit = self.card.original_suit;
         let copy_original_suit_zero = self.copy_original_suit_zero;
+        let face_down = self.face_down;
         *self = *source;
         self.card.sort_id = sort_id;
         self.card.original_suit = original_suit;
         self.copy_original_suit_zero = copy_original_suit_zero;
+        self.face_down = face_down;
     }
 
     /// 新建复制牌, 对应 DNA / 神秘生物的 `copy_card(source, nil)`.
@@ -267,6 +272,7 @@ impl CardInstance {
         let mut copy = *self;
         copy.card.sort_id = sort_id;
         copy.copy_original_suit_zero = true;
+        copy.face_down = false;
         copy
     }
 

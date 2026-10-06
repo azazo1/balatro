@@ -10,7 +10,8 @@ use crate::cards::{CardInstance, Edition, Enhancement, Seal, Suit};
 use crate::data::knowledge;
 use crate::jokers::Joker;
 use crate::run::shop::PackCard;
-use crate::run::{BlindKind, Phase, RunState, ShopCard, blind, make_blind};
+use crate::run::{Phase, RunState, ShopCard, make_blind};
+use super::observation::{self, BlindStatus, ScoreVisibility};
 use crate::scoring::{PokerHand, ScoreKind, ScoreResult, ScoreSource, ScoreStep};
 
 /// 摘要之外要带进来的东西 —— 引擎的运行状态里没有, 得由调用方给.
@@ -282,7 +283,7 @@ fn pack_card_line(card: &PackCard, index: usize) -> String {
         card.edition,
         card.seal,
         card.eternal,
-        0,
+        if card.perishable { 5 } else { 0 },
         card.rental,
         false,
     );
@@ -295,18 +296,6 @@ fn pack_card_line(card: &PackCard, index: usize) -> String {
         .map(|hand| format!("待办目标 {}", hand_zh(hand)))
         .unwrap_or_default();
     format!("  [{index}] {}", item_line(&card.key, &modifiers, None, &todo))
-}
-
-/// 这一底里第 `index` 个盲注的原型键 (小 0 / 大 1 / Boss 2). 拿不到时给 `None`.
-///
-/// Boss 的键是每底抽出来的, 存在 `boss_key` 里; 小盲注与大盲注是固定原型.
-fn blind_key_of(run: &RunState, index: usize) -> Option<String> {
-    match index {
-        0 => Some(blind::plain_blind_key(BlindKind::Small).to_owned()),
-        1 => Some(blind::plain_blind_key(BlindKind::Big).to_owned()),
-        2 => run.boss_key.clone(),
-        _ => None,
-    }
 }
 
 /// 还没开始的那个盲注的目标分与奖金.
@@ -325,42 +314,15 @@ fn projected_blind(run: &RunState, key: &str) -> (f64, f64) {
     (blind.chips, blind.dollars)
 }
 
-/// 盲注的进行状态. `index` 是这一底里的第几个 (小 0 / 大 1 / Boss 2).
-fn blind_status(run: &RunState, index: usize) -> &'static str {
-    let current = match run.blind_on_deck {
-        BlindKind::Small => 0,
-        BlindKind::Big => 1,
-        BlindKind::Boss => 2,
-    };
-    // 盲注是**打赢那一刻**就被清空的, 而 `blind_on_deck` 要到 `next_round` (离开商店) 才轮到
-    // 下一个. 所以"这一格正在打"还是"已经打完"要看阶段:
-    // 商店与开包阶段说明刚打完, 出牌与结算说明正在打, 选盲注说明还没开始.
-    match run.phase {
-        Phase::BlindSelect => match index.cmp(&current) {
-            std::cmp::Ordering::Less => skipped_or_beaten(run, index),
-            std::cmp::Ordering::Equal => "待选择",
-            std::cmp::Ordering::Greater => "未到",
-        },
-        Phase::SelectingHand | Phase::RoundEval => match index.cmp(&current) {
-            std::cmp::Ordering::Less => skipped_or_beaten(run, index),
-            std::cmp::Ordering::Equal => "进行中",
-            std::cmp::Ordering::Greater => "未到",
-        },
-        Phase::Shop | Phase::BoosterOpened => match index.cmp(&current) {
-            std::cmp::Ordering::Less => skipped_or_beaten(run, index),
-            std::cmp::Ordering::Equal => "已击败",
-            std::cmp::Ordering::Greater => "未到",
-        },
-        Phase::GameOver => "已过",
-    }
-}
-
-/// 这一格是跳过还是打赢了. 判据是它的跳过标签**还在不在** —— 标签在开局与每底提升时抽好,
-/// 被 `skip_blind` 取走才置空, 所以空了就是跳过过.
-fn skipped_or_beaten(run: &RunState, index: usize) -> &'static str {
-    match run.blind_tags.get(index) {
-        Some(None) => "已跳过",
-        _ => "已击败",
+/// 观察状态的显示名称, 分支逻辑只依赖类型, 不依赖中文文案.
+fn blind_status_zh(status: BlindStatus) -> &'static str {
+    match status {
+        BlindStatus::Select => "待选择",
+        BlindStatus::Upcoming => "未到",
+        BlindStatus::Active => "进行中",
+        BlindStatus::Defeated => "已击败",
+        BlindStatus::Skipped => "已跳过",
+        BlindStatus::Failed => "失败",
     }
 }
 
@@ -379,19 +341,22 @@ pub fn render(run: &RunState, extras: &Extras) -> String {
         run.round,
         number(run.dollars)
     ));
+    if run.win_overlay {
+        out.push("弹窗: win | 已通关, 通关即停或调用 endless 继续".to_owned());
+    }
 
     // 盲注三项. 名字与效果都从手册来, 目标分与奖金用当前局面里的实时值.
     for (index, (kind, key)) in [
-        (0usize, ("小盲注", blind_key_of(run, 0))),
-        (1, ("大盲注", blind_key_of(run, 1))),
-        (2, ("Boss", blind_key_of(run, 2))),
+        (0usize, ("小盲注", observation::blind_key(run, 0))),
+        (1, ("大盲注", observation::blind_key(run, 1))),
+        (2, ("Boss", observation::blind_key(run, 2))),
     ] {
         let Some(key) = key else { continue };
-        let status = blind_status(run, index);
+        let status = observation::blind_status(run, index);
         let (name, effect) = name_and_effect(&key);
-        let mut line = format!("{kind} {name}: {status}");
+        let mut line = format!("{kind} {name}: {}", blind_status_zh(status));
         // 目标分只对"正在打"或"待选择"的那一格有意义 —— 再往后的格子引擎没算, 硬报就是编.
-        if matches!(status, "进行中" | "待选择") {
+        if matches!(status, BlindStatus::Active | BlindStatus::Select) {
             if let Some(current) = run.blind.as_ref()
                 && current.key == key
             {
@@ -411,7 +376,7 @@ pub fn render(run: &RunState, extras: &Extras) -> String {
             line.push_str(&format!(", 效果: {effect}"));
         }
         // 跳过奖励只在这一格**还能跳**的时候才有意义.
-        if status == "待选择"
+        if status == BlindStatus::Select
             && index < 2
             && let Some(Some(tag)) = run.blind_tags.get(index)
         {
@@ -457,7 +422,13 @@ pub fn render(run: &RunState, extras: &Extras) -> String {
             .hand
             .iter()
             .enumerate()
-            .map(|(index, card)| format!("[{index}]{}(筹码 {})", playing_card(card), number(card.to_hand_card().chip_bonus())))
+            .map(|(index, card)| {
+                if card.face_down {
+                    format!("[{index}]背面朝上")
+                } else {
+                    format!("[{index}]{}(筹码 {})", playing_card(card), number(card.to_hand_card().chip_bonus()))
+                }
+            })
             .collect();
         out.push(format!("手牌 (最多选 5 张): {}", cards.join(" ")));
     }
@@ -469,6 +440,10 @@ pub fn render(run: &RunState, extras: &Extras) -> String {
             run.joker_capacity()
         ));
         for (index, joker) in run.jokers.iter().enumerate() {
+            if run.jokers_face_down() {
+                out.push(format!("  [{index}] 背面朝上"));
+                continue;
+            }
             let modifiers = card_modifiers(
                 None,
                 joker.edition,
@@ -628,7 +603,7 @@ pub fn render(run: &RunState, extras: &Extras) -> String {
 /// 那一手里学到任何东西 —— 下一手还是会按同样的错法估.
 ///
 /// `played` 是打出去的那几张牌, 下标口径与 `ScoreResult::scoring_cards` 相同.
-pub fn score_report(result: &ScoreResult, played: &[crate::cards::CardInstance], level: i32) -> String {
+pub fn score_report(result: &ScoreResult, played: &[crate::cards::CardInstance], level: i32, visibility: &ScoreVisibility) -> String {
     let mut out: Vec<String> = Vec::new();
     let head = if level > 1 {
         format!("{} Lv{level} = {}", hand_zh(result.hand), number(result.total))
@@ -668,7 +643,7 @@ pub fn score_report(result: &ScoreResult, played: &[crate::cards::CardInstance],
     for step in &result.steps {
         out.push(format!(
             "{} | {} | {}x{}",
-            source_label(&step.source, played),
+            source_label(&step.source, played, visibility),
             change_text(step),
             number(step.chips),
             number(step.mult)
@@ -679,7 +654,10 @@ pub fn score_report(result: &ScoreResult, played: &[crate::cards::CardInstance],
 }
 
 /// 一步的来源怎么称呼.
-fn source_label(source: &ScoreSource, played: &[crate::cards::CardInstance]) -> String {
+fn source_label(source: &ScoreSource, played: &[crate::cards::CardInstance], visibility: &ScoreVisibility) -> String {
+    if visibility.hides(source) {
+        return "背面牌".to_owned();
+    }
     match source {
         ScoreSource::Card { index, card } => match played.get(*index) {
             // 打出去的牌: 用那一份带强化/版本的完整信息, 与"出牌:"那一行对得上.

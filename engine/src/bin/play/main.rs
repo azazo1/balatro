@@ -423,12 +423,14 @@ fn print_state(run: &RunState, step: &StepArgs, steps: usize, last_hand: Option<
     }
 
     say!("----");
-    say!("digest: {}", balatro_engine::run::digest(run));
     say!("可选动作: {}", allowed_actions(run));
     say!("动作文件: {}", step.actions.display());
 }
 
 fn allowed_actions(run: &RunState) -> &'static str {
+    if run.win_overlay {
+        return "已经通关, 到此停止; 如需无尽模式则调用 endless";
+    }
     match run.phase {
         Phase::BlindSelect => "select | skip | reroll_boss",
         Phase::SelectingHand => {

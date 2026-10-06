@@ -60,7 +60,7 @@ fn a_joker_step_names_the_joker_and_its_amount() {
     // 报出来的名字要认得出是哪张牌 —— 中文名, 不是内部键名.
     // 名字从手册取而不是写死: 这里要验的是"取了手册的名字", 而不是"某个译名没变".
     let (name, _) = balatro_engine::data::knowledge::describe("j_jolly").expect("手册里有这张");
-    let text = summary::score_report(&result, &[], 0);
+    let text = summary::score_report(&result, &[], 0, &Default::default());
     assert!(text.contains(name), "明细里要有中文名 {name}: {text}");
     assert!(!text.contains("j_jolly"), "不该露出内部键名: {text}");
 }
@@ -128,7 +128,7 @@ fn the_report_explains_the_total() {
         .iter()
         .map(|code| CardInstance::from_key(code).expect("能造出牌"))
         .collect();
-    let text = summary::score_report(&result, &played, 1);
+    let text = summary::score_report(&result, &played, 1, &Default::default());
 
     assert!(text.starts_with("对子 ="), "首行是牌型与总分: {text}");
     assert!(text.contains(&format!("= {}", result.total)), "要有总数行: {text}");
@@ -152,10 +152,10 @@ fn the_report_explains_the_total() {
 #[test]
 fn the_report_shows_the_hand_level() {
     let result = score(&["C_5", "D_5"], &mut []);
-    let with_level = summary::score_report(&result, &[], 3);
+    let with_level = summary::score_report(&result, &[], 3, &Default::default());
     assert!(with_level.contains("Lv3"), "要报等级: {with_level}");
     // 等级 1 是初始值, 不报出来更干净.
-    let plain = summary::score_report(&result, &[], 1);
+    let plain = summary::score_report(&result, &[], 1, &Default::default());
     assert!(!plain.contains("Lv1"), "等级 1 不必报: {plain}");
     assert_eq!(result.hand, PokerHand::Pair);
 }
@@ -199,7 +199,7 @@ fn a_blocked_hand_says_why_it_scored_zero() {
         .collect();
     let blocked = run.play(&[0, 1], &env, BackEffect::Plain).expect("第二手能出");
 
-    let text = summary::score_report(&blocked, &[], 1);
+    let text = summary::score_report(&blocked, &[], 1, &Default::default());
     assert!(blocked.blocked, "这一手应当被标成封禁: {text}");
     assert!(text.contains("封禁"), "明细要说明原因: {text}");
     assert!(text.contains("= 0"), "总分是零: {text}");

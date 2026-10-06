@@ -10,5 +10,6 @@
 
 pub mod action;
 pub mod dynamics;
+pub mod observation;
 pub mod prompt;
 pub mod summary;

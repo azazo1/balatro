@@ -848,6 +848,9 @@ impl RunState {
         self.clear_shelf();
         self.shop_free = false;
         self.free_reroll = false;
+        if self.blind_on_deck == BlindKind::Boss {
+            self.skipped_blinds = [false, false];
+        }
         self.blind_on_deck = match self.blind_on_deck {
             // Boss 的底注已经在 `end_round` 里提过了, 这里只把盲注轮到下一个小盲注.
             BlindKind::Boss => BlindKind::Small,
@@ -860,7 +863,10 @@ impl RunState {
 
     /// 收下一个标签: 记进持有列表, 并跑一遍它"到位就生效"的那部分.
     fn grant_tag(&mut self, tag: &str) {
-        self.tags.push(tag.to_owned());
+        // 当场兑现的标签不再占持有列表, 双倍复制仍由 skip_blind 逐份结算.
+        if !matches!(tag, "tag_skip" | "tag_handy" | "tag_garbage" | "tag_economy" | "tag_boss" | "tag_top_up" | "tag_orbital") {
+            self.tags.push(tag.to_owned());
+        }
         self.dollars += self.apply_immediate_tag(tag);
         self.apply_structural_tag(tag);
     }
@@ -964,6 +970,7 @@ impl RunState {
             .get_mut(index)
             .and_then(|slot| slot.take())
             .ok_or(ActionError::NotAllowed("这个盲注的标签已经拿过了"))?;
+        self.skipped_blinds[index] = true;
         self.skips += 1;
         // 双倍标签的语义是"**持有它时**, 之后拿到的标签来两份" —— 复制的是这一次拿到的那个,
         // 而不是它自己被拿到时生效. 它自己不会再被复制 (源码里那条 `~= 'tag_double'`).
@@ -1074,7 +1081,7 @@ impl RunState {
 
     fn refill_after_capacity_change(&mut self, previous_size: usize) {
         if self.in_blind && self.phase == Phase::SelectingHand && self.hand_size() > previous_size {
-            while self.hand.len() < self.hand_size() && self.draw_one() {}
+            while self.hand.len() < self.hand_size() && self.draw_one(false) {}
             self.sort_hand();
         }
     }
@@ -1121,6 +1128,7 @@ impl RunState {
             .chain(self.discard_pile.iter_mut())
         {
             card.debuffed = false;
+            card.face_down = false;
             card.forced_selection = false;
         }
         self.refill_after_capacity_change(previous_size);
@@ -1135,32 +1143,15 @@ impl RunState {
     /// 在那一问里掷骰**: 它的规则是"每张抽进来的牌有 1/7 概率背面朝上", 写法就是
     /// `pseudorandom(pseudoseed('wheel')) < G.GAME.probabilities.normal/7`.
     ///
-    /// # 这一掷为什么在 digest 上看不出来 (但还是要照掷)
-    ///
-    /// 它**不会**让别的掷骰错位 —— 游戏的 `pseudorandom` 是**按键独立**的: 每次调用先
-    /// `pseudoseed(键)` (只读这个键自己的计数与开局的种子) 再 `math.randomseed`, 于是任意两个键
-    /// 的序列互不影响. 实测 (LuaJIT 与本引擎一致): 先连掷 8 次 `wheel` 再掷 `joker`, 与直接掷
-    /// `joker` 得到的是同一个数.
-    ///
-    /// 而 `'wheel'` 这个键**只在这一处**被用到 (`game/blind.lua` 里仅此一次), 背面本身又只影响
-    /// 画面 (不吃计分, 也不进 digest —— 见 `token_of`). 所以这一掷目前**没有任何可观测效果**.
-    ///
-    /// 仍然照掷的理由: 它是 `stay_flipped` 的一个真实分支, 键的计数该像游戏一样往前走;
-    /// 哪天引擎要暴露"哪些牌是背面"(agent 看不到的牌)这块状态, 图案就得来自它.
-    /// 值本身已经与真 LuaJIT 对拍过 (见 `tests/luajit_parity.rs` 的 wheel 段).
-    ///
-    /// 另外三个"背面"Boss 不掷骰, 所以这里不需要为它们做什么:
-    /// - 房子 (The House): 这一回合第一次抽牌才背面, 判据是"还没出过牌也没弃过牌";
-    /// - 记号 (The Mark): 人头牌背面, 判据是牌自己;
-    /// - 鱼 (The Fish): 每次出牌之后抽的都是背面, 判据是一个"准备好了"的标志.
+    /// 轮子的背面状态沿用原来的 wheel 随机键, 不改变其他随机序列或计分 digest.
+    /// 房屋只翻首次发牌, 标记翻人头牌, 鱼翻出牌后的补牌; 原始牌面仍供计分使用.
     ///
     /// 至于**造牌**进手牌 (证书小丑, 熟悉的幻灵, 藏头诗的幻灵那种) 不走这里 —— 游戏那边它们
     /// 是 `create_playing_card(..., G.hand, ...)` 直接放的, 不经过 `draw_card`, 自然也不问这一句.
-    fn draw_one(&mut self) -> bool {
+    fn draw_one(&mut self, after_play: bool) -> bool {
         match self.deck.pop() {
-            Some(card) => {
-                // 掷在放牌**之前** —— 游戏里 `stay_flipped` 也是先问、再 `emplace`.
-                self.roll_stay_flipped();
+            Some(mut card) => {
+                card.face_down = self.stays_face_down(&card, after_play);
                 self.hand.push(card);
                 true
             }
@@ -1168,24 +1159,27 @@ impl RunState {
         }
     }
 
-    /// 抽牌时那一问 (`Blind:stay_flipped`). 只有轮子会在里面掷骰, 所以只有它需要照做.
-    ///
-    /// 盲注被停用 (翠叶卖小丑, 或奇可) 时不掷 —— 游戏那句是 `if not self.disabled then`.
-    /// 也不在**回合之外**掷: 盲注打赢的那一刻就被清空了 (`Blind:defeat` 里把名字置成空串),
-    /// 所以商店里开包补的那一手不掷 (详见 `RunState::in_blind`).
-    fn roll_stay_flipped(&mut self) {
-        let wheel = self.in_blind
-            && self
-                .blind
-                .as_ref()
-                .is_some_and(|blind| blind.key == "bl_wheel" && !blind.disabled);
-        if wheel {
-            let _ = self.rng.pseudorandom("wheel");
+    /// 背面状态只影响观察, 不改变计分或对拍的原始牌面.
+    /// 轮子仍在放入手牌前消费原来的随机键, 鱼只翻出牌后的补牌.
+    fn stays_face_down(&mut self, card: &CardInstance, after_play: bool) -> bool {
+        let Some(blind) = self.blind.as_ref().filter(|blind| self.in_blind && !blind.disabled) else {
+            return false;
+        };
+        match blind.key.as_str() {
+            "bl_wheel" => self.rng.pseudorandom("wheel") < self.probability_scale / 7.0,
+            "bl_house" => self.round_hand_types.is_empty() && self.discards_used == 0,
+            "bl_mark" => (!card.is_stone() && card.card.rank.is_face()) || self.has_pareidolia(),
+            "bl_fish" => after_play,
+            _ => false,
         }
     }
 
     /// 补满手牌. 对应 `draw_from_deck_to_hand`, 每次抽牌之后都重排.
     pub fn draw_to_hand(&mut self) {
+        self.draw_to_hand_after(false);
+    }
+
+    fn draw_to_hand_after(&mut self, after_play: bool) {
         // 蛇 (The Serpent): 出过牌或弃过牌之后, 每次都**只抽三张** (牌堆不够就抽多少算多少),
         // 而不是把手牌补满. 开局的发牌不受影响 —— 那时这一回合还没出过牌也没弃过牌.
         //
@@ -1199,7 +1193,7 @@ impl RunState {
             && (!self.round_hand_types.is_empty() || self.discards_used > 0);
         if serpent {
             for _ in 0..self.deck.len().min(3) {
-                if !self.draw_one() {
+                if !self.draw_one(after_play) {
                     break;
                 }
             }
@@ -1207,7 +1201,7 @@ impl RunState {
             return;
         }
         while self.hand.len() < self.hand_size() {
-            if !self.draw_one() {
+            if !self.draw_one(after_play) {
                 break;
             }
             self.sort_hand();
@@ -1355,7 +1349,9 @@ impl RunState {
         // 从后往前删, 免得下标移位.
         let mut taken = Vec::with_capacity(sorted.len());
         for &index in sorted.iter().rev() {
-            taken.push(self.hand.remove(index));
+            let mut card = self.hand.remove(index);
+            card.face_down = false;
+            taken.push(card);
         }
         taken.reverse();
         taken
@@ -1917,7 +1913,7 @@ impl RunState {
         if self.reached_target() || self.hands_left <= 0 {
             self.end_round();
         } else {
-            self.draw_to_hand();
+            self.draw_to_hand_after(true);
         }
         Ok(result)
     }
@@ -1953,6 +1949,9 @@ impl RunState {
         // 逐张 `insert(0, ...)` 按原顺序插会把这堆**整个反过来**, 而牌堆顺序决定了下一步发什么.
         let discarded = std::mem::take(&mut self.discard_pile);
         self.deck.splice(0..0, discarded);
+        for card in &mut self.deck {
+            card.face_down = false;
+        }
     }
 
     /// 回合收尾: 收牌, 算结算栏, 进入 `ROUND_EVAL`; 没达标就直接结束.
@@ -2032,8 +2031,9 @@ impl RunState {
         // 而这种不一致不会报错, 只会让所有基于它的统计整体偏.
         //
         // 判据里的"盲注是 Boss"用 `blind_on_deck` 而不是 `blind`: 与上面那句递增同一个依据.
-        if self.blind_on_deck == BlindKind::Boss && self.ante == self.win_ante {
+        if !self.won && self.blind_on_deck == BlindKind::Boss && self.ante == self.win_ante {
             self.won = true;
+            self.win_overlay = true;
         }
 
         // 打赢 **Boss** 就在**这里**进下一底, 而不是等离开商店再进.
@@ -2217,6 +2217,15 @@ impl RunState {
         dollars
     }
 
+    /// 确认通关后进入无尽, 保留已通关标志与尚未领取的结算栏.
+    pub fn endless(&mut self) -> Result<(), ActionError> {
+        if !self.win_overlay {
+            return Err(ActionError::NotAllowed("没有待处理的胜利界面"));
+        }
+        self.win_overlay = false;
+        Ok(())
+    }
+
     /// 领取结算栏并进商店. 返回这次领到多少.
     ///
     /// 进商店的同时铺一次货架, 所以调用方不用自己排列顺序 —— 货架的顺序会影响后面所有的
@@ -2228,6 +2237,9 @@ impl RunState {
     /// "游戏拒绝了、引擎却接受了". 一份真实录像里本来就包含这种重复的尝试
     /// (bot 在商店或输局之后又点了一次), 引擎得照同样的规矩拒绝.
     pub fn cash_out(&mut self) -> Result<f64, ActionError> {
+        if self.win_overlay {
+            return Err(ActionError::NotAllowed("胜利界面已打开, 不能领取结算; 通关即停或调用 endless 继续"));
+        }
         if self.phase != Phase::RoundEval {
             return Err(ActionError::NotInPhase {
                 expected: Phase::RoundEval,

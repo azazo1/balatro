@@ -105,7 +105,8 @@ local DYNAMICS = {
     .. "偶像的花色与点数, 邮件回扣的点数, 城堡的花色, 待办清单的牌型), most_played_poker_hand 是盲注公牛要用的牌型, "
     .. "jokers, consumables 与 hand 是持有卡与手牌里特殊牌的效果文本, 取游戏自己生成的那一份, 成长值与概率都已代入. "
     .. "传 deck 或 discard 还能拿到摸牌堆与弃牌堆 (弃牌堆里是本回合弃掉与打出的牌) 的张数, 按花色点数的统计与完整列表, "
-    .. "算同花与顺子的概率要用它; 这两项默认不给. 只读, 任何阶段都能调用, 不算 agent 活动, 也不写进回放文件.",
+    .. "列表已排序, 不代表抽牌顺序. 有暗手时统计与列表合并暗手, count 是实际牌堆张数, "
+    .. "unseen_count 是合并后张数, hidden_in_hand 是暗手张数. 这两项默认不给. 只读, 任何阶段都能调用, 不算 agent 活动, 也不写进回放文件.",
   params = {
     {
       name = "targets",
@@ -139,7 +140,7 @@ local DYNAMICS = {
       properties = {
         targets = {
           type = "array",
-          description = "每回合重抽的认牌目标, 没有的项不出现",
+          description = "每回合重抽的认牌目标, 未初始化或有背面小丑时不给条目",
           items = {
             type = "object",
             properties = {
@@ -185,7 +186,9 @@ local DYNAMICS = {
 local DYNAMIC_PILE = {
   type = "object",
   properties = {
-    count = { type = "integer", description = "这一堆的张数" },
+    count = { type = "integer", description = "实际牌堆的张数, 不含合并的暗手" },
+    unseen_count = { type = "integer", description = "有暗手时给出, 统计与列表覆盖的未见牌集合张数" },
+    hidden_in_hand = { type = "integer", description = "有暗手时给出, 并入未见集合的背面手牌张数" },
     by_suit = {
       type = "object",
       description = "按花色的张数, 键是游戏语言的花色名",
@@ -198,7 +201,7 @@ local DYNAMIC_PILE = {
     },
     cards = {
       type = "array",
-      description = "完整列表 (只在 detail 为 list 时给, 超过 60 张时截断)",
+      description = "按公开牌面排序的列表, 不含抽牌顺序; 有暗手时合并暗手 (list 时给, 超过 60 张截断)",
       items = {
         type = "object",
         properties = {

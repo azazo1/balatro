@@ -863,7 +863,7 @@ fn skipping_a_blind_advances_without_counting_a_round() {
     assert_eq!(run.round, round_before, "跳过不推进回合数");
     assert_eq!(run.blind_on_deck, BlindKind::Boss, "前进到 Boss");
     assert_eq!(run.skips, 1);
-    assert_eq!(run.tags, vec![first.clone()], "标签进了持有列表");
+    assert!(run.tags.is_empty(), "已兑现的速度标签不再持有");
 
     // Boss 不能跳 —— 这是**规则不允许**, 不是"引擎还没做", 所以报的是 `NotAllowed`:
     // 混用 `NotImplemented` 会让调用方把"这一步本来就非法"当成"引擎有缺口".
@@ -1050,12 +1050,7 @@ fn double_tag_duplicates_the_next_tag() {
 
     // 速度标签按跳过次数给: 一次跳 = 5 块, 两份就是 10 块.
     assert_eq!(run.dollars, before + 10.0, "给钱的那份也来两遍");
-    assert_eq!(
-        run.tags.iter().filter(|t| *t == "tag_skip").count(),
-        2,
-        "持有列表里有两份: {:?}",
-        run.tags
-    );
+    assert!(!run.tags.iter().any(|tag| tag == "tag_skip"), "两份速度标签都已兑现");
 
     // 它自己不会被再复制一份 —— 否则会越滚越多.
     let mut second = RunState::new("ALEEB", 8);
@@ -1727,6 +1722,10 @@ fn a_long_run_survives_many_antes() {
                 let _ = run.play(&cards, &env, BackEffect::Plasma);
             }
             balatro_engine::run::Phase::RoundEval => {
+                if run.win_overlay {
+                    assert!(run.won);
+                    run.endless().expect("长跑需要先确认进入无尽");
+                }
                 run.cash_out().expect("这一回合在结算");
             }
             balatro_engine::run::Phase::Shop => {

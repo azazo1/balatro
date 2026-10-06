@@ -35,6 +35,9 @@ pub fn apply(step: &Json, run: &mut RunState, env: &EvalEnv) -> Result<String, A
         .get("method")
         .and_then(Json::as_str)
         .ok_or(ActionError::NotAllowed("动作必须包含 method"))?;
+    if run.win_overlay && method != "endless" {
+        return Err(ActionError::NotAllowed("胜利界面已打开, 通关即停或调用 endless 继续"));
+    }
     let back = run.back_effect();
     let params = step.get("params");
     let cards = numbers_of(params.and_then(|p| p.get("cards")));
@@ -50,6 +53,7 @@ pub fn apply(step: &Json, run: &mut RunState, env: &EvalEnv) -> Result<String, A
             .discard(&cards)
             .map(|()| format!("弃掉 {cards:?}")),
         "play" => {
+            let visibility = crate::agent::observation::ScoreVisibility::capture(run);
             // 打出去的牌要在 `play` 之前取下来: 打完它们就离开手牌了, 而明细里要把每一张
             // 报成中文名 (含强化与版本), 事后再找就找不到了.
             //
@@ -62,7 +66,7 @@ pub fn apply(step: &Json, run: &mut RunState, env: &EvalEnv) -> Result<String, A
                 .collect();
             run.play(&cards, env, back).map(|result| {
                 let level = run.hands.get(result.hand).level;
-                crate::agent::summary::score_report(&result, &played, level)
+                crate::agent::summary::score_report(&result, &played, level, &visibility)
             })
         }
         "rearrange" => {
@@ -97,6 +101,7 @@ pub fn apply(step: &Json, run: &mut RunState, env: &EvalEnv) -> Result<String, A
             run.sort_hand_by_value();
             Ok("按点数排手牌".to_owned())
         }
+        "endless" => run.endless().map(|()| "进入无尽模式".to_owned()),
         "cash_out" => run.cash_out().map(|gained| format!("结算, 进账 {gained}")),
         "next_round" => run.next_round().map(|()| "离开商店".to_owned()),
         "reroll" => run.reroll_shop().map(|cost| format!("重抽货架, 花了 {cost}")),
@@ -174,13 +179,17 @@ pub fn apply(step: &Json, run: &mut RunState, env: &EvalEnv) -> Result<String, A
 /// 的 agent: 它需要知道"这个阶段允许哪些动作". 比如 `NoDiscardsLeft` 光看名字只会让人以为
 /// 参数写错了, 实际是"这一回合的弃牌次数已经用光, 该出牌了".
 pub fn explain(error: &ActionError, run: &RunState) -> String {
-    let allowed = match run.phase {
-        Phase::BlindSelect => "select | skip | reroll_boss",
-        Phase::SelectingHand => "play | discard | rearrange | sort_hand_suit | sort_hand_value | use",
-        Phase::RoundEval => "cash_out",
-        Phase::Shop => "buy | reroll | sell | use | next_round",
-        Phase::BoosterOpened => "pack | sell",
-        Phase::GameOver => "这一局已经结束, 没有可做的动作",
+    let allowed = if run.win_overlay {
+        "通关即停; 如需无尽模式则调用 endless"
+    } else {
+        match run.phase {
+            Phase::BlindSelect => "select | skip | reroll_boss",
+            Phase::SelectingHand => "play | discard | rearrange | sort_hand_suit | sort_hand_value | use",
+            Phase::RoundEval => "cash_out",
+            Phase::Shop => "buy | reroll | sell | use | next_round",
+            Phase::BoosterOpened => "pack | sell",
+            Phase::GameOver => "这一局已经结束, 没有可做的动作",
+        }
     };
     match error {
         ActionError::NoDiscardsLeft => format!(

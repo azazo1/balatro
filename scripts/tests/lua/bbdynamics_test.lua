@@ -155,6 +155,13 @@ do -- 背面牌不进实时文本, 也不走观察层的身份字段
   local result = collect()
   check("背面玻璃牌不在 hand", #result.hand == 0, tostring(#result.hand))
   check("背面小丑不在 jokers", #result.jokers == 1 and result.jokers[1].key == "j_todo_list", result.jokers[1] and result.jokers[1].key)
+  G.jokers.cards[2].facing = "back"
+  check("背面小丑不通过认牌目标泄露", #collect().targets == 0)
+  local original = G.jokers.cards[2].ability.to_do_poker_hand
+  G.jokers.cards[2].ability.to_do_poker_hand = "Straight Flush"
+  check("改变背面待办目标不改变观察", #collect().targets == 0)
+  G.jokers.cards[2].ability.to_do_poker_hand = original
+  G.jokers.cards[2].facing = nil
   G.hand.cards[2].facing = nil
   G.jokers.cards[1].facing = nil
 
@@ -202,11 +209,13 @@ do -- 目标缺项 (本局还没有认牌小丑那一局, 或字段被清空) �
 end
 
 do -- 生成效果文本抛错时不让端点崩掉
+  local original = G.jokers.cards[1].generate_UIBox_ability_table
   G.jokers.cards[1].generate_UIBox_ability_table = function()
     error("boom")
   end
   local ok, result = pcall(collect)
   check("生成报错不崩", ok and result.jokers[1].effect == nil, tostring(result and result.jokers[1].effect))
+  G.jokers.cards[1].generate_UIBox_ability_table = original
 end
 
 do -- 摸牌堆与弃牌堆: 默认不给, 传参才给, 统计与列表两档
@@ -225,11 +234,15 @@ do -- 摸牌堆与弃牌堆: 默认不给, 传参才给, 统计与列表两档
   check("弃牌堆也算", stats.discard.by_suit["红桃"] == 1 and stats.discard.by_rank["3"] == 1)
 
   local list = collect({ deck = "list" })
-  check("list 带完整列表", #list.deck.cards == 5 and list.deck.cards[1].key == "H_King", tostring(#(list.deck.cards or {})))
+  local by_key = {}
+  for _, item in ipairs(list.deck.cards) do
+    by_key[item.key] = item
+  end
+  check("list 带完整列表", #list.deck.cards == 5 and by_key.H_King ~= nil, tostring(#(list.deck.cards or {})))
   check(
     "列表项给花色点数与枚举",
-    list.deck.cards[1].suit == "H" and list.deck.cards[1].suit_name == "红桃" and list.deck.cards[1].rank == "K",
-    list.deck.cards[1].suit
+    by_key.H_King.suit == "H" and by_key.H_King.suit_name == "红桃" and by_key.H_King.rank == "K",
+    by_key.H_King.suit
   )
   check("list 也给统计", list.deck.by_rank["A"] == 3)
   check("只要牌堆时不给弃牌堆", list.discard == nil)
@@ -259,6 +272,50 @@ do -- 牌堆列表超过上限时截断并标出来
   check("截断时标出来", result.deck.truncated == true)
   check("张数仍是真的", result.deck.count == 70, tostring(result.deck.count))
   G.deck.cards = saved
+end
+
+do -- 摸牌顺序和暗手身份变化不应进入公开牌堆信息
+  local saved_deck, saved_hand = G.deck.cards, G.hand.cards
+  G.deck.cards = { playing("Hearts", "King"), playing("Spades", "Ace"), playing("Diamonds", "3") }
+  G.hand.cards = {}
+  local function signature(p)
+    local out = { tostring(p.count), tostring(p.unseen_count), tostring(p.hidden_in_hand) }
+    for _, counts in ipairs({ p.by_suit, p.by_rank }) do
+      local entries = {}
+      for key, count in pairs(counts) do
+        entries[#entries + 1] = key .. ":" .. count
+      end
+      table.sort(entries)
+      out[#out + 1] = table.concat(entries, ",")
+    end
+    for _, item in ipairs(p.cards or {}) do
+      out[#out + 1] = item.key .. ":" .. item.suit .. ":" .. item.rank
+    end
+    return table.concat(out, "|")
+  end
+  local first, last = G.deck.cards[1], G.deck.cards[3]
+  local before = signature(collect({ deck = "list" }).deck)
+  check("查询不改变实际摸牌顺序", G.deck.cards[1] == first and G.deck.cards[3] == last)
+  G.deck.cards[1], G.deck.cards[3] = G.deck.cards[3], G.deck.cards[1]
+  check("列表不泄露摸牌顺序", signature(collect({ deck = "list" }).deck) == before)
+
+  local hidden = playing("Hearts", "2")
+  hidden.facing = "back"
+  G.hand.cards = { hidden }
+  local pool = collect({ deck = "list" }).deck
+  check("暗手并入未见集合但不改变实际牌堆张数", pool.count == 3 and pool.unseen_count == 4 and pool.hidden_in_hand == 1)
+  G.deck.cards[2], G.hand.cards[1] = G.hand.cards[1], G.deck.cards[2]
+  G.hand.cards[1].facing = "back"
+  check("不按牌堆差值泄露暗手身份", signature(collect({ deck = "list" }).deck) == signature(pool))
+  G.deck.cards, G.hand.cards = saved_deck, saved_hand
+end
+
+do -- 卡包候选也必须携带游戏当前的易腐剩余回合, 无需重复改已有提取逻辑
+  local old = G
+  G = { pack_cards = { cards = { card("j_joker", "小丑", nil, { perishable = true, perish_tally = 5 }) } } }
+  local gs = BB_GAMESTATE.get_gamestate()
+  check("卡包候选保留易腐寿命", gs.pack.cards[1].modifier.perishable == 5)
+  G = old
 end
 
 if failures > 0 then

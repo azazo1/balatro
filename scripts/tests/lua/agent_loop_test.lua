@@ -843,6 +843,7 @@ do -- 胜利后回主菜单并停止
     end
   end
   env.overlay = "win"
+  env.gs = hand_state({ state = "ROUND_EVAL" })
   env.driver.start()
   env.tick()
   check("胜利后自动 menu 并汇报结束", env.calls[1].method == "menu" and finished == "win" and env.driver.state == "stopped")
@@ -915,6 +916,7 @@ do -- 开无尽时赢下不走 after_run, 仍进无尽
   env.cfg.after_win = "endless"
   env.cfg.after_run = "continue"
   env.overlay = "win"
+  env.gs = hand_state({ state = "ROUND_EVAL" })
   env.driver.start()
   env.tick()
   check("开无尽时胜利走 endless", env.calls[1] and env.calls[1].method == "endless", env.calls[1] and env.calls[1].method)

@@ -116,6 +116,8 @@ pub struct RunState {
     ///
     /// 底注之内不换 —— 只有开局与底注提升时才重抽, 所以这两个键在一底里是固定的.
     pub blind_tags: [Option<String>; 2],
+    /// 已跳过的小盲注和大盲注, 与刷新后的下底标签分开保存, 不丢结算状态.
+    pub skipped_blinds: [bool; 2],
     /// 各牌型本局打出次数, 星球牌的 `softlock` 要看它.
     pub hands_played: HashMap<String, i64>,
     /// 存档进度: 原型键到 `"u"/"d"/"a"` 标记, 与回放文件 `snapshot.uda` 同格式.
@@ -288,6 +290,8 @@ pub struct RunState {
     pub hands: HandTable,
     /// 本局是否已经通关.
     pub won: bool,
+    /// 通关弹窗尚未处理. 与累计 won 分开, 进入无尽后可继续普通结算.
+    pub win_overlay: bool,
     /// 现在是不是"正在打某个盲注" —— 用它可以问"这一刻还有没有生效的盲注".
     ///
     /// 摆盲注时置真, 这一回合打完置假. 与游戏里的对应关系是: **盲注在被打赢的那一刻就被清空了** ——
@@ -309,6 +313,11 @@ pub struct RunState {
 }
 
 impl RunState {
+    /// 琥珀之实的洗牌小丑位置不可观察, 不能根据内部顺序报身份或成长值.
+    pub fn jokers_face_down(&self) -> bool {
+        self.in_blind && self.blind.as_ref().is_some_and(|blind| blind.key == "bl_final_acorn" && !blind.disabled)
+    }
+
     /// 小丑槽位的**上限**, 也就是游戏的 `G.jokers.config.card_limit`.
     ///
     /// 基数之外要加上**每张负片小丑的一份** —— 游戏在 `Card:add_to_deck` 里对负片牌做
@@ -357,6 +366,7 @@ impl RunState {
             total_hands_played: 0,
             unused_discards: 0,
             blind_tags: [None, None],
+            skipped_blinds: [false, false],
             hands_played: HashMap::new(),
             uda: HashMap::new(),
             phase: Phase::BlindSelect,
@@ -430,6 +440,7 @@ impl RunState {
             last_hand_played: None,
             hands: HandTable::new(),
             won: false,
+            win_overlay: false,
             in_blind: false,
         }
     }

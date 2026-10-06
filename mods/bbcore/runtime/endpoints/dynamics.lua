@@ -109,6 +109,10 @@ end
 ---@return table[]
 local function targets(round, joker)
   local out = {}
+  -- 不能按隐藏小丑的 key 单独删目标, 否则删除了哪项本身就泄露身份.
+  for _, card in ipairs(joker and joker.cards or {}) do
+    if face_down(card) then return out end
+  end
 
   --- 找持有小丑的中文名 (没持有时不写, 但目标本身仍然给, 免得刚买下就查不到).
   ---@param key string
@@ -172,10 +176,27 @@ local PILE_LIST_MAX = 60
 --- 花色与点数用游戏语言的名字, 与 targets 那边一致.
 ---@param area table? 例如 G.deck
 ---@param detail string "stats" 或 "list"
+---@param hidden_hand table? 摸牌堆统计需合并的背面手牌
 ---@return table
-local function pile(area, detail)
-  local cards = (area and area.cards) or {}
-  local out = { count = #cards }
+local function pile(area, detail, hidden_hand)
+  local original = (area and area.cards) or {}
+  local cards = {}
+  for _, card in ipairs(original) do
+    cards[#cards + 1] = card
+  end
+  local hidden_count = 0
+  for _, card in ipairs(hidden_hand and hidden_hand.cards or {}) do
+    if face_down(card) then
+      cards[#cards + 1] = card
+      hidden_count = hidden_count + 1
+    end
+  end
+  local out = { count = #original }
+  if hidden_count > 0 then
+    -- 与游戏未打牌预览一致, 合并暗手, 不用准确摸牌堆分布反推暗牌.
+    out.unseen_count = #cards
+    out.hidden_in_hand = hidden_count
+  end
   local by_suit, by_rank = {}, {}
   for _, card in ipairs(cards) do
     local base = card.base or {}
@@ -193,11 +214,7 @@ local function pile(area, detail)
 
   if detail == "list" then
     local list = {}
-    for i, card in ipairs(cards) do
-      if i > PILE_LIST_MAX then
-        out.truncated = true
-        break
-      end
+    for _, card in ipairs(cards) do
       local base = card.base or {}
       list[#list + 1] = {
         key = (card.config and card.config.card_key) or "",
@@ -206,6 +223,19 @@ local function pile(area, detail)
         rank = BB_GAMESTATE and BB_GAMESTATE.rank_enum and BB_GAMESTATE.rank_enum(base.value) or base.value,
         rank_name = localized(base.value, "ranks"),
       }
+    end
+    -- 只排序响应副本, 再截断; 不泄露原顺序或下一张牌, 也不改变游戏牌堆.
+    local function order_key(item)
+      return item.key .. ":" .. tostring(item.suit) .. ":" .. tostring(item.rank)
+    end
+    table.sort(list, function(a, b)
+      return order_key(a) < order_key(b)
+    end)
+    if #list > PILE_LIST_MAX then
+      out.truncated = true
+      for i = #list, PILE_LIST_MAX + 1, -1 do
+        list[i] = nil
+      end
     end
     out.cards = list
   end
@@ -239,7 +269,7 @@ return {
     deck = {
       type = "string",
       required = false,
-      description = "Draw pile detail: 'stats' (count, by suit and rank) or 'list' (also the full list). Omit for none",
+      description = "摸牌堆: stats 给张数与分布, list 给排序后的列表, 不含抽牌顺序. 有暗手时统计与列表合并暗手, 另给 unseen_count 和 hidden_in_hand",
     },
     discard = {
       type = "string",
@@ -292,7 +322,7 @@ return {
       end)
     end
     if args.deck then
-      out.deck = pile(G and G.deck, args.deck)
+      out.deck = pile(G and G.deck, args.deck, G and G.hand)
     end
     if args.discard then
       out.discard = pile(G and G.discard, args.discard)

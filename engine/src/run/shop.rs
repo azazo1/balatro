@@ -837,6 +837,8 @@ impl Shop {
             .collect();
         // 主券在前, 标签事件追加的全部券随后按原事件顺序摆放. pending 仅消费一次.
         let tagged = std::mem::take(&mut run.extra_voucher_keys);
+        // 待追加券已全部兑现, 不能继续把券标签展示为仍可触发.
+        run.tags.retain(|tag| tag != "tag_voucher");
         let vouchers = run.shop_vouchers.first().cloned().into_iter()
             .chain(tagged)
             .map(|key| {

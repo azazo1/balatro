@@ -407,6 +407,10 @@ local name_cache = setmetatable({}, { __mode = "k" })
 ---@param card table 游戏里的卡牌对象
 ---@return string
 local function card_name(card)
+  if card.facing == "back" then
+    name_cache[card] = nil
+    return "背面牌"
+  end
   -- 一手牌里同一张牌会被问好几次 (每一步都要写变动原因), 名字缓存下来
   local cached = name_cache[card]
   if cached then
@@ -430,7 +434,7 @@ function M.game_deps(gamestate)
     --- 变动原因列: 卡牌名, 版本加成时前面带上版本名, 手中牌的效果前面带 "手牌".
     reason = function(card, extra)
       local name = card_name(card)
-      if extra and extra.edition then
+      if extra and extra.edition and card.facing ~= "back" then
         local edition = center_name(card.edition and card.edition.key)
         if edition then
           name = edition .. name
@@ -443,6 +447,9 @@ function M.game_deps(gamestate)
     end,
     --- 结构化字段里的一张牌, 与 gamestate 里的 Card 同名同形.
     card = function(card)
+      if card.facing == "back" then
+        return { key = "", label = card_name(card) }
+      end
       local key = ""
       if card.config then
         key = card.config.card_key or (card.config.center and card.config.center.key) or ""

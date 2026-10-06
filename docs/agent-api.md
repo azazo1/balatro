@@ -168,6 +168,8 @@ MENU -> BLIND_SELECT -> SELECTING_HAND -> ROUND_EVAL -> SHOP -+
 - 版本加成与重触发这类不改数值的项, 第二列写游戏自己那句提示 (例如 `闪箔红桃K | 再次触发 | 125x81`).
 - `steps[].by` 是卡牌 key, `kind` 取 `chips` / `mult` / `xmult` / `xchips` / `dollars` / `debuff` / `extra` / `blocked`,
   `chips` 与 `mult` 是这一步之后的当前值, 消费方不用自己从基础推.
+  来源卡仍背面朝上时, `by` 为空字符串, 名字只保留背面标记, 不附带花色, 点数或版本名.
+  可见的数值变化照常记录, 不借留手牌或琥珀橡果小丑的计分来源泄露隐藏身份.
 - 只有 `play` 会记. `discard`, `buy`, `use` 等不记, 也不会清掉上一次的 `last_hand`.
 - 记录挂在存档里, 读档继续时上一手仍能看到.
 
@@ -237,15 +239,19 @@ just agent-call dynamics '{"deck":"list","discard":"list","cards":false}' | jq '
 
 - `targets` 每项是 `{key, name, suit?, suit_name?, rank?, rank_name?, poker_hand?, poker_hand_name?}`,
   `key` 是认牌的牌 (`j_ancient` 等), `*_name` 是游戏语言的名字 (默认简体中文, 例如 `黑桃`, `红桃Q`).
-  没有的目标不出现, 例如本局没有古老小丑时就没有 `j_ancient` 项.
+  相应实时目标尚未初始化时不出现; 已初始化的全局目标不要求当前持有对应小丑.
+  有任何背面小丑时, 暂不给认牌目标条目, 避免待办目标或选择性删项反推出隐藏小丑身份.
 - `most_played_poker_hand` 是本局最常打出的牌型, 盲注公牛 (The Ox) 用它, 还没打过牌时不出现.
 - `jokers` / `consumables` / `hand` 每项是 `{index, key, name, effect}`. 背面朝上的牌不出现 (人悬停也看不到). `effect` 取游戏自己生成的那一份
   (`Card:generate_UIBox_ability_table`), 就是玩家悬停看到的文字: 成长值 (拉面的当前倍率, 城堡的当前筹码)
   与概率 (幸运牌, 玻璃牌) 都已代入. `index` 与该区域在 `gamestate` 里的下标一致, 从 0 开始.
-- `deck` / `discard` 每项是 `{count, by_suit, by_rank, cards?, truncated?}`: `count` 是张数,
-  `by_suit` 与 `by_rank` 的键是游戏语言的花色名与点数名 (例如 `{"红桃": 4}`), `list` 时另给 `cards`
-  完整列表 (每张 `{key, suit, suit_name, rank, rank_name}`, 超过 60 张截断并置 `truncated`).
-  算同花与顺子的概率用它 (摸牌堆是接下来会抽到的牌, 弃牌堆是本回合已经出过局的牌).
+- `deck` / `discard` 每项是 `{count, by_suit, by_rank, cards?, truncated?, unseen_count?, hidden_in_hand?}`:
+  `count` 始终是实际牌堆张数. `by_suit` 与 `by_rank` 的键是游戏语言的花色名与点数名
+  (例如 `{"红桃": 4}`), `list` 时另给每张 `{key, suit, suit_name, rank, rank_name}`.
+  列表按公开牌面排序, 不含真实抽牌顺序; 超过 60 张时在排序后截断并置 `truncated`.
+  有背面手牌时, `deck` 的统计和列表与游戏未打牌预览一样合并暗手, 不能借准确摸牌堆分布反推暗牌身份.
+  此时额外给 `unseen_count` (合并后的未见牌张数) 和 `hidden_in_hand` (暗手张数).
+  这份分布是未见牌集合, 不是精确摸牌堆. `discard` 仍只覆盖本回合弃掉与打出的牌.
 
 ## 决策消息
 
