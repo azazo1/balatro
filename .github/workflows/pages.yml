@@ -43,35 +43,35 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: engine/web
+          workspaces: impls/web
 
       # wasm-bindgen 由构建脚本按锁文件版本装进 .tmp/engine-web-tools,
       # 编译一次要一分多钟, 按锁文件缓存.
       - uses: actions/cache@v4
         with:
           path: .tmp/engine-web-tools
-          key: engine-web-tools-${{ runner.os }}-${{ hashFiles('engine/web/Cargo.lock') }}
+          key: engine-web-tools-${{ runner.os }}-${{ hashFiles('impls/web/Cargo.lock') }}
 
       # 这一步同时做完了贴图同步, WASM 编译, 绑定生成, 前端构建与 WASM 运行 smoke.
       # 版本不注入参数, 取 <上游版本>+<短哈希>, 页面页脚因此能对上提交.
       - name: 构建静态 Web/WASM
         shell: bash
-        run: uv run --no-project python scripts/engine_web.py build
+        run: uv run --no-project python scripts/web.py build
 
       - name: 检查站点入口
         shell: bash
         run: |
           set -euo pipefail
           for f in index.html wasm/engine_lab.js wasm/engine_lab_bg.wasm game/sprites.json; do
-            test -f "engine/web/client/dist/$f" || { echo "::error::缺少 $f"; exit 1; }
+            test -f "impls/web/client/dist/$f" || { echo "::error::缺少 $f"; exit 1; }
           done
-          du -sh engine/web/client/dist
+          du -sh impls/web/client/dist
 
       - uses: actions/configure-pages@v6
 
       - uses: actions/upload-pages-artifact@v5
         with:
-          path: engine/web/client/dist
+          path: impls/web/client/dist
 
   deploy:
     needs: build

@@ -68,7 +68,7 @@ def generate(seed, deck, stake, steps, template, out_dir):
     out = out_dir / "replay.json"
     command = [
         "cargo", "run", "--quiet", "--release",
-        "--manifest-path", str(Path(layout.ROOT_DIR) / "engine/Cargo.toml"),
+        "--manifest-path", str(Path(layout.ROOT_DIR) / "impls/engine/core/Cargo.toml"),
         "--example", "gen_replay", "--",
         "--seed", seed, "--deck", deck, "--stake", stake,
         "--template", str(template), "--out", str(out), "--steps", str(steps),

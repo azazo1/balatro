@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""从原版游戏资源生成 engine/web 使用的贴图清单, 并复制图集与字体.
+"""从原版游戏资源生成 impls/web 使用的贴图清单, 并复制图集与字体.
 
 贴图坐标全部来自 game/game.lua 中各原型表的 pos / soul_pos 字段, 不手写.
 蜡封, 贴纸, 魂层这类共享精灵在 game.lua 里直接以 Sprite(...) 构造, 位置写成常量并注明出处.
@@ -19,7 +19,7 @@ from lib import layout, log  # noqa: E402
 ROOT = Path(layout.ROOT_DIR)
 GAME = ROOT / "game"
 TEXTURES = GAME / "resources" / "textures" / "2x"
-OUT = ROOT / "engine" / "web" / "client" / "public" / "game"
+OUT = ROOT / "impls" / "web" / "client" / "public" / "game"
 FORMAT_VERSION = 1
 
 # 名称与单格尺寸见 game.lua 的 asset_atli / animation_atli, 这里存 1x 单格, 文件用 2x.
@@ -165,10 +165,10 @@ def check(manifest):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="生成 engine/web 的原版贴图资源")
+    parser = argparse.ArgumentParser(description="生成 impls/web 的原版贴图资源")
     parser.add_argument("--out", type=Path, default=OUT)
     args = parser.parse_args()
-    log.set_prefix("engine-web-assets")
+    log.set_prefix("web-assets")
     started = time.monotonic()
     manifest = build_manifest()
     check(manifest)

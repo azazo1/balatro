@@ -159,14 +159,14 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
-            engine
-            engine/web
-            engine/py
+            impls/engine
+            impls/web
+            impls/py
 
       - uses: actions/cache@v4
         with:
           path: .tmp/engine-web-tools
-          key: engine-web-tools-${{ runner.os }}-${{ hashFiles('engine/web/Cargo.lock') }}
+          key: engine-web-tools-${{ runner.os }}-${{ hashFiles('impls/web/Cargo.lock') }}
 
       - name: 准备 macOS 通用目标
         if: matrix.platform == 'macos'
@@ -177,19 +177,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cargo test --locked --manifest-path engine/web/Cargo.toml --workspace
-          cargo clippy --locked --manifest-path engine/web/Cargo.toml --workspace --all-targets -- -D warnings
-          bun install --cwd engine/web/client --frozen-lockfile
-          bun run --cwd engine/web/client test
+          cargo test --locked --manifest-path impls/web/Cargo.toml --workspace
+          cargo clippy --locked --manifest-path impls/web/Cargo.toml --workspace --all-targets -- -D warnings
+          bun install --cwd impls/web/client --frozen-lockfile
+          bun run --cwd impls/web/client test
 
       - name: 核心引擎回归与 lint
         if: matrix.platform == 'linux'
         shell: bash
         run: |
           set -euo pipefail
-          cargo test --locked --manifest-path engine/Cargo.toml --no-fail-fast
-          cargo clippy --locked --manifest-path engine/Cargo.toml --all-targets -- -D warnings
-          cargo clippy --locked --manifest-path engine/py/Cargo.toml --all-targets -- -D warnings
+          cargo test --locked --manifest-path impls/engine/Cargo.toml --no-fail-fast
+          cargo clippy --locked --manifest-path impls/engine/Cargo.toml --all-targets -- -D warnings
+          cargo clippy --locked --manifest-path impls/py/Cargo.toml --all-targets -- -D warnings
           uv run --no-project python -m unittest discover -s scripts/tests -t scripts
 
       - name: 构建并校验综合包
@@ -198,7 +198,7 @@ jobs:
           PROJECT_BUILD_VERSION: ${{ needs.version.outputs.build_version }}
         run: |
           set -euo pipefail
-          uv run --no-project --with maturin==1.15.0 python scripts/package_engine.py ${{ matrix.args }}
+          uv run --no-project --with maturin==1.15.0 python scripts/package_impls.py ${{ matrix.args }}
 
       - uses: actions/upload-artifact@v6
         with:
@@ -541,7 +541,7 @@ jobs:
           python3 - <<'PY'
           import os, sys
           sys.path.insert(0, 'scripts')
-          import package_engine as package
+          import package_impls as package
           version = os.environ['VERSION']
           for platform, arch in [('linux', 'x86_64'), ('macos', 'universal'), ('windows', 'x86_64')]:
               name = package.archive_name(version, platform, arch)

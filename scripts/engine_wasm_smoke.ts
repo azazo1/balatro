@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import init, { Game, info } from '../engine/web/client/public/wasm/engine_lab.js';
-import log from '../engine/web/client/src/lib/log';
+import init, { Game, info } from '../impls/web/client/public/wasm/engine_lab.js';
+import log from '../impls/web/client/src/lib/log';
 
 const started = performance.now();
-await init({ module_or_path: new Uint8Array(await Bun.file(new URL('../engine/web/client/public/wasm/engine_lab_bg.wasm', import.meta.url)).arrayBuffer()) });
+await init({ module_or_path: new Uint8Array(await Bun.file(new URL('../impls/web/client/public/wasm/engine_lab_bg.wasm', import.meta.url)).arrayBuffer()) });
 const capabilities = JSON.parse(info());
 if (process.argv[2]) assert.equal(capabilities.version, process.argv[2]);
 const opening = JSON.stringify({ seed: 'ALEEB', deck: 'b_red', stake: 1, profile: 'all' });

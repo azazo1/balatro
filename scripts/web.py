@@ -14,7 +14,7 @@ import tomllib
 from lib import layout, log, version as versionlib
 
 ROOT = Path(layout.ROOT_DIR)
-WEB = ROOT / "engine" / "web"
+WEB = ROOT / "impls" / "web"
 CLIENT = WEB / "client"
 TARGET = WEB / "target"
 TOOLS = ROOT / ".tmp" / "engine-web-tools"
@@ -43,7 +43,7 @@ def ensure_tools():
 
 def sync_game_assets():
     """把原版图集, 字体与贴图清单同步到 client/public/game."""
-    log.run([sys.executable, str(ROOT / "scripts" / "engine_web_assets.py")], cwd=str(ROOT))
+    log.run([sys.executable, str(ROOT / "scripts" / "web_assets.py")], cwd=str(ROOT))
 
 
 def build_assets(version=None):
@@ -57,9 +57,9 @@ def build_assets(version=None):
     log.run(["bun", "install", "--frozen-lockfile"], cwd=str(CLIENT))
     log.info("构建 Rust WASM 引擎")
     log.run(["cargo", "build", "--release", "--locked", "--manifest-path", str(WEB / "Cargo.toml"),
-             "-p", "balatro-engine-wasm", "--target", "wasm32-unknown-unknown"], env=env)
+             "-p", "balatro-web-wasm", "--target", "wasm32-unknown-unknown"], env=env)
     log.run([bindgen, "--target", "web", "--out-dir", str(CLIENT / "public" / "wasm"), "--out-name", "engine_lab",
-             str(TARGET / "wasm32-unknown-unknown" / "release" / "balatro_engine_wasm.wasm")])
+             str(TARGET / "wasm32-unknown-unknown" / "release" / "balatro_web_wasm.wasm")])
     sync_game_assets()
     log.run(["bun", "run", "build"], cwd=str(CLIENT), env=env)
     log.run(["bun", "run", str(ROOT / "scripts" / "engine_wasm_smoke.ts")] + ([version] if version else []), cwd=str(ROOT))
@@ -116,7 +116,7 @@ def main():
     args = parser.parse_args()
     if not 1 <= args.port <= 65535 or not 1 <= args.frontend_port <= 65535:
         parser.error("端口须为 1..65535")
-    log.set_prefix("engine-web")
+    log.set_prefix("web")
     if args.command == "tools":
         ensure_tools()
         return 0
@@ -138,7 +138,7 @@ def main():
     if args.command == "run" and args.mode == "wasm":
         log.info("纯静态 WASM 页面: http://127.0.0.1:%d" % args.port)
         return run_processes([[sys.executable, "-m", "http.server", str(args.port), "--bind", "127.0.0.1", "--directory", str(assets)]], ROOT)
-    cargo = ["cargo", "run", "--locked", "--manifest-path", str(WEB / "Cargo.toml"), "-p", "balatro-engine-web", "--", "--port", str(args.port), "--static", str(assets)]
+    cargo = ["cargo", "run", "--locked", "--manifest-path", str(WEB / "Cargo.toml"), "-p", "balatro-web-server", "--", "--port", str(args.port), "--static", str(assets)]
     if args.command == "run":
         log.info("双模式页面: http://127.0.0.1:%d" % args.port)
         return run_processes([cargo], ROOT, env=env)

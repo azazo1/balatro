@@ -5,7 +5,7 @@ import tempfile
 import unittest
 import zipfile
 
-import package_engine as package
+import package_impls as package
 
 VERSION = "1.0.1o-0.1.1"
 

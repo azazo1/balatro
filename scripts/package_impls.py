@@ -17,12 +17,12 @@ import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from lib import archive, layout, log, version as versionlib
-import engine_web
+import web
 
-MANIFEST = os.path.join(layout.ROOT_DIR, "engine", "Cargo.toml")
-WEB_MANIFEST = os.path.join(layout.ROOT_DIR, "engine", "web", "Cargo.toml")
-TARGET_DIR = os.path.join(layout.ROOT_DIR, "engine", "target")
-BINARIES = ("play", "replay_check", "balatro-engine-web")
+MANIFEST = os.path.join(layout.ROOT_DIR, "impls", "engine", "Cargo.toml")
+WEB_MANIFEST = os.path.join(layout.ROOT_DIR, "impls", "web", "Cargo.toml")
+TARGET_DIR = os.path.join(layout.ROOT_DIR, "impls", "engine", "target")
+BINARIES = ("balatro", "balatro-web-server")
 TRIPLES = {
     "macos": {"aarch64": "aarch64-apple-darwin", "x86_64": "x86_64-apple-darwin"},
     "linux": {"aarch64": "aarch64-unknown-linux-gnu", "x86_64": "x86_64-unknown-linux-gnu"},
@@ -68,7 +68,7 @@ def built_binary(triple, binary, platform):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="构建 engine 综合包, 不单独发布 wheel 或 Web")
+    parser = argparse.ArgumentParser(description="构建 impls 综合包, 不单独发布 wheel 或 Web")
     parser.add_argument("--platform", choices=sorted(TRIPLES), default=host_platform())
     parser.add_argument("--arch", choices=["aarch64", "x86_64"])
     parser.add_argument("--universal", action="store_true", help="macOS 通用 CLI 与 universal2 wheel")
@@ -87,9 +87,9 @@ def build(triples, version):
     env = dict(os.environ, PROJECT_BUILD_VERSION=version, CARGO_TARGET_DIR=TARGET_DIR)
     for triple in triples:
         log.run(["cargo", "build", "--release", "--locked", "--manifest-path", MANIFEST,
-                 "--target", triple, "--bin", "play", "--bin", "replay_check"], env=env)
+                 "--target", triple, "-p", "balatro-engine-cli", "--bin", "balatro"], env=env)
         log.run(["cargo", "build", "--release", "--locked", "--manifest-path", WEB_MANIFEST,
-                 "--target", triple, "-p", "balatro-engine-web"], env=env)
+                 "--target", triple, "-p", "balatro-web-server"], env=env)
 
 
 def assemble(bundle_dir, triples, platform):
@@ -116,7 +116,7 @@ def build_python(bundle_dir, platform, arch, version):
     destination = os.path.join(bundle_dir, "python")
     target = "universal2-apple-darwin" if arch == UNIVERSAL else TRIPLES[platform][arch]
     command = ["maturin", "build", "--release", "--locked", "--manifest-path",
-               os.path.join(layout.ROOT_DIR, "engine", "py", "Cargo.toml"),
+               os.path.join(layout.ROOT_DIR, "impls", "py", "Cargo.toml"),
                "--target", target, "--out", destination, "--interpreter", sys.executable]
     if platform == "linux":
         # 与 GNU CLI 一样跟随构建主机的 glibc, 不冒充 manylinux 可移植包.
@@ -159,7 +159,7 @@ def write_manifest(directory, version, platform, arch):
     files = {}
     for path in bundle_files(directory):
         if path.is_symlink():
-            log.die("engine 综合包不接受符号链接: " + str(path))
+            log.die("impls 综合包不接受符号链接: " + str(path))
         relative = path.relative_to(directory).as_posix()
         if relative != "manifest.json":
             files[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -251,7 +251,7 @@ def verify_archive(out_path, bundle, platform):
 
 
 def main():
-    log.set_prefix("engine-dist")
+    log.set_prefix("impls-dist")
     args = parse_args()
     platform = args.platform
     if args.universal and platform != "macos":
@@ -263,7 +263,7 @@ def main():
     version = versionlib.build_version()
     ensure_triples(triples + ["wasm32-unknown-unknown"])
     log.info("统一构建 %s / %s / %s" % (version, platform, arch))
-    assets = engine_web.build_assets(version)
+    assets = web.build_assets(version)
     build(triples, version)
     bundle = bundle_name(version, platform, arch)
     out_dir = Path(layout.ensure_dir(layout.ENGINE_DIST)).resolve()
@@ -277,7 +277,7 @@ def main():
         files = assemble(str(directory), triples, platform)
         wheel = build_python(str(directory), platform, arch, version)
         shutil.copytree(assets, directory / "web")
-        shutil.copy2(Path(layout.ROOT_DIR, "engine", "web", "bundle-readme.md"), directory / "README.md")
+        shutil.copy2(Path(layout.ROOT_DIR, "impls", "web", "bundle-readme.md"), directory / "README.md")
         runnable = runnable_here(platform, arch)
         smoke(files, version, runnable)
         smoke_python(wheel, version, runnable)
