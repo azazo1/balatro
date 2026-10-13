@@ -172,6 +172,17 @@ impl Game {
         out
     }
 
+    /// 预览标签: 底注 `ante` 里, 跳过小盲注与大盲注分别能拿到什么标签.
+    ///
+    /// 标签与商店格子一样是按键独立的伪随机, 所以也能开局算出来 —— 攻略里"看准哪个小盲注给
+    /// 负片标签, 跳它拿负片"靠的就是这个.
+    fn preview_tags(&self, ante: i64) -> Vec<String> {
+        let mut probe = self.state.clone();
+        probe.ante = ante;
+        probe.refresh_tags();
+        probe.blind_tags.iter().flatten().cloned().collect()
+    }
+
     /// 内置全解锁档的原文.
     #[staticmethod]
     fn full_unlock_uda() -> &'static str {

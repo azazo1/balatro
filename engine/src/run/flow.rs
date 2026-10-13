@@ -583,7 +583,10 @@ impl RunState {
     /// 抽这一底的两个标签: 跳过小盲注与大盲注分别能拿到的.
     ///
     /// 与优惠券一样只在开局与底注提升时重抽, 底注之内固定.
-    fn refresh_tags(&mut self) {
+    /// 重抽这一底的两个标签 (跳过小盲注 / 大盲注能拿到什么).
+    ///
+    /// 它也是按键独立的伪随机, 所以外部可以在克隆出来的状态上调用, 用来预览某个底注会给什么标签.
+    pub fn refresh_tags(&mut self) {
         let small = self.next_tag_key();
         let big = self.next_tag_key();
         self.blind_tags = [Some(small), Some(big)];
