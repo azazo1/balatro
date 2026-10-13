@@ -4,6 +4,8 @@ import { canSelect, moveAction, number, type Area } from '../lib/game';
 import { lookup, spriteCss } from '../assets/sprites';
 import { Card } from './Card';
 import { Phase } from './Phase';
+import { FloatBadge } from '../preview/ScorePreview';
+import { focusOf, type Scoring } from '../preview/usePreview';
 
 /** 牌区: 原版的半透明深色圆角槽, 右下角显示 n/容量. */
 function Zone({ className, count, capacity, children }: { className: string; count?: number; capacity?: number; children: React.ReactNode }) {
@@ -13,26 +15,35 @@ function Zone({ className, count, capacity, children }: { className: string; cou
   </section>;
 }
 
-export function Board({ view, busy, selected, toggle, act }: {
+export function Board({ view, busy, selected, toggle, act, scoring }: {
   view: View; busy: boolean; selected: number[]; toggle: (index: number) => void; act: (action: Action) => void;
+  scoring: Scoring | null;
 }) {
   const o = view.observation, s = o.stats, back = o.deck_back;
+  // 计分预览: 当前步骤落在哪张牌上就让它跳一下并飘字, 同原版 juice_up + card_eval_status_text.
+  const focus = focusOf(scoring);
+  const scored = new Set(scoring?.preview.scoring ?? []);
+  const played = new Set(scoring?.preview.error ? [] : scoring?.preview.cards ?? []);
+  const handMark = (index: number) => `${played.has(index) ? (scored.has(index) ? 'scoring' : 'idle') : ''} ${focus.hand === index ? 'firing' : ''}`;
+  const handOverlay = (index: number) => focus.hand === index && focus.badge ? <FloatBadge badge={focus.badge} /> : null;
   const phase = o.phase;
   const locked = busy || o.win_overlay || phase === 'GameOver';
   const rearrange = canSelect(phase) && !locked;
   const sellable = ['SelectingHand', 'Shop', 'BoosterOpened'].includes(phase) && !locked;
   const usable = ['SelectingHand', 'Shop', 'BoosterOpened'].includes(phase) && !locked;
   // 点小丑或消耗牌后在牌下方弹出操作按钮, 同原版.
-  const [focus, setFocus] = useState<string | null>(null);
-  const action = (method: string, params: Record<string, unknown> = {}) => { setFocus(null); act({ method, params }); };
+  const [picked, setPicked] = useState<string | null>(null);
+  const action = (method: string, params: Record<string, unknown> = {}) => { setPicked(null); act({ method, params }); };
   const move = (area: Area, length: number) => (from: number, to: number) => { const next = moveAction(area, length, from, to); if (next) act(next); };
-  const pick = (id: string) => setFocus(old => old === id ? null : id);
+  const pick = (id: string) => setPicked(old => old === id ? null : id);
 
   const owned = (cards: Item[], area: 'jokers' | 'consumables') => cards.map((card, index) => {
     const id = `${area}-${index}`;
-    return <Card key={id} item={card} back={back} size="md" active={focus === id} tip="bottom"
+    const firing = area === 'jokers' && focus.joker === index;
+    return <Card key={id} item={card} back={back} size="md" active={picked === id} tip="bottom"
+      mark={firing ? 'firing' : ''} overlay={firing && focus.badge ? <FloatBadge badge={focus.badge} /> : null}
       onClick={() => pick(id)} drag={{ area, index, enabled: rearrange, onMove: move(area, cards.length) }}>
-      {focus === id && <>
+      {picked === id && <>
         <button className="btn green small" disabled={!sellable || card.eternal} onClick={() => action('sell', { [area === 'jokers' ? 'joker' : 'consumable']: index })}>
           售出{card.cost != null && <small>${number(card.cost)}</small>}</button>
         {area === 'consumables' && <button className="btn red small" disabled={!usable} onClick={() => action('use', { consumable: index, cards: selected })}>使用</button>}
@@ -46,7 +57,7 @@ export function Board({ view, busy, selected, toggle, act }: {
       <Zone className="jokers" count={o.jokers.length} capacity={s.joker_capacity}>{owned(o.jokers, 'jokers')}</Zone>
       <Zone className="consumables" count={o.consumables.length} capacity={s.consumable_capacity}>{owned(o.consumables, 'consumables')}</Zone>
     </div>
-    <div className="board-middle"><Phase view={view} busy={busy} locked={locked} selected={selected} act={action} /></div>
+    <div className="board-middle"><Phase view={view} busy={busy} locked={locked} selected={selected} act={action} scoring={scoring} /></div>
     <div className="board-bottom">
       <div className="tags-column">{o.tags.map((t, i) => <div key={`tag-${i}`} className="tag-slot">
         <div className="tag-icon" style={spriteCss(lookup(t.key)) ?? {}} role="img" aria-label={t.name} tabIndex={0} />
@@ -56,6 +67,7 @@ export function Board({ view, busy, selected, toggle, act }: {
         <Zone className="hand" count={o.hand.length} capacity={s.hand_size}>
           {o.hand.map((card, index) => <Card key={`hand-${index}-${card.token ?? card.name}`} item={card} back={back} size="lg"
             selected={selected.includes(index)} disabled={!canSelect(phase) || locked}
+            mark={handMark(index)} overlay={handOverlay(index)}
             onClick={() => toggle(index)} drag={{ area: 'hand', index, enabled: rearrange, onMove: move('hand', o.hand.length) }} />)}
         </Zone>
         {o.hand.length > 0 && <HandButtons view={view} locked={locked} selected={selected} act={action} />}

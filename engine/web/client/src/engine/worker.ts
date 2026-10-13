@@ -2,7 +2,7 @@ import log from '../lib/log';
 import type { Command, Opening } from '../lib/types';
 
 interface WasmGame {
-  observe(): string; dispatch(command: string): string; save(): string; actions(): string; free(): void;
+  observe(): string; dispatch(command: string): string; preview(request: string): string; save(): string; actions(): string; free(): void;
 }
 interface WasmModule {
   default: () => Promise<unknown>;
@@ -43,6 +43,7 @@ self.onmessage = async (event: MessageEvent<{ id: number; operation: string; pay
             result = JSON.parse(game.dispatch(JSON.stringify(command)));
             break;
           }
+          case 'preview': result = JSON.parse(game.preview(JSON.stringify(payload))); break;
           case 'save': result = game.save(); break;
           case 'actions': result = game.actions(); break;
           default: throw new Error('未知 Worker 操作');

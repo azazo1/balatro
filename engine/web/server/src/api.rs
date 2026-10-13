@@ -42,6 +42,7 @@ pub fn router(state:AppState,static_dir:PathBuf)->Router {
         .route("/api/v1/import",post(import))
         .route("/api/v1/sessions/{id}",get(observe).delete(remove))
         .route("/api/v1/sessions/{id}/commands",post(dispatch))
+        .route("/api/v1/sessions/{id}/preview",post(preview))
         .route("/api/v1/sessions/{id}/save",get(save))
         .route("/api/v1/sessions/{id}/actions",get(actions))
         .route("/api/{*path}",get(||async { ApiError(Error::missing()).into_response() }))
@@ -97,6 +98,10 @@ async fn dispatch(State(state):State<AppState>,Path(id):Path<String>,Json(comman
         lab::command(s,command).inspect_err(|e|tracing::warn!(status=e.status,error=%e.message,"拒绝对局操作"))?;
         Ok(view(&id,s))
     }).await?))
+}
+
+async fn preview(State(state):State<AppState>,Path(id):Path<String>,Json(request):Json<lab::PreviewRequest>)->ApiResult<Json<Value>> {
+    Ok(Json(with_session(state,id,move|s|lab::preview(s,&request)).await?))
 }
 
 async fn save(State(state):State<AppState>,Path(id):Path<String>)->ApiResult<Response> {

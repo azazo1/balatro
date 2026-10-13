@@ -31,6 +31,11 @@ impl Game {
         Ok(self.observe())
     }
 
+    pub fn preview(&self, request_json: &str) -> Result<String,JsValue> {
+        let request = serde_json::from_str(request_json).map_err(|e|js_error(Error::bad(e.to_string())))?;
+        Ok(lab::preview(&self.session,&request).map_err(js_error)?.to_string())
+    }
+
     pub fn save(&self) -> Result<String,JsValue> { lab::format::export_text(&self.session).map_err(js_error) }
 
     pub fn actions(&self) -> Result<String,JsValue> { self.session.actions_jsonl().map_err(js_error) }

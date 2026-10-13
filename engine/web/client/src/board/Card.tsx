@@ -33,9 +33,13 @@ export function CardFace({ item, back }: { item: Item; back: string }) {
 
 export interface DragInfo { area: string; index: number; onMove: (from: number, to: number) => void; enabled: boolean }
 
-export function Card({ item, back, size = 'md', selected = false, active = false, disabled = false, price, onClick, tip = 'top', drag, children }: {
+export function Card({ item, back, size = 'md', selected = false, active = false, disabled = false, price, onClick, tip = 'top', drag, children, overlay, mark = '' }: {
   item: Item; back: string; size?: CardSize; selected?: boolean; active?: boolean; disabled?: boolean; price?: number;
   onClick?: () => void; tip?: 'top' | 'bottom' | 'none'; drag?: DragInfo; children?: ReactNode;
+  /** 计分预览的飘字等, 叠在牌上方. */
+  overlay?: ReactNode;
+  /** 计分预览标记: scoring 参与计分, idle 打出但不计分, firing 正在触发. */
+  mark?: string;
 }) {
   const label = item.hidden ? '背面朝上的牌' : `${item.name}${item.modifiers ?? ''}`;
   const dragProps = drag?.enabled ? {
@@ -47,8 +51,9 @@ export function Card({ item, back, size = 'md', selected = false, active = false
       if (area === drag.area) { e.preventDefault(); drag.onMove(Number(from), drag.index); }
     },
   } : {};
-  return <div className={`card-slot size-${size} ${selected ? 'selected' : ''} ${active ? 'active' : ''}`} {...dragProps}>
+  return <div className={`card-slot size-${size} ${selected ? 'selected' : ''} ${active ? 'active' : ''} ${mark}`} {...dragProps}>
     {price != null && <div className="price-tag">${number(price)}</div>}
+    {overlay}
     <button className="card" disabled={disabled} onClick={onClick} aria-pressed={selected || active} aria-label={label}>
       <CardFace item={item} back={back} />
     </button>

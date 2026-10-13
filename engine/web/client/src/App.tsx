@@ -12,6 +12,7 @@ import { DebugPanel } from './debug/DebugPanel';
 import { nextNode } from './debug/HistoryTree';
 import { useStageScale } from './ui/useStageScale';
 import { SidebarResizer, useSidebarWidth } from './ui/SidebarResizer';
+import { usePlayback, usePreview } from './preview/usePreview';
 
 export function App() {
   const [mode, setMode] = useState<Mode>(localStorage.getItem('engine-lab-mode') === 'http' ? 'http' : 'wasm');
@@ -34,6 +35,8 @@ export function App() {
   const stage = useRef<HTMLDivElement>(null);
   useStageScale(stage);
   const [sidebarWidth, setSidebarWidth] = useSidebarWidth();
+  // 调试模式下选牌即预览计分, 不提交动作.
+  const scoring = usePlayback(usePreview(backend, busy ? null : view, selected));
 
   useEffect(() => { void loadSprites().then(() => setSpritesReady(true)); }, []);
   useEffect(() => { localStorage.setItem('engine-lab-sidebar', sidebar ? 'on' : 'off'); }, [sidebar]);
@@ -198,8 +201,8 @@ export function App() {
     <div className="stage-wrap">
       <div className="stage" ref={stage}>
         {view ? <>
-          <Hud view={view} actions={menu} />
-          <Board view={view} busy={busy} selected={selected} toggle={toggle} act={act} />
+          <Hud view={view} actions={menu} scoring={scoring} />
+          <Board view={view} busy={busy} selected={selected} toggle={toggle} act={act} scoring={scoring} />
         </> : <div className="welcome">
           <div className="logo" style={spriteCss(lookup('logo')) ?? {}} role="img" aria-label="Balatro" />
           <p className="welcome-sub">引擎对局调试台 · 每一步都可回溯与分支</p>

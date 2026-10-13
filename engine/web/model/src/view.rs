@@ -33,7 +33,7 @@ impl Traits {
     }
 }
 
-fn playing(card: &CardInstance, index: usize, reveal: bool) -> Value {
+pub(crate) fn playing(card: &CardInstance, index: usize, reveal: bool) -> Value {
     if card.face_down && !reveal { return json!({"index":index,"name":"背面朝上","hidden":true,"effect":""}); }
     let mut value = json!({"index":index,"name":summary::playing_card(card),"token":card.token(),
         "key":card.card.key(),"hidden":false,"face_down":card.face_down,

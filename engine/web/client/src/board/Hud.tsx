@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import type { Blind, View } from '../lib/types';
 import { colourOf, lookup, spriteCss } from '../assets/sprites';
 import { number, parseReport } from '../lib/game';
+import { valuesAt, type Scoring } from '../preview/usePreview';
 
 /** 与 misc_functions.lua get_blind_main_colour 一致: Boss 用自身颜色, 小盲蓝, 大盲橙. */
 export function blindColour(blind: Blind | undefined): string {
@@ -20,8 +21,10 @@ function Stat({ label, children, tone = '' }: { label: string; children: ReactNo
 }
 
 /** 左侧信息栏, 结构对照 UI_definitions.lua create_UIBox_HUD. */
-export function Hud({ view, actions }: { view: View; actions: ReactNode }) {
+export function Hud({ view, actions, scoring }: { view: View; actions: ReactNode; scoring: Scoring | null }) {
   const o = view.observation, s = o.stats;
+  // 预览时左侧牌型框与原版一样跟着计分走, 数值标记为预览色.
+  const live = scoring && !scoring.preview.error ? valuesAt(scoring) : null;
   const blind = o.blinds.find(b => b.status === 'Active') ?? o.blinds.find(b => b.status === 'Select');
   const colour = blindColour(blind);
   const hand = parseReport(o.last_hand);
@@ -39,12 +42,18 @@ export function Hud({ view, actions }: { view: View; actions: ReactNode }) {
       </div>
     </div>
     <div className="hud-score"><span>回合<br />分数</span><strong>{number(s.chips)}</strong></div>
-    <div className="hud-hand">
+    {live && scoring ? <div className="hud-hand previewing">
+      <div className="hud-hand-name">{scoring.preview.hand}{(scoring.preview.level ?? 1) > 1 && <small> 等级{scoring.preview.level}</small>}</div>
+      <div className="hud-chipmult">
+        <div key={`c-${live.chips}`} className="chips-box bump">{number(live.chips)}</div><span className="times">X</span>
+        <div key={`m-${live.mult}`} className="mult-box bump">{number(live.mult)}</div>
+      </div>
+    </div> : <div className="hud-hand">
       <div className="hud-hand-name">{hand ? <>{hand.hand}{hand.level > 1 && <small> 等级{hand.level}</small>}</> : <span className="dim">&nbsp;</span>}</div>
       <div className="hud-chipmult">
         <div className="chips-box">{hand?.chips ?? 0}</div><span className="times">X</span><div className="mult-box">{hand?.mult ?? 0}</div>
       </div>
-    </div>
+    </div>}
     <div className="hud-grid">
       <Stat label="出牌" tone="chip-text">{number(s.hands_left)}</Stat>
       <Stat label="弃牌" tone="mult-text">{number(s.discards_left)}</Stat>

@@ -1,4 +1,4 @@
-import type { Backend, Command, Info, Opening, View } from '../lib/types';
+import type { Backend, Command, Info, Opening, Preview, View } from '../lib/types';
 import log from '../lib/log';
 
 export class OperationError extends Error {
@@ -36,6 +36,7 @@ export class WasmBackend implements Backend {
   async observe() { await this.ready; return this.call<View>('observe'); }
   async dispatch(command: Command) { await this.ready; return this.call<View>('dispatch', command); }
   async restore(file: string) { await this.ready; return this.call<View>('restore', file); }
+  async preview(revision: number, cards: number[]) { await this.ready; return this.call<Preview>('preview', { revision, cards }); }
   async save() { return this.call<string>('save'); }
   async actions() { return this.call<string>('actions'); }
   dispose() { this.worker.terminate(); this.fail(new OperationError('计算后端已关闭')); }
@@ -83,6 +84,10 @@ export class HttpBackend implements Backend {
   async dispatch(command: Command) {
     if (!this.id) throw new OperationError('当前没有会话', 404);
     return this.accept(await this.request<View>(`sessions/${this.id}/commands`, command));
+  }
+  async preview(revision: number, cards: number[]) {
+    if (!this.id) throw new OperationError('当前没有会话', 404);
+    return this.request<Preview>(`sessions/${this.id}/preview`, { revision, cards });
   }
   async save() { return this.request<string>(`sessions/${this.id}/save`, undefined, 'GET', true); }
   async actions() { return this.request<string>(`sessions/${this.id}/actions`, undefined, 'GET', true); }

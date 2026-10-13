@@ -216,6 +216,40 @@ h1, h2, h3, p, pre { margin: 0; }
 .last-hand { display: flex; flex-direction: column; align-items: center; background: rgba(0,0,0,.2); border-radius: calc(var(--u) * .3); padding: .4em 1.2em; }
 .last-hand-name { font-size: 1.4em; } .last-hand-name small { color: var(--gold); font-size: .7em; }
 .last-hand-total { font-size: 2.4em; color: var(--money); }
+/* 计分预览 (调试模式): 对照原版 juice_up 抖动与 card_eval_status_text 飘字. */
+.card-slot.idle .card { filter: brightness(.6) drop-shadow(0 calc(var(--w) * .04) 0 rgba(0, 0, 0, .35)); }
+.card-slot.scoring.selected { transform: translateY(calc(var(--u) * -.75)); }
+.card-slot.firing .card { animation: juice .28s ease-out; }
+@keyframes juice { 30% { transform: scale(1.14) rotate(-4deg); } 65% { transform: scale(.97) rotate(2deg); } }
+.float-badge {
+  position: absolute; z-index: 40; top: calc(var(--w) * -.2); left: 50%; transform: translateX(-50%);
+  padding: .1em .45em; border-radius: .4em; font-size: 1.15em; white-space: nowrap; pointer-events: none;
+  box-shadow: 0 .15em 0 rgba(0, 0, 0, .35); animation: float-pop .45s ease-out both;
+}
+.zone.jokers .float-badge, .zone.consumables .float-badge { top: auto; bottom: calc(var(--w) * -.25); }
+.tone-chips { background: var(--blue); } .tone-mult { background: var(--red); }
+.tone-money { background: var(--money); color: #fff; } .tone-plain { background: var(--l-black); }
+@keyframes float-pop { 0% { opacity: 0; transform: translate(-50%, 40%) scale(.6); } 60% { opacity: 1; transform: translate(-50%, -10%) scale(1.12); } 100% { transform: translate(-50%, 0) scale(1); } }
+.bump { animation: bump .2s ease-out; }
+@keyframes bump { 40% { transform: scale(1.1); } }
+.hud-hand.previewing { box-shadow: inset 0 0 0 calc(var(--u) * .06) var(--orange); }
+.score-preview {
+  display: flex; flex-direction: column; align-items: center; gap: calc(var(--u) * .15); min-width: calc(var(--u) * 12); max-width: 100%;
+  background: rgba(0, 0, 0, .28); border-radius: calc(var(--u) * .3); padding: .45em .9em; box-shadow: inset 0 0 0 calc(var(--u) * .05) rgba(253, 162, 0, .55);
+}
+.score-preview.invalid { flex-direction: row; color: var(--pale); }
+.preview-head { display: flex; align-items: center; gap: .5em; }
+.preview-tag { font-size: .7em; background: var(--orange); border-radius: .4em; padding: 0 .4em; }
+.preview-hand { font-size: 1.4em; } .preview-hand small { color: var(--gold); font-size: .7em; }
+.preview-chipmult { width: calc(var(--u) * 9); }
+.preview-source { font-size: .85em; min-height: 1.2em; opacity: .9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.preview-total { display: flex; align-items: baseline; gap: .6em; }
+.preview-total span { font-size: 2em; opacity: .7; } .preview-total.done span { color: var(--money); opacity: 1; }
+.preview-total small { font-size: .8em; opacity: .8; } .preview-total small.reach { color: var(--green); opacity: 1; }
+.preview-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 3px; max-width: calc(var(--u) * 20); max-height: calc(var(--u) * 2.2); overflow-y: auto; }
+.step-chip { border: 0; border-radius: .35em; padding: 0 .35em; font-size: .72em; cursor: pointer; color: #fff; }
+.step-chip.future { opacity: .4; } .step-chip.current { outline: 2px solid #fff; outline-offset: 1px; }
+.preview-controls { display: flex; gap: .3em; }
 /* 调试侧栏: 固定宽度, 自身内部滚动, 字号不随舞台缩放. */
 .debug-panel { font-size: var(--su); min-height: 0; display: flex; flex-direction: column; background: #223030; border-left: 3px solid #142021; text-shadow: 0 1px 0 rgba(0,0,0,.35); }
 .debug-tabs { display: flex; gap: 4px; padding: 6px; background: #1a2626; }

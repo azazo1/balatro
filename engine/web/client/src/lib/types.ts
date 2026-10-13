@@ -32,8 +32,19 @@ export type Command =
   | { kind: 'jump'; revision: number; node: number }
   | { kind: 'debug'; revision: number; enabled: boolean }
   | { kind: 'edit'; revision: number; changes: Record<string, number> };
+/** 计分一步的来源: hand 与 joker 是当前局面里的下标, 用于在界面上定位元素. */
+export interface StepSource { kind: 'card' | 'held' | 'joker' | 'stage'; name: string | null; hand?: number | null; joker?: number | null }
+export interface ScoreStep { source: StepSource; kind: 'chips' | 'mult' | 'xmult' | 'dollars' | 'reshape'; amount: number; chips: number; mult: number }
+/** 调试模式的出牌预览. 选择不合法时只有 error. */
+export interface Preview {
+  revision: number; cards: number[]; error?: string;
+  hand?: string; level?: number; base_chips?: number; base_mult?: number; chips?: number; mult?: number;
+  total?: number; blocked?: boolean; dollars?: number; scoring?: number[]; steps?: ScoreStep[];
+  round_chips?: number; target?: number | null;
+}
 export interface Backend {
   info(): Promise<Info>; create(opening: Opening): Promise<View>; observe(): Promise<View>;
   dispatch(command: Command): Promise<View>; restore(file: string): Promise<View>;
+  preview(revision: number, cards: number[]): Promise<Preview>;
   save(): Promise<string>; actions(): Promise<string>; dispose(): void;
 }

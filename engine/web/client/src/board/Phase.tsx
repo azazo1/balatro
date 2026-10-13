@@ -3,6 +3,8 @@ import { lookup, spriteCss } from '../assets/sprites';
 import { number, parseReport } from '../lib/game';
 import { Card } from './Card';
 import { BlindChip, blindColour } from './Hud';
+import { ScorePreview } from '../preview/ScorePreview';
+import type { Scoring } from '../preview/usePreview';
 
 type Act = (method: string, params?: Record<string, unknown>) => void;
 const statusName: Record<string, string> = { Select: '选择', Upcoming: '即将到来', Active: '进行中', Defeated: '已击败', Skipped: '已跳过', Failed: '失败' };
@@ -49,7 +51,7 @@ function Shelf({ items, area, view, locked, act, label }: { items: Item[]; area:
   </div>;
 }
 
-export function Phase({ view, busy, locked, selected, act }: { view: View; busy: boolean; locked: boolean; selected: number[]; act: Act }) {
+export function Phase({ view, busy, locked, selected, act, scoring }: { view: View; busy: boolean; locked: boolean; selected: number[]; act: Act; scoring: Scoring | null }) {
   const o = view.observation;
   if (o.win_overlay) return <div className="panel-box center-panel">
     <h2 className="big-title gold">胜利!</h2><p>已通过第 8 底注. 可以进入无尽模式, 或在历史里回溯换一条路线.</p>
@@ -88,6 +90,8 @@ export function Phase({ view, busy, locked, selected, act }: { view: View; busy:
     <div className="pack-footer"><span className="pack-name">{o.pack.name}</span><span>还可选 {o.pack.choices_left} 张</span>
       <button className="btn grey small" disabled={locked} onClick={() => act('pack', { skip: true })}>跳过</button></div>
   </div>;
+  // 调试模式选了牌: 中部换成计分预览.
+  if (scoring) return <div className="play-area"><ScorePreview scoring={scoring} /></div>;
   // 出牌阶段: 中部显示上一手计分结果.
   const hand = parseReport(o.last_hand);
   return <div className="play-area">{hand && <div className="last-hand">
