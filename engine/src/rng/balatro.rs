@@ -55,6 +55,12 @@ impl Rng {
         }
     }
 
+    /// 不推进随机序列的稳定诊断输出, 键按字典序排列.
+    pub fn diagnostics(&self) -> String {
+        let keys: std::collections::BTreeMap<_, _> = self.keys.iter().collect();
+        format!("seed: {:?}\nhash: {:?}\nprng: {:?}\nkeys: {:?}", self.seed, self.hashed_seed, self.prng, keys)
+    }
+
     pub fn seed_str(&self) -> &str {
         &self.seed
     }

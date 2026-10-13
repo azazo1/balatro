@@ -1,0 +1,6 @@
+[workspace]
+members = ["model", "server", "wasm"]
+resolver = "3"
+
+[profile.release]
+lto = "thin"

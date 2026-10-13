@@ -45,16 +45,33 @@ cargo clippy --all-targets
 不需要游戏或 LuaJIT, 所以普通的 push 与 PR 都会跑一遍. 带 `--include-ignored` 的那一档
 需要本机 LuaJIT 与 Lovely 补丁树, 仍然只在本机跑 (见下面的 `just engine-audit`).
 
-需要给别的机器一份现成的 `play` / `replay_check` 时:
+需要给别的机器一份完整的 engine 工具时:
 
 ```shell
-just engine-dist                                  # 当前平台与架构, 归档到 dist/engine/
-python3 scripts/package_engine.py --universal     # macOS 的通用二进制
+just engine-dist                 # 当前平台与架构, 归档到 dist/engine/
+just engine-dist --universal     # macOS 通用二进制与 universal2 wheel
 ```
 
-产物名形如 `balatro-engine-1.0.1o-0.1.1-macos-universal.tar.gz`, 里面是一层同名目录加两个
-二进制. `--version` 报出的版本就是打包时注入的那一个, 直接 `cargo run` 的日常构建显示
-`dev-build`. CI 对三个平台各出一份, 打 tag 发布时随 release 一起发.
+每个平台一个综合归档, 包含 `bin/` 的 CLI 与 HTTP 服务, `python/` 的 wheel,
+以及 `web/` 的预构建 React/WASM. `manifest.json` 记录版本与内部校验和.
+CI 不再单独上传 Python wheel. 各组件报告同一个注入版本, 原生服务与 Python 绑定都经过运行 smoke.
+Linux 包使用构建主机的 glibc 基线, 不冒充 manylinux. 直接开发构建显示 `dev-build`.
+
+## Web 对局调试台
+
+```shell
+just engine-web                     # 构建并启动, 打开 http://127.0.0.1:12347
+just engine-web --mode wasm          # 只启动静态页面, 不运行 HTTP 计算服务
+just engine-web-dev                  # Vite 与 Rust 开发服务, 页面在 5173
+just engine-web-build                # 只构建静态 Web/WASM
+just test-engine-web                 # 历史模型, HTTP, 前端与 WASM 运行测试
+```
+
+默认 WASM 在浏览器本地 Worker 中运行真实 Rust 引擎, 也可切换到本地 HTTP 计算.
+配置种子, 牌组, 赌注与解锁档后即可对局, 在历史树回溯并保留所有分支.
+调试默认关闭, 开启后可以查看真实牌堆与随机状态, 并记录白名单状态修改.
+自动存档保存在浏览器 IndexedDB, 另可下载完整会话. 经过调试修改的路径不能导出普通动作记录.
+详细使用与运行约束见 [Web 调试台](<web/README.md>).
 
 跑回放对拍 (引擎照着 `recordings/` 折出来的 fixture 逐步重放, 比每一步的 digest):
 
@@ -204,8 +221,8 @@ just play step --seed ALEEB --deck RED --stake GOLD --uda new --actions .tmp/age
 自己"只要 std"这条性质没被破坏.
 
 ```shell
-just engine-py                                # 出 wheel, 落在 engine/py/dist/
-cd engine/py && maturin develop --release     # 装进当前环境, 之后直接 import
+just engine-dist                                  # 综合归档内包含 Python wheel
+maturin develop --release --manifest-path engine/py/Cargo.toml  # 开发时装进当前项目环境
 ```
 
 ```python

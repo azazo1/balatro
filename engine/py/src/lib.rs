@@ -197,5 +197,6 @@ impl Game {
 #[pymodule]
 fn balatro_engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Game>()?;
+    m.add("build_version", engine::VERSION)?;
     Ok(())
 }

@@ -23,6 +23,7 @@ pub const VERSION: &str = match option_env!("PROJECT_BUILD_VERSION") {
     None => "dev-build",
 };
 
+pub mod opening;
 pub mod agent;
 pub mod batch;
 pub mod cards;

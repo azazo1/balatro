@@ -232,6 +232,20 @@ LÖVE 自己的退出流程, 不影响其它平台 (它们本来就随退出结�
 融合后的 exe 回读校验放在 `scripts/verify_windows_bundle.py`, 本机与 CI 共用同一份实现,
 会检查 PE 头, 尾部 zip 的起点, 以及归档内确实含有 `main.lua` 与 `conf.lua`.
 
+## Engine 与 Web 调试台
+
+无需启动 LÖVE, 可以直接在 Rust engine 中进行对局, 回溯和分支比较.
+[Web 调试台](<engine/web/README.md>) 使用 React + TypeScript, 默认在浏览器本地运行 WASM,
+也支持本地 HTTP 计算模式.
+
+```shell
+just engine-web          # 启动双模式页面, 默认 127.0.0.1:12347
+just engine-dist         # 当前平台一个综合发行归档
+```
+
+综合包在 `dist/engine/`, 包含 CLI, Python wheel, HTTP 服务和预构建 Web/WASM.
+CI 每个平台只发布这个综合归档, 不再散发独立 Python 或 Web 产物.
+
 ## 版本号
 
 版本号分两段, 形式为 `<上游版本>-<仓库版本>`:

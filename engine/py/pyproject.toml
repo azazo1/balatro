@@ -6,6 +6,7 @@ build-backend = "maturin"
 name = "balatro-engine"
 description = "balatro-engine 的 Python 绑定: 直接在对局状态上做搜索与批量试验."
 requires-python = ">=3.8"
+dynamic = ["version"]
 license = { text = "MIT" }
 classifiers = ["Programming Language :: Rust", "Programming Language :: Python :: Implementation :: CPython"]
 

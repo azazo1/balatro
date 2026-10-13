@@ -145,15 +145,28 @@ engine-replay *args:
         *sys.argv[1:],
     ]).returncode)
 
-# 构建 engine 的两个命令行二进制并归档到 dist/engine/.
-# macOS 上要通用二进制时直接跑 scripts/package_engine.py --universal.
-engine-dist:
-    {{ python }} scripts/package_engine.py
+# 统一构建 CLI, Python wheel, HTTP 服务与 Web/WASM, 每个平台一个综合归档.
+# macOS 上要通用二进制时使用 just engine-dist --universal.
+engine-dist *args:
+    uv run --no-project python scripts/package_engine.py {{ args }}
 
-# 构建 engine 的 Python 绑定 (engine/py), wheel 落在 engine/py/dist/.
-# 要在当前环境里直接 import 时改用 `maturin develop --release`.
-engine-py:
-    maturin build --release --manifest-path engine/py/Cargo.toml --out engine/py/dist
+# just engine-web [启动参数]
+# 构建并运行双模式对局调试页面, 默认 http://127.0.0.1:12347.
+engine-web *args:
+    uv run --no-project python scripts/engine_web.py run {{ args }}
+
+# just engine-web-dev [启动参数]
+# 启动 Vite 与 Rust 开发服务, 任一进程退出时收尾另一进程.
+engine-web-dev *args:
+    uv run --no-project python scripts/engine_web.py dev {{ args }}
+
+# 仅构建纯静态 Web/WASM 页面, 无需启动 HTTP 计算服务.
+engine-web-build:
+    uv run --no-project python scripts/engine_web.py build
+
+# 运行历史模型, HTTP, 前端关键测试与双模式构建检查.
+test-engine-web:
+    uv run --no-project python scripts/engine_web.py test
 
 # 运行完整 engine 回归, 已有 Lua 源码裁判, 零警告检查和永久记录基准.
 engine-audit:

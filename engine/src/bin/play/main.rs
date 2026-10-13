@@ -9,8 +9,7 @@
 mod replay;
 mod session;
 
-use std::collections::hash_map::RandomState;
-use std::hash::{BuildHasher, Hasher};
+use balatro_engine::opening::generate_seed;
 use std::path::{Path, PathBuf};
 
 use balatro_engine::agent::{action, dynamics, prompt, summary};
@@ -145,42 +144,6 @@ fn start_line(opening: &Opening) -> String {
         replay::quote(&opening.stake),
         replay::quote(&opening.uda)
     )
-}
-
-/// 游戏生成的种子长度.
-const SEED_LEN: usize = 8;
-
-/// 游戏生成种子用的字母表: 数字 `1-9` 与字母 `A-N`, `P-Z`.
-///
-/// 与 `game/functions/misc_functions.lua` 的 `random_string` 逐段对应 (那里是三次 `math.random`
-/// 取字符码): **没有 `0` 也没有 `O`** —— 与对方看混, 游戏故意跳过.
-const SEED_ALPHABET: &[u8] = b"123456789ABCDEFGHIJKLMNPQRSTUVWXYZ";
-
-/// 生成一个开局种子, 形状与游戏"新开一局"时给的一致.
-///
-/// 游戏那边是 `random_string(8, ...)` (见 `game/functions/misc_functions.lua`): 八位, 字母表是
-/// 数字 `1-9` 与字母 `A-N`, `P-Z` —— **没有 `0` 也没有 `O`** (它们与对方看混). 照抄这个形状,
-/// 生成的种子手输回游戏时不会被拒.
-fn generate_seed() -> String {
-    // 引擎只有 std, 没有随机数库. `RandomState` 是标准库里唯一与操作系统熵挂钩的东西 ——
-    // 它的键由 OS 随机数播种, 且每次构造都不一样; 再掺进时钟, 连着开两局也不会撞.
-    let mut hasher = RandomState::new().build_hasher();
-    hasher.write_u64(
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|elapsed| elapsed.as_nanos() as u64)
-            .unwrap_or(0),
-    );
-    // `| 1` 是防 xorshift 落进 0 里出不来 (零点是它的吸收态).
-    let mut state = hasher.finish() | 1;
-    let mut out = String::with_capacity(SEED_LEN);
-    for _ in 0..SEED_LEN {
-        state ^= state << 13;
-        state ^= state >> 7;
-        state ^= state << 17;
-        out.push(SEED_ALPHABET[(state % SEED_ALPHABET.len() as u64) as usize] as char);
-    }
-    out
 }
 
 /// 读动作文件; 不存在给空. 有一行不是 JSON 就说清是哪一行并退出.
@@ -577,6 +540,7 @@ fn run_prompt(args: &[String]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use balatro_engine::opening::SEED_ALPHABET;
 
     /// 字母表必须与游戏 `random_string` 用的完全一致.
     ///

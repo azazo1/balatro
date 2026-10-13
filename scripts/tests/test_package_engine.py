@@ -1,44 +1,37 @@
-"""engine 产物的命名与归档.
-
-产物名是发布页上直接可见的东西, 归档里少一个二进制或丢了可执行位则要等使用者解压才发现,
-这里把这两条锁住, 不实际编译.
-"""
+"""综合归档的组件完整性, 校验和与可执行位, 不调用编译工具链."""
 import os
-import tarfile
+from pathlib import Path
 import tempfile
 import unittest
 import zipfile
 
-import package_engine
+import package_engine as package
 
 VERSION = "1.0.1o-0.1.1"
 
 
-class NamingTest(unittest.TestCase):
-    def test_binary_names_follow_the_platform(self):
-        self.assertEqual(package_engine.binary_name("play", "windows"), "play.exe")
-        self.assertEqual(package_engine.binary_name("play", "linux"), "play")
-
-    def test_archive_names_carry_version_platform_and_arch(self):
-        self.assertEqual(package_engine.archive_name(VERSION, "linux", "x86_64"),
-                         "balatro-engine-1.0.1o-0.1.1-linux-x86_64.tar.gz")
-        self.assertEqual(package_engine.archive_name("1.0.1o+32cfe92", "macos", "universal"),
-                         "balatro-engine-1.0.1o+32cfe92-macos-universal.tar.gz")
-        self.assertEqual(package_engine.archive_name(VERSION, "windows", "x86_64"),
-                         "balatro-engine-1.0.1o-0.1.1-windows-x86_64.zip")
-
-
 def make_bundle(directory, platform, mode=0o755):
-    """造一个产物目录, 里面放占位的两个二进制."""
-    bundle = package_engine.bundle_name(VERSION, platform, "x86_64")
-    bundle_dir = os.path.join(directory, bundle)
-    os.makedirs(bundle_dir)
-    for binary in package_engine.BINARIES:
-        path = os.path.join(bundle_dir, package_engine.binary_name(binary, platform))
-        with open(path, "wb") as fh:
-            fh.write(b"placeholder\n")
-        os.chmod(path, mode)
-    return bundle, bundle_dir
+    bundle = package.bundle_name(VERSION, platform, "x86_64")
+    root = Path(directory, bundle)
+    files = {"README.md": b"readme", "web/index.html": b"<html></html>",
+             "web/assets/index.js": b"export {}", "web/wasm/engine_lab.js": b"export {}",
+             "web/wasm/engine_lab_bg.wasm": b"\0asm\x01\0\0\0"}
+    files.update({"bin/" + package.binary_name(b, platform): b"placeholder" for b in package.BINARIES})
+    for name, content in files.items():
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+        if name.startswith("bin/"):
+            path.chmod(mode)
+    python = root / "python"
+    python.mkdir()
+    tag = "win_amd64" if platform == "windows" else "linux_x86_64"
+    wheel = python / f"balatro_engine-0.1.0-cp38-abi3-{tag}.whl"
+    with zipfile.ZipFile(wheel, "w") as archive:
+        archive.writestr("balatro_engine/balatro_engine.abi3.pyd" if platform == "windows" else "balatro_engine/balatro_engine.abi3.so", b"native")
+        archive.writestr("balatro_engine-0.1.0.dist-info/WHEEL", "Tag: cp38-abi3-" + tag)
+    package.write_manifest(root, VERSION, platform, "x86_64")
+    return bundle, root
 
 
 class ArchiveTest(unittest.TestCase):
@@ -46,41 +39,52 @@ class ArchiveTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
 
-    def entries(self, path, platform):
-        if package_engine.EXTENSIONS[platform] == "zip":
-            with zipfile.ZipFile(path) as zf:
-                return sorted(info.filename for info in zf.infolist())
-        with tarfile.open(path) as tf:
-            return sorted(info.name for info in tf.getmembers())
+    def test_archive_names_keep_repository_version_rules(self):
+        self.assertEqual(package.archive_name(VERSION, "linux", "x86_64"), "balatro-engine-1.0.1o-0.1.1-linux-x86_64.tar.gz")
+        self.assertEqual(package.archive_name("1.0.1o+32cfe92", "macos", "universal"), "balatro-engine-1.0.1o+32cfe92-macos-universal.tar.gz")
+        self.assertEqual(package.archive_name(VERSION, "windows", "x86_64"), "balatro-engine-1.0.1o-0.1.1-windows-x86_64.zip")
 
-    def test_tar_archive_round_trip(self):
-        bundle, bundle_dir = make_bundle(self.tmp.name, "linux")
-        out = os.path.join(self.tmp.name, "engine.tar.gz")
-        package_engine.write_archive(bundle_dir, bundle, "linux", out)
-        self.assertEqual(self.entries(out, "linux"),
-                         ["%s/play" % bundle, "%s/replay_check" % bundle])
-        package_engine.verify_archive(out, bundle, "linux")
+    def test_recursive_roundtrip_and_reproducible_archives(self):
+        for platform in ["linux", "windows"]:
+            with self.subTest(platform=platform):
+                bundle, root = make_bundle(self.tmp.name, platform)
+                first, second = Path(self.tmp.name, platform + "-first"), Path(self.tmp.name, platform + "-second")
+                package.write_archive(root, bundle, platform, first)
+                package.verify_archive(first, bundle, platform)
+                package.write_archive(root, bundle, platform, second)
+                self.assertEqual(first.read_bytes(), second.read_bytes())
 
-    def test_zip_archive_round_trip(self):
-        bundle, bundle_dir = make_bundle(self.tmp.name, "windows")
-        out = os.path.join(self.tmp.name, "engine.zip")
-        package_engine.write_archive(bundle_dir, bundle, "windows", out)
-        self.assertEqual(self.entries(out, "windows"),
-                         ["%s/play.exe" % bundle, "%s/replay_check.exe" % bundle])
-        package_engine.verify_archive(out, bundle, "windows")
+    def test_missing_components_and_corrupt_wasm_are_refused_even_with_consistent_manifest(self):
+        components = ["bin/replay_check", "python", "web/wasm/engine_lab_bg.wasm", "web/assets/index.js"]
+        for index, component in enumerate(components):
+            with self.subTest(component=component):
+                area = Path(self.tmp.name, str(index))
+                bundle, root = make_bundle(area, "linux")
+                path = root / component
+                if path.is_dir():
+                    next(path.iterdir()).unlink()
+                elif component.endswith(".wasm"):
+                    path.write_bytes(b"not wasm")
+                else:
+                    path.unlink()
+                package.write_manifest(root, VERSION, "linux", "x86_64")
+                output = area / "archive.tar.gz"
+                package.write_archive(root, bundle, "linux", output)
+                with self.assertRaises(SystemExit):
+                    package.verify_archive(output, bundle, "linux")
 
-    def test_missing_binary_is_refused(self):
-        bundle, bundle_dir = make_bundle(self.tmp.name, "linux")
-        os.remove(os.path.join(bundle_dir, "replay_check"))
-        out = os.path.join(self.tmp.name, "engine.tar.gz")
-        package_engine.write_archive(bundle_dir, bundle, "linux", out)
+    def test_tampered_file_is_refused(self):
+        bundle, root = make_bundle(self.tmp.name, "linux")
+        (root / "web/assets/index.js").write_bytes(b"modified")
+        output = Path(self.tmp.name, "archive.tar.gz")
+        package.write_archive(root, bundle, "linux", output)
         with self.assertRaises(SystemExit):
-            package_engine.verify_archive(out, bundle, "linux")
+            package.verify_archive(output, bundle, "linux")
 
-    @unittest.skipUnless(os.name == "posix", "可执行位只在 posix 上有意义")
+    @unittest.skipUnless(os.name == "posix", "仅在 POSIX 检查可执行位")
     def test_lost_executable_bit_is_refused(self):
-        bundle, bundle_dir = make_bundle(self.tmp.name, "linux", mode=0o644)
-        out = os.path.join(self.tmp.name, "engine.tar.gz")
-        package_engine.write_archive(bundle_dir, bundle, "linux", out)
+        bundle, root = make_bundle(self.tmp.name, "linux", mode=0o644)
+        output = Path(self.tmp.name, "archive.tar.gz")
+        package.write_archive(root, bundle, "linux", output)
         with self.assertRaises(SystemExit):
-            package_engine.verify_archive(out, bundle, "linux")
+            package.verify_archive(output, bundle, "linux")

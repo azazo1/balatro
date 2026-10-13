@@ -4,34 +4,14 @@ use std::collections::HashMap;
 
 use balatro_engine::data::json::Json;
 
-/// 存档进度表 (`snapshot.uda`) 的内置全解锁档.
-///
-/// 它记的是"这个档解锁了什么", 与种子 / 牌组 / 赌注都无关. 少了它, 候选池里会多出没解锁的
-/// 占位格子, 抽出来的东西整体偏 —— 所以开局必须带上. 这份是从真实存档里取的快照, 结构与
-/// 录像的 `snapshot.uda` 同构, 于是解析只有一条路径.
-const UDA_ALL: &str = include_str!("../../../data/uda-all.json");
-
 /// 赌注名转档位. 与回放文件里的 `stake` 一致.
 pub fn stake_of(name: &str) -> i64 {
-    for (index, candidate) in
-        ["WHITE", "RED", "GREEN", "BLACK", "BLUE", "PURPLE", "ORANGE", "GOLD"]
-            .iter()
-            .enumerate()
-    {
-        if candidate.eq_ignore_ascii_case(name) {
-            return index as i64 + 1;
-        }
-    }
-    name.parse().expect("赌注要么是档位数字, 要么是 WHITE..GOLD")
+    balatro_engine::opening::stake_of(name).expect("赌注必须是 1..8 或 WHITE..GOLD")
 }
 
 /// 牌组名转内部键: 大小写不敏感, 自动补 `b_` 前缀.
 pub fn deck_of(name: &str) -> String {
-    if name.starts_with("b_") {
-        name.to_owned()
-    } else {
-        format!("b_{}", name.to_lowercase())
-    }
+    balatro_engine::opening::deck_of(name).expect("牌组必须是引擎支持的牌组")
 }
 
 /// 内置的解锁档, 由 `--uda` 选.
@@ -65,11 +45,10 @@ impl Profile {
     }
 
     fn uda(self) -> HashMap<String, String> {
-        match self {
-            // 空表就是新存档: 引擎对没记过的原型按它自己的初始值算.
-            Profile::New => HashMap::new(),
-            Profile::All => uda_of_snapshot(UDA_ALL, "内置的全解锁档"),
-        }
+        balatro_engine::opening::profile_uda(match self {
+            Profile::New => "new",
+            Profile::All => "all",
+        }).expect("内置解锁档有效")
     }
 }
 

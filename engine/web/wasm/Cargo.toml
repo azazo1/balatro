@@ -1,0 +1,18 @@
+[package]
+name = "balatro-engine-wasm"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+engine = { package = "balatro-engine", path = "../.." }
+lab = { package = "balatro-engine-lab", path = "../model" }
+serde_json = "1"
+wasm-bindgen = "0.2"
+console_error_panic_hook = "0.1"
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false

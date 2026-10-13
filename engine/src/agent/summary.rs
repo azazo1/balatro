@@ -121,7 +121,7 @@ fn name_and_effect(key: &str) -> (String, String) {
 }
 
 /// 修饰后缀: 强化, 版本, 蜡封, 永恒 / 易腐 / 租赁. 没有时给空串.
-fn card_modifiers(
+pub fn card_modifiers(
     enhancement: Option<Enhancement>,
     edition: Option<Edition>,
     seal: Option<Seal>,
@@ -160,7 +160,7 @@ fn card_modifiers(
 }
 
 /// 一张扑克牌: `红桃A (倍率牌, 闪箔)`, 并单独给出计分筹码.
-fn playing_card(card: &CardInstance) -> String {
+pub fn playing_card(card: &CardInstance) -> String {
     let base = format!("{}{}", suit_zh(card.card.suit), rank_zh(card.card.rank));
     let tail = card_modifiers(
         card.enhancement,

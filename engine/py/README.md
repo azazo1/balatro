@@ -6,15 +6,12 @@
 
 ## 构建与安装
 
-用 maturin:
-
-```shell
-cd engine/py
-maturin develop --release     # 装进当前环境, 之后 import 就能用
-maturin build --release       # 或者只出 wheel, 产物在 target/wheels/
-```
+发行构建统一使用 `just engine-dist`, wheel 在综合归档的 `python/` 内, 与 CLI 和 Web 一起发布.
+开发绑定时可在当前项目虚拟环境内使用 `maturin develop --release --manifest-path engine/py/Cargo.toml`.
+不再单独输出或发布一组 Python 发行产物.
 
 按 abi3 编译, 一份 wheel 覆盖 Python 3.8 及以上.
+`balatro_engine.build_version` 报告综合包的统一构建版本.
 
 ## 用法
 
@@ -64,7 +61,7 @@ for cards in candidates:
 克隆分支向前模拟两个商店, 消耗牌负责把牌组往同一花色与同一张牌上推.
 
 ```shell
-just engine-py
+# 先在当前项目环境中安装综合包内的 wheel.
 CATALOG=docs/game/data/catalog.json python3 engine/py/autoplay.py 8 种子1 种子2 ...
 ```
 

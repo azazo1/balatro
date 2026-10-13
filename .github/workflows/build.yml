@@ -118,9 +118,7 @@ jobs:
             echo "| 构建版本 | $build_version |"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # engine 的规则回归与两个命令行二进制 (play / replay_check) 的产物.
-  # 完整规则回归只在 linux 上跑: 基准数据与手册都随仓库走, 不需要游戏, LuaJIT 或图形环境.
-  # macOS 与 Windows 只做构建与版本 smoke —— 那两个平台上没有人跑过这批测试, 不让它们卡发布.
+  # 每个平台只生成一个 engine 综合包, 内含 CLI, Python wheel, HTTP 与 Web/WASM.
   engine:
     needs: version
     strategy:
@@ -145,89 +143,67 @@ jobs:
         with:
           ref: ${{ needs.version.outputs.source_ref }}
 
-      # engine 与 native/bbnet 是两个独立的 cargo workspace, 各自缓存 engine/target, 互不复用.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+          targets: wasm32-unknown-unknown
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: engine
+          workspaces: |
+            engine
+            engine/web
+            engine/py
 
-      # runner 预装的 Rust 未必带 clippy; 已装时这条瞬间结束.
-      - name: 准备 clippy
-        if: matrix.platform == 'linux'
-        shell: bash
-        run: rustup component add clippy
+      - uses: actions/cache@v4
+        with:
+          path: .tmp/engine-web-tools
+          key: engine-web-tools-${{ runner.os }}-${{ hashFiles('engine/web/Cargo.lock') }}
 
-      # 通用二进制的另一半: runner 本身是 arm64, x86_64 要显式加上.
-      - name: 准备 macOS 的 x86_64 目标
+      - name: 准备 macOS 通用目标
         if: matrix.platform == 'macos'
         shell: bash
-        run: rustup target add x86_64-apple-darwin
+        run: rustup target add x86_64-apple-darwin aarch64-apple-darwin
 
-      - name: engine 测试与 lint
+      - name: 共用 Web 模型与接口测试
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --locked --manifest-path engine/web/Cargo.toml --workspace
+          cargo clippy --locked --manifest-path engine/web/Cargo.toml --workspace --all-targets -- -D warnings
+          bun install --cwd engine/web/client --frozen-lockfile
+          bun run --cwd engine/web/client test
+
+      - name: 核心引擎回归与 lint
         if: matrix.platform == 'linux'
         shell: bash
         run: |
           set -euo pipefail
           cargo test --locked --manifest-path engine/Cargo.toml --no-fail-fast
           cargo clippy --locked --manifest-path engine/Cargo.toml --all-targets -- -D warnings
+          cargo clippy --locked --manifest-path engine/py/Cargo.toml --all-targets -- -D warnings
+          uv run --no-project python -m unittest discover -s scripts/tests -t scripts
 
-      - name: 打包 engine 二进制
-        if: matrix.platform != 'windows'
+      - name: 构建并校验综合包
         shell: bash
         env:
           PROJECT_BUILD_VERSION: ${{ needs.version.outputs.build_version }}
-        run: python3 scripts/package_engine.py ${{ matrix.args }}
-
-      - name: 打包 engine 二进制 (Windows)
-        if: matrix.platform == 'windows'
-        shell: pwsh
-        env:
-          PROJECT_BUILD_VERSION: ${{ needs.version.outputs.build_version }}
         run: |
-          python scripts/package_engine.py
-          if ($LASTEXITCODE) { throw 'engine 打包失败' }
+          set -euo pipefail
+          uv run --no-project --with maturin==1.15.0 python scripts/package_engine.py ${{ matrix.args }}
 
       - uses: actions/upload-artifact@v6
         with:
           name: balatro-engine-${{ needs.version.outputs.build_version }}-${{ matrix.platform }}-${{ matrix.arch }}
           path: dist/engine/balatro-engine-${{ needs.version.outputs.build_version }}-${{ matrix.platform }}-${{ matrix.arch }}.*
-          if-no-files-found: error
-          retention-days: 14
-
-  # engine 的 Python 绑定. 它是独立 crate (engine/py), 按 abi3 打包, 一份 wheel 覆盖 3.8 以上,
-  # 所以这里不需要跟 Python 版本排组合.
-  python:
-    needs: version
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-24.04
-            wheel: linux-x86_64
-          - os: macos-15
-            wheel: macos-arm64
-          - os: windows-2025
-            wheel: windows-x86_64
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ needs.version.outputs.source_ref }}
-
-      # 绑定是自己一个 workspace, 缓存与 engine 那份分开.
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: engine/py
-
-      - name: 构建 wheel
-        uses: PyO3/maturin-action@v1
-        with:
-          working-directory: engine/py
-          args: --release --out dist
-
-      - uses: actions/upload-artifact@v6
-        with:
-          name: balatro-engine-py-${{ needs.version.outputs.build_version }}-${{ matrix.wheel }}
-          path: engine/py/dist/*.whl
           if-no-files-found: error
           retention-days: 14
 
@@ -555,13 +531,22 @@ jobs:
               *) echo "::error::意外的产物: $f"; exit 1 ;;
             esac
           done
-          # 三个平台各有原版与带 mod 两个游戏产物, 再加三个平台的 engine 二进制, 共 9 个.
+          # 六个游戏产物和三个 engine 综合包, wheel 与 Web 只能在综合包内部.
           # 数量不对说明有 job 静默漏传.
           if [ "$count" -ne 9 ]; then
             echo "::error::产物数量为 $count, 期望 9"
             ls -la artifacts || true
             exit 1
           fi
+          python3 - <<'PY'
+          import os, sys
+          sys.path.insert(0, 'scripts')
+          import package_engine as package
+          version = os.environ['VERSION']
+          for platform, arch in [('linux', 'x86_64'), ('macos', 'universal'), ('windows', 'x86_64')]:
+              name = package.archive_name(version, platform, arch)
+              package.verify_archive('upload/' + name, package.bundle_name(version, platform, arch), platform)
+          PY
           ( cd upload && sha256sum ./* > SHA256SUMS )
           cat upload/SHA256SUMS
 
