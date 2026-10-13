@@ -1,10 +1,10 @@
 use std::{net::{Ipv4Addr, SocketAddr}, path::PathBuf};
-use balatro_engine_web::api::{router, AppState};
+use balatro_web_server::api::{router, AppState};
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
-#[command(name = "balatro-engine-web", version = engine::VERSION, about = "浏览器对局调试台的本地 HTTP 服务")]
+#[command(name = "balatro-web-server", version = engine::VERSION, about = "浏览器对局调试台的本地 HTTP 服务")]
 struct Args {
     /// 本地监听端口, 只绑定 127.0.0.1.
     #[arg(long, default_value_t = 12347, value_parser = clap::value_parser!(u16).range(1..))]
@@ -20,7 +20,7 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
-    tracing_subscriber::fmt().with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "balatro_engine_web=info,tower_http=info,balatro_engine_lab=info".into())).init();
+    tracing_subscriber::fmt().with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "balatro_web_server=info,tower_http=info,balatro_web_lab=info".into())).init();
     let previous_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| { tracing::error!(panic=%info, "进程 panic"); previous_hook(info); }));
     let static_dir = args.static_dir.unwrap_or_else(|| std::env::current_exe().ok()

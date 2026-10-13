@@ -1,4 +1,4 @@
-//! 让 agent 在引擎里逐步对局与查规则. 用法见 `engine/README.md` 的 "让 agent 玩" 一节.
+//! 让 agent 在引擎里逐步对局与查规则. 用法见 `impls/engine/README.md` 的 "让 agent 玩" 一节.
 //!
 //! 每一步是一次独立命令: 每次调用把动作文件从头重放一遍再打印局面 (引擎确定, 所以不需要常驻
 //! 进程). 动作先执行, 成功了才写进动作文件, 因此被拒绝的动作不会留在历史里.
@@ -32,14 +32,14 @@ macro_rules! emit {
 }
 
 const HELP: &str = "\
-用法: play <子命令> [参数]
+用法: balatro play <子命令> [参数]
 
 子命令:
   step      在引擎里走一步对局 (默认子命令)
-  lookup    查卡牌的中文名与效果      play lookup j_odd_todd 奇数托德
-  docs      手册目录, 或读某一节      play docs [路径] [--offset N] [--limit N]
-  search    在手册里搜子串            play search 利息 [--doc rules/economy.md]
-  prompt    输出系统提示词            play prompt [--endless] [--strategy 文本]
+  lookup    查卡牌的中文名与效果      balatro play lookup j_odd_todd 奇数托德
+  docs      手册目录, 或读某一节      balatro play docs [路径] [--offset N] [--limit N]
+  search    在手册里搜子串            balatro play search 利息 [--doc rules/economy.md]
+  prompt    输出系统提示词            balatro play prompt [--endless] [--strategy 文本]
 
 step 的参数:
   --seed 种子 --deck 牌组 --stake 赌注   开局参数. 新开一局时必给牌组与赌注;
@@ -55,15 +55,15 @@ step 的参数:
 --version 打印构建版本, 直接 cargo run 的日常构建显示 dev-build.
 ";
 
-fn main() {
-    let argv: Vec<String> = std::env::args().skip(1).collect();
+/// `balatro play` 的入口, argv 是子命令之后的参数.
+pub fn run(argv: &[String]) {
     let (command, rest): (&str, &[String]) = match argv.first().map(String::as_str) {
         None | Some("-h") | Some("--help") | Some("help") => {
             emit!("{HELP}");
             return;
         }
         Some("-V") | Some("--version") => {
-            say!("play {}", engine::VERSION);
+            say!("balatro play {}", engine::VERSION);
             return;
         }
         Some("lookup") => ("lookup", &argv[1..]),

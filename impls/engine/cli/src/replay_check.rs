@@ -1,10 +1,10 @@
-//! 无图形环境的逐局回放校验入口.
+//! 无图形环境的逐局回放校验入口, 由 `balatro replay-check` 调用.
 
 use engine::data::json::Json;
 use engine::replay;
 use std::path::Path;
 
-fn run(path: &Path, strict: bool) -> Result<bool, String> {
+fn check_file(path: &Path, strict: bool) -> Result<bool, String> {
     let text = std::fs::read_to_string(path).map_err(|error| error.to_string())?;
     let (header, steps) = if path.extension().is_some_and(|extension| extension == "jsonl") {
         let mut lines = text.lines().filter(|line| !line.trim().is_empty());
@@ -39,21 +39,22 @@ fn run(path: &Path, strict: bool) -> Result<bool, String> {
     Ok(result == "PASS")
 }
 
-fn main() {
+/// `balatro replay-check` 的入口, argv 是子命令之后的参数.
+pub fn run(argv: &[String]) {
     let mut strict = false;
     let mut paths = Vec::new();
-    for argument in std::env::args().skip(1) {
+    for argument in argv {
         match argument.as_str() {
             "--strict" => strict = true,
             "-h" | "--help" => {
-                println!("replay_check [--strict] <回放.json | fixture.jsonl> ...");
+                println!("balatro replay-check [--strict] <回放.json | fixture.jsonl> ...");
                 return;
             },
             "-V" | "--version" => {
-                println!("replay_check {}", engine::VERSION);
+                println!("balatro replay-check {}", engine::VERSION);
                 return;
             },
-            _ => paths.push(argument),
+            _ => paths.push(argument.clone()),
         }
     }
     if paths.is_empty() {
@@ -63,7 +64,7 @@ fn main() {
     let started = std::time::Instant::now();
     let mut failed = 0;
     for path in &paths {
-        match run(Path::new(path), strict) {
+        match check_file(Path::new(path), strict) {
             Ok(true) => {},
             Ok(false) => failed += 1,
             Err(error) => { failed += 1; eprintln!("ERROR\t{path}\t{error}"); },
