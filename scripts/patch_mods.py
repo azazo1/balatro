@@ -4,9 +4,9 @@
 打包脚本加 --mods 时会自动做这一步, 这里单独提供, 便于检查补丁命中情况或直接用 love 运行.
 
 用法:
-    python3 scripts/patch_mods.py                 # 输出到 dist/modded-tree
-    python3 scripts/patch_mods.py --check         # 只检查补丁, 不保留输出
-    python3 scripts/patch_mods.py --mods 别处/Mods --strict -v
+    uv run --no-project python scripts/patch_mods.py                 # 输出到 dist/modded-tree
+    uv run --no-project python scripts/patch_mods.py --check         # 只检查补丁, 不保留输出
+    uv run --no-project python scripts/patch_mods.py --mods 别处/Mods --strict -v
 """
 import argparse
 import os

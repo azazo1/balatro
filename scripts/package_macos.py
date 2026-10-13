@@ -6,10 +6,10 @@ Contents/Resources. LÖVE 会在此目录查找 .love 并进入伪融合模式, 
 该文件名, 因此为 Balatro.
 
 用法:
-    python3 scripts/package_macos.py
-    python3 scripts/package_macos.py --icon 自定义图标.png
-    python3 scripts/package_macos.py --no-icon
-    python3 scripts/package_macos.py --mods          # 带 mod 的版本, mod 取自 mods/
+    uv run --no-project python scripts/package_macos.py
+    uv run --no-project python scripts/package_macos.py --icon 自定义图标.png
+    uv run --no-project python scripts/package_macos.py --no-icon
+    uv run --no-project python scripts/package_macos.py --mods          # 带 mod 的版本, mod 取自 mods/
 """
 import argparse
 import os

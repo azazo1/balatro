@@ -13,9 +13,9 @@ Windows 版的做法是把 .love 追加到 love.exe 末尾: LÖVE 内部用 Phys
 见 lib/win_acl.py 与 scripts/fix_acl.py.
 
 用法:
-    python3 scripts/package_windows.py
-    python3 scripts/package_windows.py --console   # 同时产出带控制台的版本, 便于看日志
-    python3 scripts/package_windows.py --mods      # 带 mod 的版本, mod 取自 mods/
+    uv run --no-project python scripts/package_windows.py
+    uv run --no-project python scripts/package_windows.py --console   # 同时产出带控制台的版本, 便于看日志
+    uv run --no-project python scripts/package_windows.py --mods      # 带 mod 的版本, mod 取自 mods/
 """
 import argparse
 import os

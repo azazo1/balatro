@@ -5,8 +5,8 @@
 (抬高完整性级别要写入属主), 所以本脚本要在沙箱外的终端里执行, 或者提权执行.
 
 用法:
-    python3 scripts/fix_acl.py --inside dist/windows      # 修目录里的产物, 目录自身不动
-    python3 scripts/fix_acl.py dist/windows/Balatro-1.0.1o-win64
+    uv run --no-project python scripts/fix_acl.py --inside dist/windows      # 修目录里的产物, 目录自身不动
+    uv run --no-project python scripts/fix_acl.py dist/windows/Balatro-1.0.1o-win64
 
 --inside 表示参数是存放产物的目录: 只重置目录里的内容, 目录自身保持原级别,
 这样后续还能继续往这个目录里写新产物.

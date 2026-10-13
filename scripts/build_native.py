@@ -1,9 +1,9 @@
 """编译与测试原生库 native/bbnet (网络与录像用的颜色转换都在这一个库里).
 
-    python3 scripts/build_native.py test                    # 跑单元测试与集成测试
-    python3 scripts/build_native.py build macos             # 输出到 dist/native/macos/
-    python3 scripts/build_native.py build windows           # 输出到 dist/native/windows/
-    python3 scripts/build_native.py build android [abi...]  # 输出到 dist/native/android/<abi>/
+    uv run --no-project python scripts/build_native.py test                    # 跑单元测试与集成测试
+    uv run --no-project python scripts/build_native.py build macos             # 输出到 dist/native/macos/
+    uv run --no-project python scripts/build_native.py build windows           # 输出到 dist/native/windows/
+    uv run --no-project python scripts/build_native.py build android [abi...]  # 输出到 dist/native/android/<abi>/
 
 产物都在 dist/ 下, 不进 mod 源码目录: 打包时由各平台的打包脚本只放入本平台的库 (桌面放进
 mod 树的 balatrobot/native/<平台>/, Android 放进 APK 的 lib/<abi>/), 免得一个平台的库混进别的平台的包.

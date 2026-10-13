@@ -1,5 +1,5 @@
 # Android 平台的打包入口.
-python := if os_family() == "windows" { "python" } else { "python3" }
+python := "uv run --no-project python"
 
 [private]
 default:

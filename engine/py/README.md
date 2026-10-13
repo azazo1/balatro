@@ -6,7 +6,7 @@
 
 ## 构建与安装
 
-发行构建统一使用 `just engine-dist`, wheel 在综合归档的 `python/` 内, 与 CLI 和 Web 一起发布.
+发行构建统一使用 `just engine dist`, wheel 在综合归档的 `python/` 内, 与 CLI 和 Web 一起发布.
 开发绑定时可在当前项目虚拟环境内使用 `maturin develop --release --manifest-path engine/py/Cargo.toml`.
 不再单独输出或发布一组 Python 发行产物.
 
@@ -54,18 +54,6 @@ for cards in candidates:
 | `hand()` `jokers()` `consumables()` | 手牌 token / 小丑 key / 消耗牌 key |
 | `won()` `over()` | 是否通关 / 是否已经结束 |
 | `Game.full_unlock_uda()` | 内置解锁档的 JSON 原文 |
-
-## 自动对局
-
-`autoplay.py` 是建在这套绑定上的自动玩家: 出牌走"牌型预筛 + 前几名真打"的搜索, 商店决策靠
-克隆分支向前模拟两个商店, 消耗牌负责把牌组往同一花色与同一张牌上推.
-
-```shell
-# 先在当前项目环境中安装综合包内的 wheel.
-CATALOG=docs/game/data/catalog.json python3 engine/py/autoplay.py 8 种子1 种子2 ...
-```
-
-强度用一批种子上的**平均**到达底注衡量, 而不是挑出最好的种子. 开关与开局参数见文件头.
 
 ## 注意
 

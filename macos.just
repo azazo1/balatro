@@ -1,10 +1,9 @@
 # macOS 平台的打包入口.
-python := if os_family() == "windows" { "python" } else { "python3" }
+python := "uv run --no-project python"
 # 内联脚本 (下面 [script] 那些) 用哪个解释器. 这个设置只能在**本文件**里生效:
 # mod 文件不会继承主 justfile 的 settings, 所以每个有内联脚本的文件都得自己写一行.
-# 注意 `set` 是 const 上下文 —— 不能引用上面的 `python` 变量, 也不能调 os_family(),
-# 所以只能写字面量; 本文件是 macOS 专用的, 写 python3 就是对的.
-set script-interpreter := ['python3']
+# 注意 `set` 是 const 上下文 —— 不能引用上面的 `python` 变量, 只能写字面量.
+set script-interpreter := ['uv', 'run', '--no-project', 'python']
 
 [private]
 default:

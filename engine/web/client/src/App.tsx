@@ -190,7 +190,7 @@ export function App() {
       <button className="btn orange small" disabled={busy || !info} onClick={() => setNewGame(true)}>新局</button>
       <button className="btn orange small" disabled={busy} onClick={() => fileInput.current?.click()}>载入</button>
       <button className="btn orange small" disabled={busy || !view} onClick={() => void exportFile()} title="下载全部分支会话文件">保存</button>
-      <button className="btn orange small" disabled={busy || !view || view.edited} onClick={() => void exportFile(true)} title="导出 .actions.jsonl, 供 just play 使用">动作</button>
+      <button className="btn orange small" disabled={busy || !view || view.edited} onClick={() => void exportFile(true)} title="导出 .actions.jsonl, 供 just engine play 使用">动作</button>
       <button className="btn grey small" disabled={busy} onClick={() => void switchMode(mode === 'wasm' ? 'http' : 'wasm')} title="切换计算后端, 会复制当前会话">{mode === 'wasm' ? 'WASM' : 'HTTP'}</button>
       <button className="btn grey small" aria-pressed={sidebar} onClick={() => setSidebar(s => !s)} title="快捷键 D">调试栏</button>
     </div>

@@ -6,10 +6,10 @@ liblove.so 直接用官方发行包里编译好的, 只替换游戏负载, 改�
 需要 NDK, cargo-ndk 与对应的 rust target, 不需要时加 --no-native.
 
 用法:
-    python3 scripts/package_android.py
-    python3 scripts/package_android.py --package com.foo.bar
-    python3 scripts/package_android.py --keystore 我的.jks --keystore-pass 密码
-    python3 scripts/package_android.py --mods   # 带 mod 的版本, 包名与原版不同, 可同时安装
+    uv run --no-project python scripts/package_android.py
+    uv run --no-project python scripts/package_android.py --package com.foo.bar
+    uv run --no-project python scripts/package_android.py --keystore 我的.jks --keystore-pass 密码
+    uv run --no-project python scripts/package_android.py --mods   # 带 mod 的版本, 包名与原版不同, 可同时安装
 """
 import argparse
 import os

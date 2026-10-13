@@ -5,8 +5,8 @@
 否则旧产物会留在原地, 而被误以为已经清理干净.
 
 用法:
-    python3 scripts/clean.py            # 删除 dist/
-    python3 scripts/clean.py 某个目录    # 删除指定目录 (便于排查)
+    uv run --no-project python scripts/clean.py            # 删除 dist/
+    uv run --no-project python scripts/clean.py 某个目录    # 删除指定目录 (便于排查)
 """
 import os
 import shutil

@@ -41,7 +41,7 @@
    文件名仍带这一局的 `<stem>` 前缀. 建不出文件夹时退回平铺写法, 只记一行警告. 回放列表两种布局都认.
 5. 新增 `just macos recordings-recover` (Windows 上是 `just windows recordings-recover`): 扫描 `recordings/`
    里残留的中间文件 (每局一个文件夹, 与旧版平铺的两种布局都扫), 加 `--run` 补做合成. 脚本本身跨平台,
-   只依赖 python3 与 ffmpeg; 判断游戏与合成脚本是否运行, macOS 上用 pgrep, Windows 上用 tasklist 与 PowerShell.
+   只依赖 uv 与 ffmpeg; 判断游戏与合成脚本是否运行, macOS 上用 pgrep, Windows 上用 tasklist 与 PowerShell.
 
 ## Windows
 

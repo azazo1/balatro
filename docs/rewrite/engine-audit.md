@@ -73,8 +73,8 @@ get_current_pool 和 poll_seal. 终端池为 Red,Blue,Gold,Purple, 606 张结果
 ## 离线对拍
 
 ```shell
-just engine-replay <回放文件.replay.json> [更多回放文件]
-just engine-replay --strict <fixture.jsonl>
+just engine replay <回放文件.replay.json> [更多回放文件]
+just engine replay --strict <fixture.jsonl>
 ```
 
 [回放校验模块](<../../engine/src/replay/mod.rs>) 复用正式动作适配器,
@@ -117,7 +117,7 @@ just engine-replay --strict <fixture.jsonl>
 ## 最终验收
 
 ```shell
-just engine-audit
+just engine audit
 ```
 
 需要已有 Lua/LuaJIT 和完整 Lovely 补丁树. 该入口不自动安装解释器, 不启动图形游戏,

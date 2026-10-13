@@ -1,9 +1,8 @@
 # Windows 平台的打包入口.
-python := if os_family() == "windows" { "python" } else { "python3" }
+python := "uv run --no-project python"
 # 这个模块**可以**在 macOS 与 Linux 上调用 (打包脚本只做 zip, 没有平台守卫),
-# 所以内联脚本不能用 `set script-interpreter := ['python']` 写死: 那在 macOS 上会找不到 python.
-# 用 shebang 取平台对应的解释器.
-python_shebang := if os_family() == "windows" { "python" } else { "/usr/bin/env python3" }
+# 而 uv 在三个平台上是同一个命令, 所以内联脚本的解释器不需要再按平台区分.
+set script-interpreter := ['uv', 'run', '--no-project', 'python']
 
 [private]
 default:
@@ -39,8 +38,8 @@ fix-acl path="dist/windows":
 # 用脚本 recipe 而不是把参数拼进命令行: `{{ args }}` 是不加引号拼的, 路径里有空格时
 # 会被拆成两个参数. [positional-arguments] 会把每个参数按原样放进 argv.
 [positional-arguments]
+[script]
 recordings-recover *args:
-    #!{{ python_shebang }}
     import sys
     sys.path.insert(0, {{ quote(justfile_directory() + "/scripts") }})
     from recordings_recover import main

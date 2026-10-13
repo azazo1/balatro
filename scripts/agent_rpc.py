@@ -1,7 +1,7 @@
 """调用 mod 版的 agent 接口: 一次调用, 或轮询等游戏进入某个状态. 接口说明见 docs/agent-api.md.
 
-    python3 scripts/agent_rpc.py call <方法> ['<参数 JSON>'] [端口]
-    python3 scripts/agent_rpc.py wait [状态] [超时秒数] [端口]
+    uv run --no-project python scripts/agent_rpc.py call <方法> ['<参数 JSON>'] [端口]
+    uv run --no-project python scripts/agent_rpc.py wait [状态] [超时秒数] [端口]
 
 只用标准库的 urllib, Windows 上没有 curl 也能用.
 """

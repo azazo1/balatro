@@ -11,10 +11,10 @@
 默认只列出不执行, 加 --run 才合成. 正在录制或正在合成的局会跳过.
 
 用法:
-    python3 scripts/recordings_recover.py                    # 列出 recordings/ 里的残留
-    python3 scripts/recordings_recover.py --run              # 补做合成, 保留中间文件
-    python3 scripts/recordings_recover.py --run --clean      # 全部成功后删除中间文件
-    python3 scripts/recordings_recover.py 别处/recordings --run
+    uv run --no-project python scripts/recordings_recover.py                    # 列出 recordings/ 里的残留
+    uv run --no-project python scripts/recordings_recover.py --run              # 补做合成, 保留中间文件
+    uv run --no-project python scripts/recordings_recover.py --run --clean      # 全部成功后删除中间文件
+    uv run --no-project python scripts/recordings_recover.py 别处/recordings --run
 """
 import argparse
 import os

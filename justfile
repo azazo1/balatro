@@ -1,6 +1,8 @@
-# 跨平台的 python 调用方式: Windows 上是 python, 其余平台是 python3
-python := if os_family() == "windows" { "python" } else { "python3" }
-python_shebang := if os_family() == "windows" { "python" } else { "/usr/bin/env python3" }
+# python 脚本统一用 uv 运行 (python 由 uv 提供), 不再按平台区分 python 与 python3
+python := "uv run --no-project python"
+# 内联脚本 (下面 [script] 那些) 的解释器, 三个平台写法一致.
+# 用 [script] 而不是 shebang: shebang 在 Windows 上不可用.
+set script-interpreter := ['uv', 'run', '--no-project', 'python']
 
 [private]
 default:
@@ -17,6 +19,9 @@ mod windows
 
 # 编译与测试原生库, 用法: just native test / just native build android arm64-v8a
 mod native
+
+# 引擎的对局, 回放, Web, 打包与回归, 用法: just engine play / just engine web
+mod engine
 
 # 根据当前平台生成发布产物, 等价于对应平台模块的 dist.
 # 需要指定平台时用 just macos dist / just android dist / just windows dist.
@@ -64,8 +69,8 @@ mods-tree mods="mods":
 # 参数由 just 直接传给 Python, 避免 Windows shell 改写 JSON 的引号与反斜杠.
 # 调用 mod 版内置的 agent 接口 (需先开启), 输出 JSON-RPC 响应, 见 docs/agent-api.md.
 [positional-arguments]
+[script]
 agent-call method params="{}" port="12346":
-    #!{{ python_shebang }}
     import sys
     sys.path.insert(0, "scripts")
     from agent_rpc import main
@@ -75,8 +80,8 @@ agent-call method params="{}" port="12346":
 # just agent-wait [状态] [超时秒数] [端口]
 # 轮询 agent 接口直到游戏进入指定状态 (默认 MENU), 用于等开场动画播完; 超时返回非 0.
 [positional-arguments]
+[script]
 agent-wait state="MENU" timeout="60" port="12346":
-    #!{{ python_shebang }}
     import sys
     sys.path.insert(0, "scripts")
     from agent_rpc import main
@@ -90,83 +95,6 @@ game-docs:
 # 校验游戏手册的覆盖率, 原型定位与本地链接.
 check-game-docs:
     {{ python }} scripts/check-game-docs.py
-
-# just play <子命令> [参数]
-# 让 agent 在引擎里逐步对局与查规则, 不需要游戏与图形环境.
-# 子命令见 engine/README.md 的 "让 agent 玩" 一节.
-[positional-arguments]
-play *args:
-    #!{{ python_shebang }}
-    import subprocess
-    import sys
-    sys.exit(subprocess.run([
-        "cargo", "run", "--release", "--quiet",
-        "--manifest-path", "engine/Cargo.toml", "--bin", "play", "--",
-        *sys.argv[1:],
-    ]).returncode)
-
-# just engine-replay <回放文件或 fixture> [更多文件]
-# 离线逐步核对游戏回放, 不启动游戏, 每局报告首次分歧.
-[positional-arguments]
-engine-replay *args:
-    #!{{ python_shebang }}
-    import subprocess
-    import sys
-    sys.exit(subprocess.run([
-        "cargo", "run", "--release", "--offline", "--quiet",
-        "--manifest-path", "engine/Cargo.toml", "--bin", "replay_check", "--",
-        *sys.argv[1:],
-    ]).returncode)
-
-# 统一构建 CLI, Python wheel, HTTP 服务与 Web/WASM, 每个平台一个综合归档.
-# macOS 上要通用二进制时使用 just engine-dist --universal.
-engine-dist *args:
-    uv run --no-project python scripts/package_engine.py {{ args }}
-
-# just engine-web [启动参数]
-# 构建并运行双模式对局调试页面, 默认 http://127.0.0.1:12347.
-engine-web *args:
-    uv run --no-project python scripts/engine_web.py run {{ args }}
-
-# just engine-web-dev [启动参数]
-# 启动 Vite 与 Rust 开发服务, 任一进程退出时收尾另一进程.
-engine-web-dev *args:
-    uv run --no-project python scripts/engine_web.py dev {{ args }}
-
-# 仅构建纯静态 Web/WASM 页面, 无需启动 HTTP 计算服务.
-engine-web-build:
-    uv run --no-project python scripts/engine_web.py build
-
-# 运行历史模型, HTTP, 前端关键测试与双模式构建检查.
-test-engine-web:
-    uv run --no-project python scripts/engine_web.py test
-
-# 运行完整 engine 回归, 已有 Lua 源码裁判, 零警告检查和永久记录基准.
-engine-audit:
-    #!{{ python_shebang }}
-    import os
-    from pathlib import Path
-    import subprocess
-    import sys
-    tree = Path(".tmp/engine-audit/modded-tree").resolve()
-    if not all((tree / name).is_file() for name in ["game.lua", "functions/common_events.lua"]):
-        sys.exit("需要已有完整 Lovely 补丁树 .tmp/engine-audit/modded-tree; 不自动安装或启动游戏")
-    env = dict(os.environ, BALATRO_PATCHED_TREE=str(tree))
-    fixtures = [
-        "rec-20261005-23z315qp", "rec-20261005-t5tf8s49",
-        "rec-20261005-s6cftc2v", "rec-20261005-vv8pfes1",
-        "diagnostic-20261005-9af1bgs8", "diagnostic-20261005-a48x6zym",
-    ]
-    commands = [
-        ["cargo", "test", "--offline", "--quiet", "--manifest-path", "engine/Cargo.toml", "--no-fail-fast", "--", "--include-ignored"],
-        ["cargo", "clippy", "--offline", "--manifest-path", "engine/Cargo.toml", "--all-targets", "--", "-D", "warnings"],
-        ["just", "engine-replay", "--strict", *[f"engine/tests/data/{name}.jsonl" for name in fixtures]],
-    ]
-    for command in commands:
-        print("运行: " + " ".join(command), flush=True)
-        result = subprocess.run(command, env=env)
-        if result.returncode:
-            sys.exit(result.returncode)
 
 # 删除打包产物 dist/.
 clean:

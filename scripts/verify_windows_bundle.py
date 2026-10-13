@@ -5,9 +5,9 @@
 workflow 的 YAML 块标量里造成缩进问题.
 
 用法:
-    python3 scripts/verify_windows_bundle.py dist/windows/Balatro-1.0.1o-win64
-    python3 scripts/verify_windows_bundle.py --modded dist/windows/Balatro-Modded-1.0.1o-win64
-    python3 scripts/verify_windows_bundle.py --modded --no-native dist/windows/Balatro-Modded-1.0.1o-win64
+    uv run --no-project python scripts/verify_windows_bundle.py dist/windows/Balatro-1.0.1o-win64
+    uv run --no-project python scripts/verify_windows_bundle.py --modded dist/windows/Balatro-Modded-1.0.1o-win64
+    uv run --no-project python scripts/verify_windows_bundle.py --modded --no-native dist/windows/Balatro-Modded-1.0.1o-win64
 """
 import io
 import os

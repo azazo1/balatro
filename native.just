@@ -1,5 +1,5 @@
 # 原生库 native/bbnet (网络与录像用的颜色转换) 的编译与测试.
-python := if os_family() == "windows" { "python" } else { "python3" }
+python := "uv run --no-project python"
 
 [private]
 default:
