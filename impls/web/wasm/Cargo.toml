@@ -1,5 +1,5 @@
 [package]
-name = "balatro-engine-wasm"
+name = "balatro-web-wasm"
 version = "0.1.0"
 edition = "2024"
 publish = false
@@ -8,8 +8,8 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-engine = { package = "balatro-engine", path = "../.." }
-lab = { package = "balatro-engine-lab", path = "../model" }
+engine = { package = "balatro-engine-core", path = "../../engine/core" }
+lab = { package = "balatro-web-lab", path = "../lab" }
 serde_json = "1"
 wasm-bindgen = "0.2"
 console_error_panic_hook = "0.1"

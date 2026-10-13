@@ -11,8 +11,8 @@ name = "balatro_engine"
 crate-type = ["cdylib"]
 
 [dependencies]
-# 重命名依赖: 本 crate 自己的 lib 也叫 balatro_engine, 不重命名会撞名.
-engine = { path = "..", package = "balatro-engine" }
+# 依赖别名保持 engine: 本 crate 自己的 lib 也叫 balatro_engine, 源码里用短名字更清楚.
+engine = { path = "../../engine/core", package = "balatro-engine-core" }
 pyo3 = { version = "0.29", features = ["abi3-py38", "extension-module"] }
 
 [profile.release]

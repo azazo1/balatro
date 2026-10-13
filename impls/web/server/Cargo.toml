@@ -1,13 +1,13 @@
 [package]
-name = "balatro-engine-web"
+name = "balatro-web-server"
 version = "0.1.0"
 edition = "2024"
 publish = false
 
 [dependencies]
 clap = { version = "4.6", features = ["derive"] }
-engine = { package = "balatro-engine", path = "../.." }
-lab = { package = "balatro-engine-lab", path = "../model" }
+engine = { package = "balatro-engine-core", path = "../../engine/core" }
+lab = { package = "balatro-web-lab", path = "../lab" }
 axum = "0.8"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal"] }
 serde = { version = "1", features = ["derive"] }

@@ -1,0 +1,15 @@
+[package]
+name = "balatro-engine-cli"
+version = "0.1.0"
+edition = "2024"
+description = "引擎的命令行: 逐步对局 (play) 与离线回放核对 (replay-check)."
+license = "MIT"
+publish = false
+
+# 一个二进制带两条子命令: 打包与文档里只需要记住 balatro 这一个名字.
+[[bin]]
+name = "balatro"
+path = "src/main.rs"
+
+[dependencies]
+engine = { package = "balatro-engine-core", path = "../core" }

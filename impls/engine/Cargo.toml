@@ -1,0 +1,5 @@
+# 引擎本体的 workspace: 规则引擎 (core) 与它的命令行 (cli).
+# 调试台与 python 绑定是各自独立的 cargo 工程 (impls/web, impls/py), 用 path 依赖引用 core.
+[workspace]
+members = ["core", "cli"]
+resolver = "3"

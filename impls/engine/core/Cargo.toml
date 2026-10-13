@@ -1,0 +1,13 @@
+[package]
+name = "balatro-engine-core"
+version = "0.1.0"
+edition = "2024"
+description = "Balatro 规则引擎: 原版规则的无界面重写, 只要 std."
+license = "MIT"
+
+[lib]
+# 库名跟着包名走 (balatro-engine-core -> balatro_engine_core): 内部的 tests 与 examples
+# 直接按库名引用, 外部的 web 与 py 则用 `engine` 这个名字做依赖别名.
+name = "balatro_engine_core"
+
+[dependencies]
