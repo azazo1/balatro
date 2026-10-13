@@ -120,37 +120,26 @@ dependencies = [
 ]
 
 [[package]]
-name = "balatro-engine"
+name = "balatro-engine-core"
 version = "0.1.0"
 
 [[package]]
-name = "balatro-engine-lab"
+name = "balatro-web-lab"
 version = "0.1.0"
 dependencies = [
- "balatro-engine",
+ "balatro-engine-core",
  "serde",
  "serde_json",
  "tracing",
 ]
 
 [[package]]
-name = "balatro-engine-wasm"
-version = "0.1.0"
-dependencies = [
- "balatro-engine",
- "balatro-engine-lab",
- "console_error_panic_hook",
- "serde_json",
- "wasm-bindgen",
-]
-
-[[package]]
-name = "balatro-engine-web"
+name = "balatro-web-server"
 version = "0.1.0"
 dependencies = [
  "axum",
- "balatro-engine",
- "balatro-engine-lab",
+ "balatro-engine-core",
+ "balatro-web-lab",
  "clap",
  "http-body-util",
  "serde",
@@ -160,6 +149,17 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "balatro-web-wasm"
+version = "0.1.0"
+dependencies = [
+ "balatro-engine-core",
+ "balatro-web-lab",
+ "console_error_panic_hook",
+ "serde_json",
+ "wasm-bindgen",
 ]
 
 [[package]]

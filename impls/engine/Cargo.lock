@@ -3,5 +3,12 @@
 version = 4
 
 [[package]]
-name = "balatro-engine"
+name = "balatro-engine-cli"
+version = "0.1.0"
+dependencies = [
+ "balatro-engine-core",
+]
+
+[[package]]
+name = "balatro-engine-core"
 version = "0.1.0"
