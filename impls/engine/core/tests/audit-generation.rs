@@ -13,7 +13,7 @@ fn luajit_eval(script: &str) -> String {
     // 优先用已构建游戏的 Lua.framework, 不启动窗口. brew ARM64 LuaJIT 的原生播种
     // 使用 FMA, 与本仓库游戏框架的非融合运算并非同一个随机数基准.
     let bundled = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../dist/macos/Balatro-Modded.app/Contents/Frameworks/Lua.framework/Versions/A/Lua");
+        .join("../../../dist/macos/Balatro-Modded.app/Contents/Frameworks/Lua.framework/Versions/A/Lua");
     let runtime = std::env::var_os("BALATRO_AUDIT_LUA").map(std::path::PathBuf::from)
         .or_else(|| bundled.is_file().then_some(bundled));
     let python = r#"
@@ -57,9 +57,9 @@ sys.stdout.write(text+'\n')
 #[test]
 #[ignore = "需要本机 LuaJIT, 不经过 Rust 期望公式而直接执行 Steamodded 函数"]
 fn editions_match_actual_steamodded_lua_functions_with_vouchers_and_bans() {
-    let misc = include_str!("../../game/functions/misc_functions.lua");
-    let objects = include_str!("../../mods/Steamodded/src/game_object.lua");
-    let overrides = include_str!("../../mods/Steamodded/src/overrides.lua");
+    let misc = include_str!("../../../../game/functions/misc_functions.lua");
+    let objects = include_str!("../../../../mods/Steamodded/src/game_object.lua");
+    let overrides = include_str!("../../../../mods/Steamodded/src/overrides.lua");
     let mut script = String::from("G={SETTINGS={},GAME={},P_CENTERS={}}; SMODS={optional_features={},Edition={}}\nfunction SMODS.Edition:take_ownership(key,obj) G.P_CENTERS['e_'..key]=obj end\n");
     script.push_str(lua_slice(misc, "function pseudohash(str)", "function tprint("));
     script.push_str(lua_slice(objects, "SMODS.Edition:take_ownership('foil'", "    SMODS.Keybinds = {}"));
@@ -98,7 +98,7 @@ end end end end end
 #[test]
 #[ignore = "需要本机 LuaJIT, 逐层检查随机数浮点数与全局状态"]
 fn keyed_rng_matches_live_luajit_across_generated_seeds() {
-    let misc = include_str!("../../game/functions/misc_functions.lua");
+    let misc = include_str!("../../../../game/functions/misc_functions.lua");
     let mut script = String::from("G={SETTINGS={},GAME={}}\n");
     script.push_str(lua_slice(misc, "function pseudohash(str)", "function tprint("));
     script.push_str(r#"
@@ -125,12 +125,12 @@ end
 #[ignore = "需要本机 LuaJIT, 直接执行 Steamodded 蜡封函数"]
 fn standard_seals_match_actual_steamodded_lua_function_and_banned_seals() {
     // 必须使用完整 Lovely 补丁树, 原版初始化表不是 modded 游戏的候选池基准.
-    let patched_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.tmp/engine-audit/modded-tree");
+    let patched_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../.tmp/engine-audit/modded-tree");
     let game = std::fs::read_to_string(patched_root.join("game.lua")).expect("外部 oracle 需要最新完整补丁树 game.lua");
     let events = std::fs::read_to_string(patched_root.join("functions/common_events.lua")).expect("外部 oracle 需要最新完整补丁树 common_events.lua");
-    let misc = include_str!("../../game/functions/misc_functions.lua");
-    let utils = include_str!("../../mods/Steamodded/src/utils.lua");
-    let objects = include_str!("../../mods/Steamodded/src/game_object.lua");
+    let misc = include_str!("../../../../game/functions/misc_functions.lua");
+    let utils = include_str!("../../../../mods/Steamodded/src/utils.lua");
+    let objects = include_str!("../../../../mods/Steamodded/src/game_object.lua");
     let mut script = String::from(r#"
 G={SETTINGS={},GAME={},P_CENTER_POOLS={Seal={}},shared_seals={},C={}}
 SMODS={optional_features={},GameObject={},ObjectTypes={}}
@@ -354,7 +354,7 @@ fn voucher_tags_use_their_independent_key_without_ante_suffix() {
 #[test]
 #[ignore = "需要实际游戏 Lua 框架, 核验 Tarot_Planet 的同 order 排序"]
 fn combined_consumable_pool_has_correct_membership_but_ambiguous_order_ties() {
-    let game = include_str!("../../game/game.lua");
+    let game = include_str!("../../../../game/game.lua");
     let mut script = String::from("local self={}\n");
     script.push_str(lua_slice(game, "self.P_CENTERS = {", "    self.P_CENTER_POOLS = {"));
     script.push_str("self.P_CENTER_POOLS={Tarot_Planet={}}\nfor k,v in pairs(self.P_CENTERS) do v.key=k;if not v.wip and (v.set=='Tarot' or v.set=='Planet') then table.insert(self.P_CENTER_POOLS.Tarot_Planet,v) end end\n");
@@ -382,7 +382,7 @@ fn combined_pool_is_explicitly_unsupported_instead_of_silently_omitting_planets(
 
 #[test]
 fn stickers_respect_every_vanilla_compatibility_flag_in_shop_and_packs() {
-    let source = include_str!("../../game/game.lua");
+    let source = include_str!("../../../../game/game.lua");
     let denied = |key: &str, flag: &str| source.lines().find(|line| line.trim_start().starts_with(&format!("{key}=")))
         .is_some_and(|line| line.contains(&format!("{flag} = false")));
     let mut checked = 0;

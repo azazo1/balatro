@@ -222,7 +222,7 @@ fn copy_onto_keeps_target_identity_and_new_copies_have_zero_original_nominal() {
 #[test]
 #[ignore = "需要已有 LuaJIT 和 BALATRO_PATCHED_TREE 指定的 Lovely 补丁树"]
 fn copy_and_sort_match_live_extracted_lua_functions() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
     let tree = std::env::var("BALATRO_PATCHED_TREE")
         .unwrap_or_else(|_| ".tmp/engine-audit/modded-tree".to_owned());
     let output = std::process::Command::new("luajit")

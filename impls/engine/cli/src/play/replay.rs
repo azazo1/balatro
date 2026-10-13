@@ -11,7 +11,7 @@ use engine::data::json::Json;
 use engine::run::RunState;
 use engine::run::digest::digest;
 
-use crate::session;
+use super::session;
 
 /// 这一局的开局参数. 与回放文件里 `run` 段的字段一一对应.
 pub struct RunSpec {

@@ -265,7 +265,7 @@ fn triggered_matador_pays_per_copy_in_slot_order_before_bull_reads_money() {
 #[ignore = "需要 Lua 与预先应用 Lovely 的补丁树, 用于真实源码裁判验证"]
 fn live_steamodded_poker_oracle_matches_all_reported_groups() {
     use balatro_engine_core::scoring::{PokerHand, evaluate_poker_hand};
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
     let lua = std::env::var("BALATRO_AUDIT_LUA").unwrap_or_else(|_| "luajit".into());
     let output = std::process::Command::new(lua)
         .arg("engine/tests/lua/audit_poker.lua").current_dir(root).output().unwrap();
