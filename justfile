@@ -46,36 +46,9 @@ check-scripts:
 test-scripts:
     {{ python }} -m unittest discover -s scripts/tests -t scripts
 
-# 用 LuaJIT 运行 agent mod 的纯逻辑单元测试 (录制, 回放, 回放列表, 端点在进程内调用, 模型协议, UTF-8 截断, 出牌计分记录, 动态值, 补充包等待, 流式条回放, 工具调用文案, 内置 agent 主循环).
+# 用 LuaJIT 运行 agent mod 的纯逻辑单元测试.
 test-agent:
-    luajit scripts/tests/lua/agent_record_test.lua
-    luajit scripts/tests/lua/agent_record_toggle_test.lua
-    luajit scripts/tests/lua/agent_replay_record_toggle_test.lua
-    luajit scripts/tests/lua/agent_media_ffi_test.lua
-    luajit scripts/tests/lua/agent_replay_test.lua
-    luajit scripts/tests/lua/agent_replay_stream_test.lua
-    luajit scripts/tests/lua/agent_replay_library_test.lua
-    luajit scripts/tests/lua/agent_replay_manual_test.lua
-    luajit scripts/tests/lua/agent_replay_tutorial_test.lua
-    luajit scripts/tests/lua/agent_local_call_test.lua
-    luajit scripts/tests/lua/agent_gate_test.lua
-    luajit scripts/tests/lua/agent_text_test.lua
-    luajit scripts/tests/lua/agent_llm_test.lua
-    luajit scripts/tests/lua/agent_decision_test.lua
-    luajit scripts/tests/lua/agent_decision_loop_test.lua
-    luajit scripts/tests/lua/bbcoring_test.lua
-    luajit scripts/tests/lua/bbdynamics_test.lua
-    luajit scripts/tests/lua/bbpack_wait_test.lua
-    luajit scripts/tests/lua/bbboss_reroll_test.lua
-    luajit scripts/tests/lua/bbslots_test.lua
-    luajit scripts/tests/lua/bbcall_note_test.lua
-    luajit scripts/tests/lua/agent_loop_test.lua
-    luajit scripts/tests/lua/agent_knowledge_test.lua
-    luajit scripts/tests/lua/agent_ui_test.lua
-    luajit scripts/tests/lua/agent_hud_test.lua
-    luajit scripts/tests/lua/bbinput_gate_test.lua
-    luajit scripts/tests/lua/android_storage_test.lua
-    luajit scripts/tests/lua/smods_config_path_test.lua
+    luajit scripts/tests/lua/*_test.lua
 
 # just mods-check [mod 目录]
 # 检查 mod 补丁在当前游戏版本上的命中情况, 不产出文件.
