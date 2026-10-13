@@ -36,6 +36,7 @@ function BlindCard({ blind, view, locked, act }: { blind: Blind; view: View; loc
 function Shelf({ items, area, view, locked, act, label }: { items: Item[]; area: 'card' | 'voucher' | 'pack'; view: View; locked: boolean; act: Act; label: string }) {
   const spendable = view.observation.stats.spendable;
   return <div className={`shelf shelf-${area}`} aria-label={label}>
+    {items.length === 0 && <span className="shelf-empty">{label}</span>}
     {items.map((card, index) => {
       const afford = spendable >= (card.cost ?? 0);
       const consumable = area === 'card' && ['Planet', 'Tarot', 'Spectral'].includes(card.category ?? '');

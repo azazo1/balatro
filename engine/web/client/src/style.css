@@ -41,7 +41,11 @@ h1, h2, h3, p, pre { margin: 0; }
   height: 100vh; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) 24px;
   background: radial-gradient(ellipse at 50% 42%, #3d6e62 0%, #27463f 50%, #142322 100%);
 }
-.app.with-sidebar { grid-template-columns: minmax(0, 1fr) 380px; }
+.app.with-sidebar { grid-template-columns: minmax(0, 1fr) var(--sidebar-w, 380px); }
+/* 侧栏左边界的拖动条, 盖在边框上, 宽 6px. */
+.sidebar-resizer { position: fixed; top: 0; bottom: 24px; width: 6px; z-index: 30; cursor: col-resize; touch-action: none; }
+.sidebar-resizer:hover, .sidebar-resizer:focus-visible, .sidebar-resizer.dragging { background: rgba(0, 157, 255, .55); outline: none; }
+.app:has(.sidebar-resizer.dragging) { cursor: col-resize; user-select: none; }
 .stage-wrap { position: relative; min-width: 0; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
 .stage {
   --u: 30px; --sw: 40; position: relative; width: calc(var(--u) * var(--sw)); height: calc(var(--u) * 22.5); font-size: calc(var(--u) * .56);
@@ -165,9 +169,10 @@ h1, h2, h3, p, pre { margin: 0; }
 .big-title { font-size: 2.6em; }
 
 /* 盲注选择, 对照 create_UIBox_blind_choice. */
-.blind-row { display: flex; gap: calc(var(--u) * .5); align-items: flex-end; height: 100%; padding-top: calc(var(--u) * .2); }
+.blind-row { display: flex; justify-content: center; gap: calc(var(--u) * .4); align-items: flex-end; height: 100%; min-width: 0; padding-top: calc(var(--u) * .2); }
+/* 三张盲注卡按棋盘宽度均分, 最宽 7u, 窄舞台时收缩而不是溢出到侧栏下面. */
 .blind-card {
-  --blind: var(--black); position: relative; width: calc(var(--u) * 7); display: flex; flex-direction: column; align-items: center; gap: calc(var(--u) * .18);
+  --blind: var(--black); position: relative; flex: 1 1 0; min-width: 0; max-width: calc(var(--u) * 7); display: flex; flex-direction: column; align-items: center; gap: calc(var(--u) * .18);
   background: #2b3a3b; border-radius: calc(var(--u) * .35); padding: calc(var(--u) * .25); border-top: calc(var(--u) * .12) solid var(--blind);
   box-shadow: inset 0 0 0 calc(var(--u) * .06) var(--blind), 0 calc(var(--u) * .1) 0 #142021;
 }
@@ -188,12 +193,15 @@ h1, h2, h3, p, pre { margin: 0; }
 /* 商店: 招牌 + 红色边框面板. */
 .shop { display: flex; flex-direction: column; align-items: center; height: 100%; width: 100%; }
 .shop-sign { flex: none; width: calc(var(--u) * 4.5); height: calc(var(--u) * 2.27); background-repeat: no-repeat; margin-bottom: calc(var(--u) * -.25); z-index: 1; }
-.shop-body { flex: 1; min-height: 0; width: min(100%, calc(var(--u) * 22)); display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); gap: calc(var(--u) * .3); box-shadow: inset 0 0 0 calc(var(--u) * .1) var(--red), 0 calc(var(--u) * .1) 0 #142021; }
+.shop-body { flex: 1; min-height: 0; width: min(100%, calc(var(--u) * 22)); display: grid; grid-template-columns: calc(var(--u) * 4.6) minmax(0, 1fr); grid-template-rows: minmax(0, 1.1fr) minmax(0, 1fr); gap: calc(var(--u) * .3); box-shadow: inset 0 0 0 calc(var(--u) * .1) var(--red), 0 calc(var(--u) * .1) 0 #142021; }
 .shop-buttons { grid-row: 1; display: flex; flex-direction: column; gap: calc(var(--u) * .2); justify-content: center; }
 .shop-buttons .btn { font-size: 1.1em; }
-.shop-lower { grid-column: 1 / -1; display: flex; gap: calc(var(--u) * .3); }
+/* 下排两格等宽, 空了也保持原尺寸, 与原版一致. */
+.shop-lower { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: calc(var(--u) * .3); min-height: 0; }
+.shop-buttons .btn { width: 100%; }
+.shelf { position: relative; }
+.shelf-empty { color: rgba(255,255,255,.28); font-size: 1.1em; letter-spacing: .1em; }
 .shelf { display: flex; justify-content: center; align-items: center; gap: calc(var(--u) * .35); background: rgba(0,0,0,.2); border-radius: calc(var(--u) * .25); padding: calc(var(--u) * .35) calc(var(--u) * .2) calc(var(--u) * .2); min-width: 0; }
-.shelf-voucher { flex: 0 0 auto; } .shelf-pack { flex: 1; }
 .shelf .card-actions { position: static; margin-top: .25em; }
 
 /* 补充包. */
@@ -297,5 +305,5 @@ details .report { margin-top: 6px; }
 .alert { position: absolute; left: 50%; top: calc(var(--u) * .4); transform: translateX(-50%); z-index: 70; display: flex; align-items: center; gap: .6em; max-width: 70%; background: var(--red); border-radius: .5em; padding: .4em .8em; box-shadow: 0 .2em 0 #a53a33; font-size: 1.05em; }
 .alert button { border: 0; background: none; cursor: pointer; font-size: 1.3em; }
 
-@media (max-width: 1100px) { .app.with-sidebar { grid-template-columns: minmax(0, 1fr) 280px; } .status-bar .keys { display: none; } }
+@media (max-width: 1100px) { .status-bar .keys { display: none; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { Action, Backend, Info, Mode, Opening, View } from './lib/types';
 import { HttpBackend, OperationError, WasmBackend } from './engine/backend';
 import { download, readAutosave, writeAutosave } from './lib/storage';
@@ -11,6 +11,7 @@ import { Board } from './board/Board';
 import { DebugPanel } from './debug/DebugPanel';
 import { nextNode } from './debug/HistoryTree';
 import { useStageScale } from './ui/useStageScale';
+import { SidebarResizer, useSidebarWidth } from './ui/SidebarResizer';
 
 export function App() {
   const [mode, setMode] = useState<Mode>(localStorage.getItem('engine-lab-mode') === 'http' ? 'http' : 'wasm');
@@ -32,6 +33,7 @@ export function App() {
   const fileInput = useRef<HTMLInputElement>(null);
   const stage = useRef<HTMLDivElement>(null);
   useStageScale(stage);
+  const [sidebarWidth, setSidebarWidth] = useSidebarWidth();
 
   useEffect(() => { void loadSprites().then(() => setSpritesReady(true)); }, []);
   useEffect(() => { localStorage.setItem('engine-lab-sidebar', sidebar ? 'on' : 'off'); }, [sidebar]);
@@ -176,7 +178,8 @@ export function App() {
     </div>
   </>;
 
-  return <div className={`app ${sidebar && view ? 'with-sidebar' : ''}`} data-sprites={spritesReady ? 'ready' : 'loading'}>
+  return <div className={`app ${sidebar && view ? 'with-sidebar' : ''}`} data-sprites={spritesReady ? 'ready' : 'loading'}
+    style={{ '--sidebar-w': `${sidebarWidth}px` } as CSSProperties}>
     <div className="stage-wrap">
       <div className="stage" ref={stage}>
         {view ? <>
@@ -197,6 +200,7 @@ export function App() {
       </div>
     </div>
     {sidebar && view && <DebugPanel view={view} busy={busy} jump={jump} debug={debug} edit={edit} />}
+    {sidebar && view && <SidebarResizer width={sidebarWidth} setWidth={setSidebarWidth} />}
     <footer className="status-bar"><span className={`dot ${error ? 'failed' : ''}`} />{status}
       <span className="keys">Z 上一步 · X 下一步 · Enter 出牌 · Shift+Enter 弃牌 · D 调试栏</span>
       <span>{mode === 'wasm' ? '浏览器本地引擎' : '本地 Rust 服务'} · {info?.version ?? '加载中'}</span></footer>
