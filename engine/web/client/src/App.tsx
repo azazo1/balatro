@@ -9,6 +9,7 @@ import { NewGame } from './ui/NewGame';
 import { Hud } from './board/Hud';
 import { Board } from './board/Board';
 import { DebugPanel } from './debug/DebugPanel';
+import { nextNode } from './debug/HistoryTree';
 import { useStageScale } from './ui/useStageScale';
 
 export function App() {
@@ -150,8 +151,8 @@ export function App() {
     const node = v.history[v.current];
     if ((key === 'z' || key === 'backspace') && node?.parent != null) { e.preventDefault(); jump(node.parent); }
     else if (key === 'x') {
-      const next = v.history.find(n => n.parent === v.current);
-      if (next) { e.preventDefault(); jump(next.id); }
+      const next = nextNode(v);
+      if (next != null) { e.preventDefault(); jump(next); }
     } else if (key === 'enter' && v.observation.phase === 'SelectingHand' && selected.length > 0) {
       e.preventDefault(); act({ method: e.shiftKey ? 'discard' : 'play', params: { cards: [...selected] } });
     } else if (key === 'escape') setSelected([]);

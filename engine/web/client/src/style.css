@@ -241,18 +241,27 @@ details .report { margin-top: 6px; }
 .history { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 6px 8px 8px; gap: 5px; }
 .history-nav { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; font-size: 13px; }
 .history-meta { display: flex; justify-content: space-between; font-size: 13px; color: #a3baba; }
-.history-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding-right: 2px; }
-.history-node { flex: none; display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: 'kind label' 'kind meta'; column-gap: 6px; text-align: left; border: 0; border-radius: 6px; padding: 3px 6px; background: transparent; cursor: pointer; }
+/* 历史只列当前路线, 每步一行; 分叉处在下方以小芯片列出其他分支, 点击切换. */
+.history-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; padding-right: 2px; }
+.history-ante { flex: none; position: sticky; top: 0; z-index: 1; margin-top: 4px; padding: 2px 6px; font-size: 13px; color: var(--money); background: #1a2626; border-radius: 4px; }
+.history-node { flex: none; display: flex; align-items: center; gap: 6px; text-align: left; border: 0; border-radius: 5px; padding: 2px 6px; background: transparent; cursor: pointer; }
 .history-node:hover:not(:disabled) { background: #2d3e3e; }
-.history-node.on-path { background: #2a3a3a; }
 .history-node.current { background: #3b5352; box-shadow: inset 3px 0 0 var(--money); }
-.history-node.edited .node-kind { background: var(--orange); }
-.node-kind { grid-area: kind; align-self: center; min-width: 3.6em; text-align: center; border-radius: 5px; padding: 1px 4px; font-size: 14px; background: var(--l-black); }
+.history-node.future { opacity: .5; }
+.history-node.future:hover { opacity: .85; }
+.history-node.edited .node-kind, .branch-chip.edited .node-kind { background: var(--orange); }
+.node-step { flex: none; min-width: 2.2em; text-align: right; font-size: 12px; color: #8aa2a2; font-variant-numeric: tabular-nums; }
+.node-kind { flex: none; min-width: 3.4em; text-align: center; border-radius: 5px; padding: 0 4px; font-size: 13px; background: var(--l-black); }
+.history-branches { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 3px; margin: 0 0 3px 2.9em; padding-left: 6px; border-left: 2px solid var(--money); }
+.branch-mark { color: var(--money); font-size: 13px; }
+.branch-chip { display: flex; align-items: center; gap: 4px; max-width: 100%; border: 0; border-radius: 5px; padding: 1px 5px; background: #2b3a3b; cursor: pointer; font-size: 12px; }
+.branch-chip:hover:not(:disabled) { background: #3b5352; }
+.branch-chip .node-kind { min-width: 0; font-size: 12px; }
+.branch-label { max-width: 11em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.branch-len { color: #8aa2a2; }
 .kind-play { background: var(--blue); } .kind-discard { background: var(--red); } .kind-buy, .kind-buy_and_use, .kind-cash_out { background: #b98a2e; }
 .kind-select, .kind-skip, .kind-next_round { background: #50846e; } .kind-pack, .kind-use { background: var(--purple); } .kind-start { background: var(--grey); }
-.node-label { grid-area: label; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.node-meta { grid-area: meta; font-size: 12px; color: #93abab; }
-.node-meta b { color: var(--money); font-weight: normal; }
+.node-label { flex: 1; min-width: 0; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* 欢迎页与对话框. */
 .welcome { grid-column: 1 / -1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: calc(var(--u) * .5); }
