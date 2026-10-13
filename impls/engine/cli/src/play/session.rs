@@ -2,16 +2,16 @@
 
 use std::collections::HashMap;
 
-use balatro_engine::data::json::Json;
+use engine::data::json::Json;
 
 /// 赌注名转档位. 与回放文件里的 `stake` 一致.
 pub fn stake_of(name: &str) -> i64 {
-    balatro_engine::opening::stake_of(name).expect("赌注必须是 1..8 或 WHITE..GOLD")
+    engine::opening::stake_of(name).expect("赌注必须是 1..8 或 WHITE..GOLD")
 }
 
 /// 牌组名转内部键: 大小写不敏感, 自动补 `b_` 前缀.
 pub fn deck_of(name: &str) -> String {
-    balatro_engine::opening::deck_of(name).expect("牌组必须是引擎支持的牌组")
+    engine::opening::deck_of(name).expect("牌组必须是引擎支持的牌组")
 }
 
 /// 内置的解锁档, 由 `--uda` 选.
@@ -45,7 +45,7 @@ impl Profile {
     }
 
     fn uda(self) -> HashMap<String, String> {
-        balatro_engine::opening::profile_uda(match self {
+        engine::opening::profile_uda(match self {
             Profile::New => "new",
             Profile::All => "all",
         }).expect("内置解锁档有效")

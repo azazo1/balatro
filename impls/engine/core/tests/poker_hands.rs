@@ -3,8 +3,8 @@
 //! 用例取自 `docs/game/rules/poker-hands.md`: 四指的复合牌型, 捷径的间隔规则, A 的两端与不环绕,
 //! 包含回填, 石头牌与万能牌, 模糊小丑.
 
-use balatro_engine::cards::{PlayingCard, Rank, Suit};
-use balatro_engine::scoring::{EvalEnv, HandCard, PokerHand, evaluate_poker_hand};
+use balatro_engine_core::cards::{PlayingCard, Rank, Suit};
+use balatro_engine_core::scoring::{EvalEnv, HandCard, PokerHand, evaluate_poker_hand};
 
 fn card(code: &str) -> HandCard {
     let mut chars = code.chars();

@@ -19,8 +19,8 @@
 
 use std::collections::BTreeSet;
 
-use balatro_engine::run::{BlindKind, Phase, RunState};
-use balatro_engine::scoring::EvalEnv;
+use balatro_engine_core::run::{BlindKind, Phase, RunState};
+use balatro_engine_core::scoring::EvalEnv;
 
 /// 十五副牌组的键.
 const DECKS: [&str; 15] = [

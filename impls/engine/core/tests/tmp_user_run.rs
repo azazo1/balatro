@@ -1,6 +1,6 @@
 //! 临时: 用 user 手动那局的参数 (RED / WHITE / LG7RIX92) 验证开局发牌.
 
-use balatro_engine::run::RunState;
+use balatro_engine_core::run::RunState;
 
 fn keys(run: &RunState) -> String {
     run.hand

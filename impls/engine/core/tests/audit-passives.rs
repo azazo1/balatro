@@ -1,11 +1,11 @@
 //! 动态被动的回归只通过实际进出场与 Boss 回调切换状态.
 mod common;
 
-use balatro_engine::cards::Edition;
-use balatro_engine::jokers::Joker;
-use balatro_engine::run::{BlindKind, Phase, RunState};
-use balatro_engine::run::shop::{Shop, ShopCard};
-use balatro_engine::scoring::{BackEffect, EvalEnv};
+use balatro_engine_core::cards::Edition;
+use balatro_engine_core::jokers::Joker;
+use balatro_engine_core::run::{BlindKind, Phase, RunState};
+use balatro_engine_core::run::shop::{Shop, ShopCard};
+use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 
 fn card(key: &str, cost: f64) -> ShopCard {
     ShopCard { sort_id: 0, key: key.into(), edition: None, eternal: false, perishable: false,

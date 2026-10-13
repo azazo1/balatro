@@ -6,9 +6,9 @@
 
 use std::collections::HashMap;
 
-use balatro_engine::cards::{PlayingCard, Rank, Suit};
-use balatro_engine::run::RunState;
-use balatro_engine::scoring::HandCard;
+use balatro_engine_core::cards::{PlayingCard, Rank, Suit};
+use balatro_engine_core::run::RunState;
+use balatro_engine_core::scoring::HandCard;
 
 /// 存档进度快照, 格式与回放文件 `snapshot.uda` 的值相同.
 ///
@@ -43,7 +43,7 @@ pub fn aleeb_uda() -> HashMap<String, String> {
 /// 测试里那些"再摆一次"的调用因此需要显式说明"我就是要把阶段摆到这里",
 /// 而不是让引擎留一个不看阶段的口子.
 pub fn place_blind(run: &mut RunState) {
-    run.phase = balatro_engine::run::Phase::BlindSelect;
+    run.phase = balatro_engine_core::run::Phase::BlindSelect;
     run.select_blind().expect("阶段刚摆正, 选盲注该走得通");
 }
 
@@ -111,6 +111,6 @@ pub fn hand_keys(run: &RunState) -> String {
 }
 
 /// 消耗槽里的键 (不带版本) —— 断言时通常只关心"是哪张".
-pub fn consumable_keys(run: &balatro_engine::run::RunState) -> Vec<String> {
+pub fn consumable_keys(run: &balatro_engine_core::run::RunState) -> Vec<String> {
     run.consumables.iter().map(|card| card.key.clone()).collect()
 }

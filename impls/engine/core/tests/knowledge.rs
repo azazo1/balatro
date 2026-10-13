@@ -4,7 +4,7 @@
 //! 名称与效果的对应关系一旦错位 (例如按错字段读, 或索引串了行), 查出来的名字和效果
 //! 就会张冠李戴, 而这种错不会报错, 只会让 agent 按错的信息决策.
 
-use balatro_engine::data::knowledge;
+use balatro_engine_core::data::knowledge;
 
 #[test]
 fn lookup_by_id_name_and_english_name_agree() {

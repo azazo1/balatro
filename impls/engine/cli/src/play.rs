@@ -9,14 +9,14 @@
 mod replay;
 mod session;
 
-use balatro_engine::opening::generate_seed;
+use engine::opening::generate_seed;
 use std::path::{Path, PathBuf};
 
-use balatro_engine::agent::{action, dynamics, prompt, summary};
-use balatro_engine::data::json::Json;
-use balatro_engine::data::knowledge;
-use balatro_engine::run::{Phase, RunState};
-use balatro_engine::scoring::EvalEnv;
+use engine::agent::{action, dynamics, prompt, summary};
+use engine::data::json::Json;
+use engine::data::knowledge;
+use engine::run::{Phase, RunState};
+use engine::scoring::EvalEnv;
 
 /// 打印一行, 忽略写出错误 —— 输出被 `head` 之类的命令截断时不算失败.
 ///
@@ -63,7 +63,7 @@ fn main() {
             return;
         }
         Some("-V") | Some("--version") => {
-            say!("play {}", balatro_engine::VERSION);
+            say!("play {}", engine::VERSION);
             return;
         }
         Some("lookup") => ("lookup", &argv[1..]),
@@ -540,7 +540,7 @@ fn run_prompt(args: &[String]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use balatro_engine::opening::SEED_ALPHABET;
+    use engine::opening::SEED_ALPHABET;
 
     /// 字母表必须与游戏 `random_string` 用的完全一致.
     ///

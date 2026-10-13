@@ -1,9 +1,9 @@
 //! 游戏与 Steamodded 源码确认的消耗牌, 优惠券和复制语义回归.
 
-use balatro_engine::cards::{CardInstance, Edition, Enhancement, Rank, Seal, Suit};
-use balatro_engine::jokers::Joker;
-use balatro_engine::run::consumable::Consumable;
-use balatro_engine::run::RunState;
+use balatro_engine_core::cards::{CardInstance, Edition, Enhancement, Rank, Seal, Suit};
+use balatro_engine_core::jokers::Joker;
+use balatro_engine_core::run::consumable::Consumable;
+use balatro_engine_core::run::RunState;
 
 fn ready(seed: &str) -> RunState {
     let mut run = RunState::new(seed, 1);
@@ -22,13 +22,13 @@ fn rejected_tarot_does_not_change_usage_growth_or_randomness() {
     let mut run = ready("AUDITATOMIC");
     run.add_joker(Joker::new("j_fortune_teller").unwrap());
     run.consumables.push(Consumable::plain("c_strength"));
-    let digest = balatro_engine::run::digest(&run);
+    let digest = balatro_engine_core::run::digest(&run);
     let mult = run.jokers[0].mult;
     let mut expected_rng = run.rng.clone();
     assert!(run.use_consumable(0, &[0, 1, 2]).is_err());
     assert_eq!(run.tarots_used, 0);
     assert_eq!(run.jokers[0].mult, mult);
-    assert_eq!(balatro_engine::run::digest(&run), digest);
+    assert_eq!(balatro_engine_core::run::digest(&run), digest);
     assert_eq!(run.rng.random(), expected_rng.random());
 }
 
@@ -259,7 +259,7 @@ fn vouchers_change_current_round_counts_as_well_as_defaults() {
         run.hands_left = 2;
         let expected = if key == "v_hieroglyph" { -1 } else { 1 };
         let before = run.hands_per_round;
-        balatro_engine::run::voucher::apply(&mut run, key);
+        balatro_engine_core::run::voucher::apply(&mut run, key);
         assert_eq!(run.hands_left, 2 + expected);
         assert_eq!(run.hands_per_round, before + expected);
     }
@@ -268,7 +268,7 @@ fn vouchers_change_current_round_counts_as_well_as_defaults() {
         run.discards_left = 1;
         let expected = if key == "v_petroglyph" { -1 } else { 1 };
         let before = run.discards_per_round;
-        balatro_engine::run::voucher::apply(&mut run, key);
+        balatro_engine_core::run::voucher::apply(&mut run, key);
         assert_eq!(run.discards_left, 1 + expected);
         assert_eq!(run.discards_per_round, before + expected);
     }
@@ -277,17 +277,17 @@ fn vouchers_change_current_round_counts_as_well_as_defaults() {
 #[test]
 fn overstock_immediately_refills_the_expanded_shop_without_replacing_survivors() {
     let mut run = ready("AUDITOVERSTOCK");
-    run.phase = balatro_engine::run::Phase::Shop;
-    let mut shop = balatro_engine::run::shop::Shop::restock(&mut run);
+    run.phase = balatro_engine_core::run::Phase::Shop;
+    let mut shop = balatro_engine_core::run::shop::Shop::restock(&mut run);
     shop.jokers.truncate(1);
     let survivor = shop.jokers[0].clone();
     let voucher = shop.vouchers.clone();
     let packs = shop.packs.clone();
     run.shop = Some(shop);
     let mut reference = run.clone();
-    let rates = balatro_engine::run::voucher::rates_of(&reference);
-    let expected: Vec<_> = (0..2).map(|_| balatro_engine::run::create_card_for_shop(&mut reference, &rates)).collect();
-    balatro_engine::run::voucher::apply(&mut run, "v_overstock_norm");
+    let rates = balatro_engine_core::run::voucher::rates_of(&reference);
+    let expected: Vec<_> = (0..2).map(|_| balatro_engine_core::run::create_card_for_shop(&mut reference, &rates)).collect();
+    balatro_engine_core::run::voucher::apply(&mut run, "v_overstock_norm");
     let shop = run.shop.unwrap();
     assert_eq!(shop.jokers.len(), 3);
     assert_eq!(shop.jokers[0], survivor);
@@ -315,7 +315,7 @@ fn gift_cards_raise_consumable_sell_value_after_discount_and_edition_cost() {
     assert_eq!(run.sell_consumable(0).unwrap(), 4.0);
 
     let mut run = ready("AUDITPERKEOGIFT");
-    run.phase = balatro_engine::run::Phase::Shop;
+    run.phase = balatro_engine_core::run::Phase::Shop;
     run.add_joker(Joker::new("j_blueprint").unwrap());
     run.add_joker(Joker::new("j_perkeo").unwrap());
     let mut card = Consumable::plain("c_hermit");
@@ -332,19 +332,19 @@ fn gift_cards_raise_consumable_sell_value_after_discount_and_edition_cost() {
 #[test]
 fn creator_consumables_from_shop_and_pack_do_not_borrow_the_temporary_held_slot() {
     let mut run = ready("AUDITSOURCECAPACITY");
-    run.phase = balatro_engine::run::Phase::Shop;
+    run.phase = balatro_engine_core::run::Phase::Shop;
     run.consumables = vec![Consumable::plain("c_hermit"), Consumable::plain("c_mercury")];
     run.dollars = 100.0;
     run.last_tarot_planet = Some("c_mercury".to_owned());
     for key in ["c_emperor", "c_high_priestess", "c_fool"] {
-        let card = balatro_engine::run::shop::ShopCard {
+        let card = balatro_engine_core::run::shop::ShopCard {
             sort_id: 0,
             key: key.to_owned(), edition: None, eternal: false, perishable: false,
             rental: false, couponed: false, enhancement: None, todo: None, cost: 3.0,
         };
-        let before = balatro_engine::run::digest(&run);
+        let before = balatro_engine_core::run::digest(&run);
         assert!(run.buy_and_use(&card).is_err(), "{key}");
-        assert_eq!(balatro_engine::run::digest(&run), before);
+        assert_eq!(balatro_engine_core::run::digest(&run), before);
     }
     // 自己在持有区时则允许满槽使用: 用掉的格子能容纳一张产物.
     run.consumables[0] = Consumable::plain("c_emperor");
@@ -355,17 +355,17 @@ fn creator_consumables_from_shop_and_pack_do_not_borrow_the_temporary_held_slot(
     let mut run = ready("AUDITPACKCAPACITY");
     run.consumables = vec![Consumable::plain("c_hermit"), Consumable::plain("c_mercury")];
     run.last_tarot_planet = Some("c_mercury".to_owned());
-    let contents = balatro_engine::run::open_pack(&mut run, "p_arcana_normal_1");
-    run.phase = balatro_engine::run::Phase::BoosterOpened;
+    let contents = balatro_engine_core::run::open_pack(&mut run, "p_arcana_normal_1");
+    run.phase = balatro_engine_core::run::Phase::BoosterOpened;
     for key in ["c_emperor", "c_high_priestess", "c_fool"] {
         let mut contents = contents.clone();
         contents[0].key = key.to_owned();
-        run.open_pack = Some(balatro_engine::run::shop::OpenPack {
+        run.open_pack = Some(balatro_engine_core::run::shop::OpenPack {
             key: "p_arcana_normal_1".to_owned(), size: contents.len(), choices_left: 1, contents,
         });
-        let before = balatro_engine::run::digest(&run);
+        let before = balatro_engine_core::run::digest(&run);
         assert!(run.take_and_use_from_pack(0, &[]).is_err(), "{key}");
-        assert_eq!(balatro_engine::run::digest(&run), before);
+        assert_eq!(balatro_engine_core::run::digest(&run), before);
         assert_eq!(run.open_pack.as_ref().unwrap().choices_left, 1);
     }
     // 已持有负片的使用者在效果期间冻结容量,生成后负片离场才降容量,允许暂时超槽.
@@ -462,10 +462,10 @@ fn random_joker_consumables_select_birth_identity_after_legal_reorder() {
 fn perkeo_selects_consumable_birth_identity_and_gives_copy_a_fresh_identity() {
     for seed in ["AUDITPERKEOBIRTH1", "AUDITPERKEOBIRTH2"] {
         let mut run = ready(seed);
-        run.phase = balatro_engine::run::Phase::Shop;
+        run.phase = balatro_engine_core::run::Phase::Shop;
         run.add_joker(Joker::new("j_perkeo").unwrap());
         for (key, edition, extra) in [("c_hermit", Edition::Foil, 3.0), ("c_mercury", Edition::Holo, 7.0)] {
-            let card = balatro_engine::run::shop::ShopCard {
+            let card = balatro_engine_core::run::shop::ShopCard {
                 sort_id: 0, key: key.to_owned(), edition: Some(edition), eternal: false,
                 perishable: false, rental: false, couponed: false, todo: None,
                 enhancement: None, cost: 0.0,
@@ -495,7 +495,7 @@ fn perkeo_selects_consumable_birth_identity_and_gives_copy_a_fresh_identity() {
 
 #[test]
 fn all_fifty_two_consumables_can_execute_with_valid_context() {
-    use balatro_engine::data::catalog::Catalog;
+    use balatro_engine_core::data::catalog::Catalog;
     let mut count = 0;
     for kind in ["Tarot", "Planet", "Spectral"] {
         for prototype in Catalog::get().pool(kind) {

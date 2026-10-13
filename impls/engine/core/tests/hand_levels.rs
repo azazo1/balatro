@@ -2,7 +2,7 @@
 //!
 //! 期望值来自牌型基础值表与 Steamodded 的 upgrade_poker_hands 实现.
 
-use balatro_engine::scoring::{HandTable, PokerHand};
+use balatro_engine_core::scoring::{HandTable, PokerHand};
 
 #[test]
 fn level_one_uses_the_starting_values() {

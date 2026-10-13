@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use balatro_engine::run::{RunState, voucher_pick_index};
+use balatro_engine_core::run::{RunState, voucher_pick_index};
 
 /// 存档进度快照, 格式与回放文件 `snapshot.uda` 的值相同.
 const UDA_TSV: &str = include_str!("data/aleeb-uda.tsv");

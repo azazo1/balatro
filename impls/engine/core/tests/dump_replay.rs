@@ -30,12 +30,12 @@
 //! 与 `replay.rs` 的分工: 那个验的是**发牌序列** (手写尖角, 逐张对牌名),
 //! 这个验的是**整局流程** (数据驱动, 覆盖面大得多).
 
-use balatro_engine::data::json::Json;
+use balatro_engine_core::data::json::Json;
 // digest 的生成与解析在库里 (`src/run/digest.rs`): 它是**与游戏的接口约定**, 生成器也要用它,
 // 所以不能只放在测试里. 这里只留对拍特有的那部分 —— `normalize` (两处记录方式的差异).
-use balatro_engine::run::digest::{digest as digest_of, digest_fields};
-use balatro_engine::run::{Phase, RunState};
-use balatro_engine::scoring::EvalEnv;
+use balatro_engine_core::run::digest::{digest as digest_of, digest_fields};
+use balatro_engine_core::run::{Phase, RunState};
+use balatro_engine_core::scoring::EvalEnv;
 
 const PLASMA_DUMP: &str = include_str!("data/plasma-purple-6j8x.dump.jsonl");
 /// 录像起始快照里的**存档进度表** (`snapshot.uda`): 原型键 -> `"u"/"d"/"a"` 标记.
@@ -145,7 +145,7 @@ fn apply_step(
     step: &Json,
     run: &mut RunState,
     env: &EvalEnv,
-) -> Result<(), balatro_engine::run::ActionError> {
+) -> Result<(), balatro_engine_core::run::ActionError> {
     let method = step.get("method").and_then(Json::as_str).expect("有方法");
     // 牌背的计分效果**从牌组现算** (等离子牌组那一支), 不再由调用方传 ——
     // 传的时候写岔了不会报错, 只会让分数差一截.
@@ -181,7 +181,7 @@ fn apply_step(
             } else if let Some(order) = params.and_then(|p| p.get("consumables")) {
                 run.rearrange_consumables(&numbers_of(Some(order)))
             } else {
-                Err(balatro_engine::run::ActionError::BadIndex(0))
+                Err(balatro_engine_core::run::ActionError::BadIndex(0))
             }
         }
         // 开着的包可以不取, 直接收掉 (游戏里那个"跳过"按钮).
@@ -211,7 +211,7 @@ fn apply_step(
             } else if let Some(slot) = amount(params, "consumable").map(|n| n as usize) {
                 run.sell_consumable(slot).map(|_| ())
             } else {
-                Err(balatro_engine::run::ActionError::BadIndex(0))
+                Err(balatro_engine_core::run::ActionError::BadIndex(0))
             }
         }
         // `buy` 有三种目标, 三选一: `card` 是货架上的卡, `voucher` 是券, `pack` 是包.
@@ -238,7 +238,7 @@ fn apply_step(
                     run.buy_and_use(&card).map(|_| ())
                 }
                 Some(card) => run.buy(&card).map(|_| ()),
-                None => Err(balatro_engine::run::ActionError::BadIndex(0)),
+                None => Err(balatro_engine_core::run::ActionError::BadIndex(0)),
             }
         }
         // 同一件事在**旧录像**里是另一种编码: 那时还没有 `buy` 的 `use` 参数,
@@ -253,7 +253,7 @@ fn apply_step(
                 .cloned()
             {
                 Some(card) => run.buy_and_use(&card).map(|_| ()),
-                None => Err(balatro_engine::run::ActionError::BadIndex(slot)),
+                None => Err(balatro_engine_core::run::ActionError::BadIndex(slot)),
             }
         }
         "use" => {
@@ -377,8 +377,8 @@ fn first_divergence(steps: &[Json], run: &mut RunState) -> Option<String> {
 ///
 /// 录像只记了**正在打的那个盲注**, 而引擎在选盲注那一刻还没把它摆上 `blind`,
 /// 两边差一格, 所以这里两种状态都认.
-fn blind_kind_of(key: &str) -> balatro_engine::run::BlindKind {
-    use balatro_engine::run::BlindKind;
+fn blind_kind_of(key: &str) -> balatro_engine_core::run::BlindKind {
+    use balatro_engine_core::run::BlindKind;
     match key {
         "bl_small" => BlindKind::Small,
         "bl_big" => BlindKind::Big,
@@ -563,7 +563,7 @@ fn every_recorded_run_replays_step_by_step() {
             .collect();
 
         if header.get("uda").is_some() {
-            let report = balatro_engine::replay::check(&header, &steps, false);
+            let report = balatro_engine_core::replay::check(&header, &steps, false);
             total_steps += report.matched_digests + report.matched_refusals;
             if let Some(reason) = report.failure {
                 failures.push(format!("{name} ({seed} {deck} {stake}): {reason}"));

@@ -1,8 +1,8 @@
 //! 已创建商店卡转移到持有区时保留出生身份, 新建/复制另行分配.
 mod common;
 
-use balatro_engine::run::{BlindKind, Phase, RunState};
-use balatro_engine::run::shop::Shop;
+use balatro_engine_core::run::{BlindKind, Phase, RunState};
+use balatro_engine_core::run::shop::Shop;
 
 #[test]
 fn reverse_purchase_preserves_shelf_birth_ids_and_acorn_order() {

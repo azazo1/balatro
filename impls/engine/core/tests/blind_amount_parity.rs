@@ -18,7 +18,7 @@
 //!
 //! 对比用十六进制浮点: 高底注下这些数大到十进制的有效位数不够, 而 `nan` 也需要逐位判等.
 
-use balatro_engine::run::blind::blind_amount;
+use balatro_engine_core::run::blind::blind_amount;
 
 const FIXTURE: &str = include_str!("data/luajit_blind_amount.tsv");
 

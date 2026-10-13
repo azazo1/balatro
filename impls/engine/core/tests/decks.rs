@@ -9,8 +9,8 @@
 //! 就该多那一格. 数值一律从 `catalog.json` 现读, 这样加了新牌组 (或者改数值) 时测试跟着走,
 //! 而不是把预期值抄一遍.
 
-use balatro_engine::run::{BlindKind, RunState};
-use balatro_engine::scoring::BackEffect;
+use balatro_engine_core::run::{BlindKind, RunState};
+use balatro_engine_core::scoring::BackEffect;
 
 /// 造一局, 用指定牌组, 走完开局.
 fn run_with_deck(deck: &str) -> RunState {
@@ -21,7 +21,7 @@ fn run_with_deck(deck: &str) -> RunState {
 
 /// 牌组原型上某个数字字段的值, 缺省为 `None`.
 fn config_number(deck: &str, field: &str) -> Option<f64> {
-    balatro_engine::data::catalog::Catalog::get()
+    balatro_engine_core::data::catalog::Catalog::get()
         .record(deck)
         .and_then(|proto| proto.config.clone())
         .and_then(|config| config.get(field).and_then(|v| v.as_f64()))
@@ -130,7 +130,7 @@ fn abandoned_deck_has_no_face_cards() {
     );
 
     // 四张 A 与四张 2 都还在 (删的是人头牌, 不是随便十二张).
-    for rank in [balatro_engine::cards::Rank::Ace, balatro_engine::cards::Rank::Two] {
+    for rank in [balatro_engine_core::cards::Rank::Ace, balatro_engine_core::cards::Rank::Two] {
         assert_eq!(
             run.deck.iter().filter(|c| c.card.rank == rank).count(),
             4,
@@ -142,7 +142,7 @@ fn abandoned_deck_has_no_face_cards() {
 /// 棋盘牌组: 梅花改成黑桃, 方块改成红桃 —— 于是整副牌只剩黑桃与红桃两种花色.
 #[test]
 fn checkered_deck_keeps_only_two_suits() {
-    use balatro_engine::cards::Suit;
+    use balatro_engine_core::cards::Suit;
 
     let run = run_with_deck("b_checkered");
     assert_eq!(run.deck.len(), 52, "换花色不该改张数");
@@ -160,7 +160,7 @@ fn checkered_deck_keeps_only_two_suits() {
         );
     }
     // 点数分布不动: 每种点数仍然是四张.
-    for rank in balatro_engine::cards::Rank::ALL {
+    for rank in balatro_engine_core::cards::Rank::ALL {
         assert_eq!(
             run.deck.iter().filter(|card| card.card.rank == rank).count(),
             4,
@@ -241,7 +241,7 @@ fn zodiac_deck_starts_with_three_vouchers() {
 /// 于是随便出一张牌就过, 省得为了凑分去搭一堆小丑.
 #[test]
 fn green_deck_pays_no_interest() {
-    let settle = |deck: &str| -> balatro_engine::run::RoundEval {
+    let settle = |deck: &str| -> balatro_engine_core::run::RoundEval {
         let mut run = run_with_deck(deck);
         run.select_blind().expect("在选盲注阶段");
         run.dollars = 100.0;

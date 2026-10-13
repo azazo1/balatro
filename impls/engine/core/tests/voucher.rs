@@ -5,8 +5,8 @@
 
 mod common;
 
-use balatro_engine::run::shop::ShopCard;
-use balatro_engine::run::{Phase, RunState};
+use balatro_engine_core::run::shop::ShopCard;
+use balatro_engine_core::run::{Phase, RunState};
 
 /// 造一张带价签的券.
 fn voucher(key: &str) -> ShopCard {
@@ -106,7 +106,7 @@ fn blank_voucher_does_nothing_but_is_recorded() {
 /// 改权重的券会让商店换货: 塔罗商人把塔罗的权重提到 `4 x 2.4`.
 #[test]
 fn rate_vouchers_change_the_shop_rates() {
-    use balatro_engine::run::voucher::rates_of;
+    use balatro_engine_core::run::voucher::rates_of;
 
     let mut run = ready();
     assert_eq!(rates_of(&run).tarot, 4.0, "默认塔罗权重是 4");
@@ -148,14 +148,14 @@ fn overstock_adds_a_shelf_slot() {
     run.buy(&voucher("v_overstock_norm")).expect("买下");
     assert_eq!(run.shop_size_bonus, 1);
 
-    let shop = balatro_engine::run::shop::Shop::restock(&mut run);
+    let shop = balatro_engine_core::run::shop::Shop::restock(&mut run);
     assert_eq!(shop.jokers.len(), 3, "默认两件加一件");
 
     // 再买一次加强版: 一共三件.
     let mut run = ready();
     run.buy(&voucher("v_overstock_norm")).expect("买下");
     run.buy(&voucher("v_overstock_plus")).expect("买下");
-    let shop = balatro_engine::run::shop::Shop::restock(&mut run);
+    let shop = balatro_engine_core::run::shop::Shop::restock(&mut run);
     assert_eq!(shop.jokers.len(), 4);
 }
 

@@ -15,9 +15,9 @@
 
 mod common;
 
-use balatro_engine::cards::{CardInstance, Enhancement, Rank, Suit};
-use balatro_engine::run::{ActionError, Phase};
-use balatro_engine::scoring::{BackEffect, EvalEnv, HandTable, PokerHand, score_play};
+use balatro_engine_core::cards::{CardInstance, Enhancement, Rank, Suit};
+use balatro_engine_core::run::{ActionError, Phase};
+use balatro_engine_core::scoring::{BackEffect, EvalEnv, HandTable, PokerHand, score_play};
 use common::{aleeb_run, card, hand_keys};
 
 #[test]
@@ -37,7 +37,7 @@ fn strength_raises_the_chosen_cards_and_is_consumed() {
     let mut run = aleeb_run();
     run.start();
     assert_eq!(run.phase, Phase::SelectingHand);
-    run.consumables.push(balatro_engine::run::consumable::Consumable::plain("c_strength".to_owned()));
+    run.consumables.push(balatro_engine_core::run::consumable::Consumable::plain("c_strength".to_owned()));
 
     // 开局前两张是 C_T 与 D_T, 各升一级都成 J.
     run.use_consumable(0, &[0, 1]).expect("能用");
@@ -50,7 +50,7 @@ fn strength_can_turn_a_queen_into_a_second_king() {
     // 这正是 ALEEB 那局发生的事: 牌堆里原本只有一张 D_K, 力量把 D_Q 也变成了 K.
     let mut run = aleeb_run();
     run.start();
-    run.consumables.push(balatro_engine::run::consumable::Consumable::plain("c_strength".to_owned()));
+    run.consumables.push(balatro_engine_core::run::consumable::Consumable::plain("c_strength".to_owned()));
 
     // 换一手带 Q 的牌来试: 开局手牌里没有 Q, 先手改几张凑出来.
     run.hand[0].card.rank = Rank::Queen;
@@ -67,7 +67,7 @@ fn strength_can_turn_a_queen_into_a_second_king() {
 fn using_a_tarot_rejects_bad_input() {
     let mut run = aleeb_run();
     run.start();
-    run.consumables.push(balatro_engine::run::consumable::Consumable::plain("c_strength".to_owned()));
+    run.consumables.push(balatro_engine_core::run::consumable::Consumable::plain("c_strength".to_owned()));
 
     // 力量最多选两张, 选三张要拒.
     assert!(matches!(
@@ -90,11 +90,11 @@ fn using_a_tarot_rejects_bad_input() {
 #[test]
 fn every_consumable_is_implemented() {
     for kind in ["Tarot", "Planet", "Spectral"] {
-        for proto in balatro_engine::data::catalog::Catalog::get().pool(kind) {
+        for proto in balatro_engine_core::data::catalog::Catalog::get().pool(kind) {
             let mut run = aleeb_run();
             run.start();
             run.phase = Phase::SelectingHand;
-            run.consumables.push(balatro_engine::run::consumable::Consumable::plain(proto.id.clone()));
+            run.consumables.push(balatro_engine_core::run::consumable::Consumable::plain(proto.id.clone()));
             let outcome = run.use_consumable(0, &[]);
             assert!(
                 !matches!(outcome, Err(ActionError::NotImplemented(_))),
@@ -118,7 +118,7 @@ fn suit_conversion_tarots_turn_cards_into_their_suit() {
     for (key, suit, expected) in cases {
         let mut run = aleeb_run();
         run.start();
-        run.consumables.push(balatro_engine::run::consumable::Consumable::plain(key.to_owned()));
+        run.consumables.push(balatro_engine_core::run::consumable::Consumable::plain(key.to_owned()));
 
         // 改前三张里的第 0, 1, 4 张 (两张 T 与一张 6).
         run.use_consumable(0, &[0, 1, 4]).expect("能用");
@@ -143,7 +143,7 @@ fn suit_conversion_tarots_turn_cards_into_their_suit() {
 fn hanged_man_removes_the_chosen_cards_without_drawing() {
     let mut run = aleeb_run();
     run.start();
-    run.consumables.push(balatro_engine::run::consumable::Consumable::plain("c_hanged_man".to_owned()));
+    run.consumables.push(balatro_engine_core::run::consumable::Consumable::plain("c_hanged_man".to_owned()));
 
     run.use_consumable(0, &[0, 2]).expect("能用");
     assert_eq!(hand_keys(&run), "D_T,S_7,H_6,H_5,H_4,D_2");
@@ -157,7 +157,7 @@ fn hanged_man_removes_the_chosen_cards_without_drawing() {
 fn tarot_limits_follow_the_prototype() {
     let mut run = aleeb_run();
     run.start();
-    run.consumables.push(balatro_engine::run::consumable::Consumable::plain("c_world".to_owned()));
+    run.consumables.push(balatro_engine_core::run::consumable::Consumable::plain("c_world".to_owned()));
     assert_eq!(
         run.use_consumable(0, &[0, 1, 2, 3]),
         Err(ActionError::TooManyCards { limit: 3, got: 4 })
@@ -165,7 +165,7 @@ fn tarot_limits_follow_the_prototype() {
 
     let mut run = aleeb_run();
     run.start();
-    run.consumables.push(balatro_engine::run::consumable::Consumable::plain("c_hanged_man".to_owned()));
+    run.consumables.push(balatro_engine_core::run::consumable::Consumable::plain("c_hanged_man".to_owned()));
     assert_eq!(
         run.use_consumable(0, &[0, 1, 2]),
         Err(ActionError::TooManyCards { limit: 2, got: 3 })
@@ -192,7 +192,7 @@ fn enhancement_tarots_replace_the_enhancement() {
     for (key, want, limit) in cases {
         let mut run = aleeb_run();
         run.start();
-        run.consumables.push(balatro_engine::run::consumable::Consumable::plain(key.to_owned()));
+        run.consumables.push(balatro_engine_core::run::consumable::Consumable::plain(key.to_owned()));
 
         // 正好用满上限.
         run.use_consumable(0, &(0..limit).collect::<Vec<_>>())
@@ -214,7 +214,7 @@ fn enhancement_tarots_respect_their_limits() {
     for (key, limit) in [("c_magician", 2), ("c_lovers", 1), ("c_tower", 1)] {
         let mut run = aleeb_run();
         run.start();
-        run.consumables.push(balatro_engine::run::consumable::Consumable::plain(key.to_owned()));
+        run.consumables.push(balatro_engine_core::run::consumable::Consumable::plain(key.to_owned()));
         assert_eq!(
             run.use_consumable(0, &(0..=limit).collect::<Vec<_>>()),
             Err(ActionError::TooManyCards {
@@ -236,7 +236,7 @@ fn death_copies_the_rightmost_card_onto_the_others() {
     let mut run = aleeb_run();
     run.start();
     // 开局手牌: C_T, D_T, S_9, S_7, H_6, H_5, H_4, D_2.
-    run.consumables.push(balatro_engine::run::consumable::Consumable::plain("c_death".to_owned()));
+    run.consumables.push(balatro_engine_core::run::consumable::Consumable::plain("c_death".to_owned()));
 
     // 选第 0 张 (C_T) 与第 2 张 (S_9): 右边那张盖过去.
     run.use_consumable(0, &[0, 2]).expect("能用");
@@ -247,7 +247,7 @@ fn death_copies_the_rightmost_card_onto_the_others() {
     let mut run = aleeb_run();
     run.start();
     run.hand[2].set_enhancement(Enhancement::Bonus);
-    run.consumables.push(balatro_engine::run::consumable::Consumable::plain("c_death".to_owned()));
+    run.consumables.push(balatro_engine_core::run::consumable::Consumable::plain("c_death".to_owned()));
     run.use_consumable(0, &[0, 2]).expect("能用");
     assert_eq!(run.hand[0].token(), "S_9~bonus", "复制过去的那张带上同样的强化");
     assert_eq!(run.hand[2].token(), "S_9~bonus");
@@ -255,7 +255,7 @@ fn death_copies_the_rightmost_card_onto_the_others() {
     // 只选一张不够: 原型的 min_highlighted 是 2.
     let mut run = aleeb_run();
     run.start();
-    run.consumables.push(balatro_engine::run::consumable::Consumable::plain("c_death".to_owned()));
+    run.consumables.push(balatro_engine_core::run::consumable::Consumable::plain("c_death".to_owned()));
     assert_eq!(
         run.use_consumable(0, &[0]),
         Err(ActionError::TooFewCards { least: 2, got: 1 })
@@ -273,7 +273,7 @@ fn planets_level_up_their_hand_type() {
     assert_eq!(run.hands.get(PokerHand::Pair).level, 1, "开局都是 1 级");
 
     // 水星升的是对子.
-    run.consumables.push(balatro_engine::run::consumable::Consumable::plain("c_mercury".to_owned()));
+    run.consumables.push(balatro_engine_core::run::consumable::Consumable::plain("c_mercury".to_owned()));
     run.use_consumable(0, &[]).expect("用行星牌");
     assert_eq!(run.hands.get(PokerHand::Pair).level, 2, "对子升一级");
     assert_eq!(run.hands.get(PokerHand::Flush).level, 1, "别的牌型不动");
@@ -319,7 +319,7 @@ fn planets_ignore_targets() {
     // (原本这里断言的是"报 `TooManyCards`", 那是引擎比游戏更严.)
     let mut run = aleeb_run();
     run.start();
-    run.consumables.push(balatro_engine::run::consumable::Consumable::plain("c_mercury".to_owned()));
+    run.consumables.push(balatro_engine_core::run::consumable::Consumable::plain("c_mercury".to_owned()));
     assert_eq!(run.use_consumable(0, &[0]), Ok(()));
     assert!(run.consumables.is_empty(), "牌用掉了");
     assert_eq!(run.hands.get(PokerHand::Pair).level, 2, "木星把对子升一级 (基础是 1 级)");
@@ -331,14 +331,14 @@ fn planets_ignore_targets() {
 /// 以及前后还有没有别的倍率来源, 结果都不一样. 这里用同花凑一个固定局面来钉住它.
 #[test]
 fn enhanced_cards_pay_out_when_scored() {
-    use balatro_engine::cards::Enhancement;
+    use balatro_engine_core::cards::Enhancement;
 
     let mut run = aleeb_run();
     run.start();
 
     // 送一张同花进牌堆: 五张黑桃, 其中一张强化.
     // 走 `CardInstance` 而不是直接设计分视图的字段, 这样"强化 -> 计分"那一环也一起验到.
-    let play = |run: &mut balatro_engine::run::RunState, enh: Option<Enhancement>, key: &str| -> f64 {
+    let play = |run: &mut balatro_engine_core::run::RunState, enh: Option<Enhancement>, key: &str| -> f64 {
         let mut hand: Vec<CardInstance> = ["S_2", "S_3", "S_4", "S_5", "S_6"]
             .iter()
             .map(|code| CardInstance::from_key(code).expect("能造出牌"))
@@ -385,8 +385,8 @@ fn enhanced_cards_pay_out_when_scored() {
 /// 钢铁牌只在**留在手里**时给乘倍率: 打出去了就不算, 这也正是它要单独一个阶段的原因.
 #[test]
 fn steel_cards_only_pay_out_while_held() {
-    use balatro_engine::cards::Enhancement;
-    use balatro_engine::scoring::{HandCard, score_play_with_held};
+    use balatro_engine_core::cards::Enhancement;
+    use balatro_engine_core::scoring::{HandCard, score_play_with_held};
 
     let mut run = aleeb_run();
     run.start();
@@ -449,8 +449,8 @@ fn steel_cards_only_pay_out_while_held() {
 /// 红封让这张计分牌**多算一遍**: 它自己的筹码与逐卡小丑的效果都重跑一次.
 #[test]
 fn red_seal_scores_the_card_twice() {
-    use balatro_engine::cards::Seal;
-    use balatro_engine::jokers::Joker;
+    use balatro_engine_core::cards::Seal;
+    use balatro_engine_core::jokers::Joker;
 
     let mut run = aleeb_run();
     run.start();
@@ -465,7 +465,7 @@ fn red_seal_scores_the_card_twice() {
     let plain = [make(None, "C_5"), make(None, "D_5")];
     let sealed = [make(Some(Seal::Red), "C_5"), make(None, "D_5")];
 
-    let score = |cards: &[balatro_engine::scoring::HandCard], jokers: &mut [Joker]| -> f64 {
+    let score = |cards: &[balatro_engine_core::scoring::HandCard], jokers: &mut [Joker]| -> f64 {
         score_play(
             cards,
             &run.hands,
@@ -489,8 +489,8 @@ fn red_seal_scores_the_card_twice() {
 /// 红封会让**逐卡小丑**也跟着重跑 —— 这是"整段重跑"与"只加一次筹码"的分水岭.
 #[test]
 fn red_seal_also_repeats_per_card_jokers() {
-    use balatro_engine::cards::Seal;
-    use balatro_engine::jokers::Joker;
+    use balatro_engine_core::cards::Seal;
+    use balatro_engine_core::jokers::Joker;
 
     let mut run = aleeb_run();
     run.start();
@@ -532,8 +532,8 @@ fn red_seal_also_repeats_per_card_jokers() {
 /// 能直接落在倍率上.
 #[test]
 fn held_jokers_look_at_the_cards_left_in_hand() {
-    use balatro_engine::jokers::Joker;
-    use balatro_engine::scoring::{HandCard, score_play_with_held};
+    use balatro_engine_core::jokers::Joker;
+    use balatro_engine_core::scoring::{HandCard, score_play_with_held};
 
     let mut run = aleeb_run();
     run.start();
@@ -588,7 +588,7 @@ fn held_jokers_look_at_the_cards_left_in_hand() {
 /// 这三样都算在**结算栏**里 (所以金额出现在 `round_eval` 的总额中), 而不是直接进现金.
 #[test]
 fn end_of_round_hand_effects_pay_out() {
-    use balatro_engine::cards::{Enhancement, Seal};
+    use balatro_engine_core::cards::{Enhancement, Seal};
 
     let mut run = aleeb_run();
     run.start();
@@ -627,7 +627,7 @@ fn end_of_round_hand_effects_pay_out() {
 /// 一开始我把两个都放在回合末, 结果"金封留在手里"也会给钱 —— 这条测试就是冲着那个错误写的.
 #[test]
 fn gold_seal_pays_when_played_not_at_round_end() {
-    use balatro_engine::cards::Seal;
+    use balatro_engine_core::cards::Seal;
 
     // 情形一: 把带金封的牌打出去, 钱当场到手.
     let mut played = aleeb_run();
@@ -666,7 +666,7 @@ fn gold_seal_pays_when_played_not_at_round_end() {
 /// 紫封在**弃牌时**给一张塔罗, 与回合末那批都不在一处.
 #[test]
 fn purple_seal_gives_a_tarot_when_discarded() {
-    use balatro_engine::cards::Seal;
+    use balatro_engine_core::cards::Seal;
 
     let mut run = aleeb_run();
     run.start();
@@ -695,7 +695,7 @@ fn purple_seal_gives_a_tarot_when_discarded() {
 /// 消耗槽满的时候紫封不给牌 —— 对应源码里那个 `card_limit` 判断.
 #[test]
 fn purple_seal_gives_nothing_when_consumable_slots_are_full() {
-    use balatro_engine::cards::Seal;
+    use balatro_engine_core::cards::Seal;
 
     let mut run = aleeb_run();
     run.start();
@@ -716,9 +716,9 @@ fn purple_seal_gives_nothing_when_consumable_slots_are_full() {
 /// 这样验的是真实路径, 而不是一个人为摆出来的布尔值.
 #[test]
 fn lucky_card_pays_only_when_the_dice_hit() {
-    use balatro_engine::cards::Enhancement;
-    use balatro_engine::rng::Rng;
-    use balatro_engine::scoring::score_play_with_rng;
+    use balatro_engine_core::cards::Enhancement;
+    use balatro_engine_core::rng::Rng;
+    use balatro_engine_core::scoring::score_play_with_rng;
 
     let mut run = aleeb_run();
     run.start();
@@ -783,7 +783,7 @@ fn lucky_card_pays_only_when_the_dice_hit() {
 /// 出牌时幸运牌会在计分前掷两次骰, 所以走整条流程不会崩, 钱也会真的进账.
 #[test]
 fn lucky_card_rolls_and_pays_through_play() {
-    use balatro_engine::cards::Enhancement;
+    use balatro_engine_core::cards::Enhancement;
 
     // 掷骰是随机的, 所以这里只确认"跑得通且金额自洽", 具体命中与否交给上一条测.
     let mut run = aleeb_run();
@@ -811,7 +811,7 @@ fn lucky_card_rolls_and_pays_through_play() {
 /// 这三张是**生成牌**而不是改牌, 所以不看选中的牌; 数量还受消耗槽空位限制.
 #[test]
 fn tarots_that_grant_more_cards() {
-    use balatro_engine::run::RunState;
+    use balatro_engine_core::run::RunState;
 
     // 女祭司: 给两张行星牌, 张数受消耗槽空位限制.
     //
@@ -820,11 +820,11 @@ fn tarots_that_grant_more_cards() {
     // 那是把原牌也算进占用了 —— 整局对拍的记录里同一张牌给了两张, 才发现的.)
     let mut run = aleeb_run();
     run.start();
-    run.consumables.push(balatro_engine::run::consumable::Consumable::plain("c_high_priestess".to_owned()));
+    run.consumables.push(balatro_engine_core::run::consumable::Consumable::plain("c_high_priestess".to_owned()));
     run.use_consumable(0, &[]).expect("能用");
     assert_eq!(run.consumables.len(), 2, "上限两格, 给得出两张");
     for key in common::consumable_keys(&run) {
-        let category = balatro_engine::data::catalog::Catalog::get()
+        let category = balatro_engine_core::data::catalog::Catalog::get()
             .record(&key)
             .map(|proto| proto.category.clone())
             .unwrap_or_default();
@@ -834,18 +834,18 @@ fn tarots_that_grant_more_cards() {
     // 皇帝同理, 只是换成塔罗 (空位按"原牌已走"算, 所以两格就给得出两张).
     let mut run = aleeb_run();
     run.start();
-    run.consumables.push(balatro_engine::run::consumable::Consumable::plain("c_emperor".to_owned()));
+    run.consumables.push(balatro_engine_core::run::consumable::Consumable::plain("c_emperor".to_owned()));
     run.use_consumable(0, &[]).expect("能用");
     assert_eq!(run.consumables.len(), 2, "上限两格, 给得出两张");
 
     let mut roomy = aleeb_run();
     roomy.start();
     roomy.base_consumable_slots = 3;
-    roomy.consumables.push(balatro_engine::run::consumable::Consumable::plain("c_emperor".to_owned()));
+    roomy.consumables.push(balatro_engine_core::run::consumable::Consumable::plain("c_emperor".to_owned()));
     roomy.use_consumable(0, &[]).expect("能用");
     assert_eq!(roomy.consumables.len(), 2, "腾出位置就给两张");
     for key in common::consumable_keys(&run) {
-        let category = balatro_engine::data::catalog::Catalog::get()
+        let category = balatro_engine_core::data::catalog::Catalog::get()
             .record(&key)
             .map(|proto| proto.category.clone())
             .unwrap_or_default();
@@ -855,7 +855,7 @@ fn tarots_that_grant_more_cards() {
     // 审判: 一张小丑, 进持有区而不是消耗槽.
     let mut run = RunState::new("ALEEB", 8);
     run.start();
-    run.consumables.push(balatro_engine::run::consumable::Consumable::plain("c_judgement".to_owned()));
+    run.consumables.push(balatro_engine_core::run::consumable::Consumable::plain("c_judgement".to_owned()));
     run.use_consumable(0, &[]).expect("能用");
     assert_eq!(run.jokers.len(), 1, "审判给一张小丑");
     assert!(run.consumables.is_empty(), "用掉的那张不留");
@@ -864,7 +864,7 @@ fn tarots_that_grant_more_cards() {
     let mut run = aleeb_run();
     run.start();
     run.base_consumable_slots = 1;
-    run.consumables.push(balatro_engine::run::consumable::Consumable::plain("c_high_priestess".to_owned()));
+    run.consumables.push(balatro_engine_core::run::consumable::Consumable::plain("c_high_priestess".to_owned()));
     run.use_consumable(0, &[]).expect("能用");
     assert_eq!(run.consumables.len(), 1, "一格就给一张");
 }
@@ -872,7 +872,7 @@ fn tarots_that_grant_more_cards() {
 /// 幻灵里"加蜡封"的四张: 与塔罗那一批同构, 只是给的封不同.
 #[test]
 fn spectral_tarots_that_add_seals() {
-    use balatro_engine::cards::Seal;
+    use balatro_engine_core::cards::Seal;
 
     for (key, want) in [
         ("c_talisman", Seal::Gold),
@@ -882,7 +882,7 @@ fn spectral_tarots_that_add_seals() {
     ] {
         let mut run = aleeb_run();
         run.start();
-        run.consumables.push(balatro_engine::run::consumable::Consumable::plain(key.to_owned()));
+        run.consumables.push(balatro_engine_core::run::consumable::Consumable::plain(key.to_owned()));
         run.use_consumable(0, &[3]).expect("能用");
         assert_eq!(run.hand[3].seal, Some(want), "{key} 给的封");
         assert!(run.consumables.is_empty(), "用完就没了");
@@ -900,7 +900,7 @@ fn sigil_and_ouija_normalize_the_hand() {
         run.hand.iter().map(|card| card.card.suit).collect();
     assert!(suits_before.len() > 1, "开局手牌花色应当是杂的");
 
-    run.consumables.push(balatro_engine::run::consumable::Consumable::plain("c_sigil".to_owned()));
+    run.consumables.push(balatro_engine_core::run::consumable::Consumable::plain("c_sigil".to_owned()));
     run.use_consumable(0, &[]).expect("能用");
     let suits: std::collections::HashSet<_> =
         run.hand.iter().map(|card| card.card.suit).collect();
@@ -910,7 +910,7 @@ fn sigil_and_ouija_normalize_the_hand() {
     let mut run = aleeb_run();
     run.start();
     let hand_before = run.hand_size();
-    run.consumables.push(balatro_engine::run::consumable::Consumable::plain("c_ouija".to_owned()));
+    run.consumables.push(balatro_engine_core::run::consumable::Consumable::plain("c_ouija".to_owned()));
     run.use_consumable(0, &[]).expect("能用");
     let ranks: std::collections::HashSet<_> =
         run.hand.iter().map(|card| card.card.rank).collect();
@@ -926,7 +926,7 @@ fn cryptid_copies_the_first_selected_card() {
     let before = run.hand.len();
     let source = run.hand[2].token();
 
-    run.consumables.push(balatro_engine::run::consumable::Consumable::plain("c_cryptid".to_owned()));
+    run.consumables.push(balatro_engine_core::run::consumable::Consumable::plain("c_cryptid".to_owned()));
     run.use_consumable(0, &[2]).expect("能用");
 
     assert_eq!(run.hand.len(), before + 2, "多出两张");
@@ -939,13 +939,13 @@ fn cryptid_copies_the_first_selected_card() {
 /// 所以手牌张数的净变化是"补的张数 - 1", 整副牌也因此少一张.
 #[test]
 fn spectral_tarots_that_destroy_and_add_cards() {
-    use balatro_engine::cards::Rank;
-    use balatro_engine::run::RunState;
+    use balatro_engine_core::cards::Rank;
+    use balatro_engine_core::run::RunState;
 
-    let hand_after = |key: &str| -> Vec<balatro_engine::cards::CardInstance> {
+    let hand_after = |key: &str| -> Vec<balatro_engine_core::cards::CardInstance> {
         let mut run = RunState::new("ALEEB", 8);
         run.start();
-        run.consumables.push(balatro_engine::run::consumable::Consumable::plain(key.to_owned()));
+        run.consumables.push(balatro_engine_core::run::consumable::Consumable::plain(key.to_owned()));
         run.use_consumable(0, &[]).expect("能用");
         run.hand.clone()
     };
@@ -987,7 +987,7 @@ fn spectral_tarots_that_destroy_and_add_cards() {
     let mut run = RunState::new("ALEEB", 8);
     run.start();
     let before = run.dollars;
-    run.consumables.push(balatro_engine::run::consumable::Consumable::plain("c_immolate".to_owned()));
+    run.consumables.push(balatro_engine_core::run::consumable::Consumable::plain("c_immolate".to_owned()));
     run.use_consumable(0, &[]).expect("能用");
     assert_eq!(run.dollars, before + 20.0, "换二十块");
     assert_eq!(run.hand.len(), 3, "八张删掉五张");
@@ -998,15 +998,15 @@ fn spectral_tarots_that_destroy_and_add_cards() {
 /// 被挑中的那张可能是永恒的也可能不是; 永恒的**删不掉**, 所以它们总是留下来.
 #[test]
 fn ankh_keeps_one_joker_and_duplicates_it() {
-    use balatro_engine::jokers::Joker;
-    use balatro_engine::run::RunState;
+    use balatro_engine_core::jokers::Joker;
+    use balatro_engine_core::run::RunState;
 
     let mut run = RunState::new("ALEEB", 8);
     run.start();
     for key in ["j_joker", "j_jolly", "j_sly"] {
         run.jokers.push(Joker::new(key).expect("有这张"));
     }
-    run.consumables.push(balatro_engine::run::consumable::Consumable::plain("c_ankh".to_owned()));
+    run.consumables.push(balatro_engine_core::run::consumable::Consumable::plain("c_ankh".to_owned()));
     run.use_consumable(0, &[]).expect("能用");
 
     // 三个删掉两个, 再补一个复制品 -> 还是两个.
@@ -1028,7 +1028,7 @@ fn ankh_keeps_one_joker_and_duplicates_it() {
     eternal.eternal = true;
     run.jokers.push(eternal);
     run.jokers.push(Joker::new("j_sly").expect("有这张"));
-    run.consumables.push(balatro_engine::run::consumable::Consumable::plain("c_ankh".to_owned()));
+    run.consumables.push(balatro_engine_core::run::consumable::Consumable::plain("c_ankh".to_owned()));
     run.use_consumable(0, &[]).expect("能用");
 
     assert!(
@@ -1041,9 +1041,9 @@ fn ankh_keeps_one_joker_and_duplicates_it() {
 /// 妖法与灵质: 从"还没有版本"的小丑里挑一个给它加版本.
 #[test]
 fn hex_and_ectoplasm_add_editions() {
-    use balatro_engine::cards::Edition;
-    use balatro_engine::jokers::Joker;
-    use balatro_engine::run::RunState;
+    use balatro_engine_core::cards::Edition;
+    use balatro_engine_core::jokers::Joker;
+    use balatro_engine_core::run::RunState;
 
     let run_with = |key: &str| -> RunState {
         let mut run = RunState::new("ALEEB", 8);
@@ -1051,7 +1051,7 @@ fn hex_and_ectoplasm_add_editions() {
         for joker in ["j_joker", "j_jolly", "j_sly"] {
             run.jokers.push(Joker::new(joker).expect("有这张"));
         }
-        run.consumables.push(balatro_engine::run::consumable::Consumable::plain(key.to_owned()));
+        run.consumables.push(balatro_engine_core::run::consumable::Consumable::plain(key.to_owned()));
         run.use_consumable(0, &[]).expect("能用");
         run
     };
@@ -1069,7 +1069,7 @@ fn hex_and_ectoplasm_add_editions() {
     // 没有可加版本的小丑时不能使用, 拒绝后保留消耗牌.
     let mut run = RunState::new("ALEEB", 8);
     run.start();
-    run.consumables.push(balatro_engine::run::consumable::Consumable::plain("c_hex".to_owned()));
+    run.consumables.push(balatro_engine_core::run::consumable::Consumable::plain("c_hex".to_owned()));
     assert!(run.use_consumable(0, &[]).is_err());
     assert!(run.jokers.is_empty());
     assert_eq!(run.consumables.len(), 1);
@@ -1080,13 +1080,13 @@ fn hex_and_ectoplasm_add_editions() {
 /// 五十个种子各试一次, 一次都不该落空.
 #[test]
 fn aura_always_gives_an_edition() {
-    use balatro_engine::run::RunState;
+    use balatro_engine_core::run::RunState;
 
     let mut missed = 0;
     for seed in ["ALEEB", "AAAAA", "ZZZZZ", "12345", "7GU9BJP9"] {
         let mut run = RunState::new(seed, 8);
         run.start();
-        run.consumables.push(balatro_engine::run::consumable::Consumable::plain("c_aura".to_owned()));
+        run.consumables.push(balatro_engine_core::run::consumable::Consumable::plain("c_aura".to_owned()));
         run.use_consumable(0, &[2]).expect("能用");
         if run.hand[2].edition.is_none() {
             missed += 1;
@@ -1098,14 +1098,14 @@ fn aura_always_gives_an_edition() {
 /// 幽灵给一张**稀有**小丑, 灵魂给一张**传奇**小丑, 黑洞给所有牌型各升一级.
 #[test]
 fn wraith_soul_and_black_hole() {
-    use balatro_engine::data::catalog::Catalog;
-    use balatro_engine::run::RunState;
-    use balatro_engine::scoring::PokerHand;
+    use balatro_engine_core::data::catalog::Catalog;
+    use balatro_engine_core::run::RunState;
+    use balatro_engine_core::scoring::PokerHand;
 
     // 幽灵: 稀有 (3 级).
     let mut run = RunState::new("ALEEB", 8);
     run.start();
-    run.consumables.push(balatro_engine::run::consumable::Consumable::plain("c_wraith".to_owned()));
+    run.consumables.push(balatro_engine_core::run::consumable::Consumable::plain("c_wraith".to_owned()));
     run.use_consumable(0, &[]).expect("能用");
     assert_eq!(run.jokers.len(), 1, "给了一张小丑");
     let rarity = Catalog::get()
@@ -1116,7 +1116,7 @@ fn wraith_soul_and_black_hole() {
     // 灵魂: 传奇 (4 级).
     let mut run = RunState::new("ALEEB", 8);
     run.start();
-    run.consumables.push(balatro_engine::run::consumable::Consumable::plain("c_soul".to_owned()));
+    run.consumables.push(balatro_engine_core::run::consumable::Consumable::plain("c_soul".to_owned()));
     run.use_consumable(0, &[]).expect("能用");
     assert_eq!(run.jokers.len(), 1, "给了一张小丑");
     let rarity = Catalog::get()
@@ -1127,7 +1127,7 @@ fn wraith_soul_and_black_hole() {
     // 黑洞: 每个牌型各升一级.
     let mut run = RunState::new("ALEEB", 8);
     run.start();
-    run.consumables.push(balatro_engine::run::consumable::Consumable::plain("c_black_hole".to_owned()));
+    run.consumables.push(balatro_engine_core::run::consumable::Consumable::plain("c_black_hole".to_owned()));
     run.use_consumable(0, &[]).expect("能用");
     for hand in PokerHand::BY_PRIORITY {
         assert_eq!(run.hands.get(hand).level, 2, "{hand:?} 该升到 2 级");
@@ -1140,14 +1140,14 @@ fn wraith_soul_and_black_hole() {
 /// 这几张原来一张都没实现 —— 按名字分发, 名字不在表里, 于是用掉什么也不会发生.
 #[test]
 fn enhancement_tarots_actually_enhance() {
-    use balatro_engine::cards::Enhancement;
+    use balatro_engine_core::cards::Enhancement;
 
     let improved = |key: &str, targets: &[usize]| -> Vec<Option<Enhancement>> {
         let mut run = aleeb_run();
         run.start();
         common::place_blind(&mut run);
         run.consumables
-            .push(balatro_engine::run::consumable::Consumable::plain(key.to_owned()));
+            .push(balatro_engine_core::run::consumable::Consumable::plain(key.to_owned()));
         // 用刚推进去的那一张 (这个局开局可能已经有别的消耗牌, 不能写死 0).
         let index = run.consumables.len() - 1;
         run.use_consumable(index, targets).expect("能用");
@@ -1175,7 +1175,7 @@ fn enhancement_tarots_actually_enhance() {
 /// 它进队时会取一次现值, 包括进队之前用掉的.
 #[test]
 fn fortune_teller_counts_tarots_used() {
-    use balatro_engine::jokers::Joker;
+    use balatro_engine_core::jokers::Joker;
 
     let mut run = aleeb_run();
     run.start();
@@ -1187,7 +1187,7 @@ fn fortune_teller_counts_tarots_used() {
 
     // 用一张塔罗: 全局用量 +1, 占卜师也 +1.
     run.consumables
-        .push(balatro_engine::run::consumable::Consumable::plain("c_magician".to_owned()));
+        .push(balatro_engine_core::run::consumable::Consumable::plain("c_magician".to_owned()));
     let index = run.consumables.len() - 1;
     run.use_consumable(index, &[0]).expect("能用");
     assert_eq!(run.tarots_used, 1, "全局用量 +1");
@@ -1195,7 +1195,7 @@ fn fortune_teller_counts_tarots_used() {
 
     // 行星牌不算塔罗.
     run.consumables
-        .push(balatro_engine::run::consumable::Consumable::plain("c_mercury".to_owned()));
+        .push(balatro_engine_core::run::consumable::Consumable::plain("c_mercury".to_owned()));
     let index = run.consumables.len() - 1;
     run.use_consumable(index, &[]).expect("能用");
     assert_eq!(run.tarots_used, 1, "行星牌不计入塔罗用量");

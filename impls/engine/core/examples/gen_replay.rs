@@ -40,9 +40,9 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use balatro_engine::data::json::Json;
-use balatro_engine::run::{Phase, RunState, digest};
-use balatro_engine::scoring::{BackEffect, EvalEnv};
+use balatro_engine_core::data::json::Json;
+use balatro_engine_core::run::{Phase, RunState, digest};
+use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 
 /// 赌注的显示名换档位 (白 1 ... 金 8).
 fn stake_of(name: &str) -> i64 {

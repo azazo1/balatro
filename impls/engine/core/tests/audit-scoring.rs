@@ -1,9 +1,9 @@
 //! 带 mod 游戏计分阶段和交互的关键回归.
 mod common;
 
-use balatro_engine::cards::Edition;
-use balatro_engine::jokers::Joker;
-use balatro_engine::scoring::{BackEffect, EvalEnv, HandCard, HandTable, ScoreResult, score_play_with_held};
+use balatro_engine_core::cards::Edition;
+use balatro_engine_core::jokers::Joker;
+use balatro_engine_core::scoring::{BackEffect, EvalEnv, HandCard, HandTable, ScoreResult, score_play_with_held};
 use common::card;
 
 fn score(played: &[HandCard], held: &[HandCard], keys: &[&str]) -> ScoreResult {
@@ -74,7 +74,7 @@ fn joker_additive_edition_precedes_main_effect() {
     let mut joker = Joker::new("j_card_sharp").unwrap();
     joker.edition = Some(Edition::Holo);
     let mut table = HandTable::new();
-    table.record_played(balatro_engine::scoring::PokerHand::HighCard);
+    table.record_played(balatro_engine_core::scoring::PokerHand::HighCard);
     let result = score_play_with_held(&[card("S_A")], &[], &table, &EvalEnv::default(), BackEffect::Plain, &mut [joker]).unwrap();
     assert_eq!(result.mult, 33.0);
 }
@@ -154,7 +154,7 @@ fn copy_loops_and_incompatible_targets_do_not_trigger() {
 
 #[test]
 fn steamodded_hand_level_changes_preserve_unclamped_values() {
-    use balatro_engine::scoring::PokerHand;
+    use balatro_engine_core::scoring::PokerHand;
     let mut table = HandTable::new();
     table.level_up(PokerHand::HighCard, -1);
     assert_eq!(table.get(PokerHand::HighCard).level, 0);
@@ -166,7 +166,7 @@ fn steamodded_hand_level_changes_preserve_unclamped_values() {
 
 #[test]
 fn steamodded_poker_parts_match_executed_lua_oracle() {
-    use balatro_engine::scoring::{PokerHand, evaluate_poker_hand};
+    use balatro_engine_core::scoring::{PokerHand, evaluate_poker_hand};
     let cases: &[(&[&str], EvalEnv, PokerHand, &[usize])] = &[
         (&["S_2", "S_3", "S_4", "H_5", "S_K"], EvalEnv { four_fingers: true, ..EvalEnv::default() }, PokerHand::StraightFlush, &[0,1,2,3,4]),
         (&["S_2", "H_4", "C_6", "D_8", "S_T"], EvalEnv { shortcut: true, ..EvalEnv::default() }, PokerHand::Straight, &[0,1,2,3,4]),
@@ -196,7 +196,7 @@ fn steamodded_poker_parts_match_executed_lua_oracle() {
 
 #[test]
 fn before_card_mutations_preserve_initial_scoring_selection() {
-    use balatro_engine::scoring::{score_play_with_creation_pre_evaluated, scoring_selection, PokerHand};
+    use balatro_engine_core::scoring::{score_play_with_creation_pre_evaluated, scoring_selection, PokerHand};
     let mut cards = [card("S_2"), card("H_2"), card("S_K")];
     cards[2].stone = true;
     cards[2].bonus = 50.0;
@@ -204,11 +204,11 @@ fn before_card_mutations_preserve_initial_scoring_selection() {
     let (evaluated, indices) = scoring_selection(&cards, &env).unwrap();
     cards[2].stone = false;
     cards[2].bonus = 0.0;
-    let mut creation = balatro_engine::run::shop::Creation {
+    let mut creation = balatro_engine_core::run::shop::Creation {
         ante: 1, showman: false, banned: Default::default(), used: Default::default(),
         enhanced: Default::default(), played: Default::default(),
     };
-    let result = score_play_with_creation_pre_evaluated(&cards, &[], &HandTable::new(), &env, BackEffect::Plain, &mut [], &mut creation, &mut balatro_engine::rng::Rng::new("audit"), &evaluated, &indices).unwrap();
+    let result = score_play_with_creation_pre_evaluated(&cards, &[], &HandTable::new(), &env, BackEffect::Plain, &mut [], &mut creation, &mut balatro_engine_core::rng::Rng::new("audit"), &evaluated, &indices).unwrap();
     assert_eq!(result.hand, PokerHand::Pair);
     assert_eq!(result.scoring_cards, vec![0,1,2]);
     assert_eq!(result.chips, 24.0);
@@ -230,11 +230,11 @@ fn lucky_cat_copy_does_not_double_grow_on_each_lucky_repetition() {
 
 #[test]
 fn held_random_effects_only_repeat_after_a_first_calculated_effect() {
-    use balatro_engine::scoring::score_play_with_rng;
+    use balatro_engine_core::scoring::score_play_with_rng;
     let mut king = card("S_K");
     king.repetitions = 2;
     let mut jokers = [Joker::new("j_reserved_parking").unwrap(), Joker::new("j_mime").unwrap()];
-    let mut rng = balatro_engine::rng::Rng::new("parking-audit");
+    let mut rng = balatro_engine_core::rng::Rng::new("parking-audit");
     let mut expected_rng = rng.clone();
     let first = expected_rng.pseudorandom("parking") < 1.0/2.0;
     if first { expected_rng.pseudorandom("parking"); expected_rng.pseudorandom("parking"); }
@@ -264,7 +264,7 @@ fn triggered_matador_pays_per_copy_in_slot_order_before_bull_reads_money() {
 #[test]
 #[ignore = "需要 Lua 与预先应用 Lovely 的补丁树, 用于真实源码裁判验证"]
 fn live_steamodded_poker_oracle_matches_all_reported_groups() {
-    use balatro_engine::scoring::{PokerHand, evaluate_poker_hand};
+    use balatro_engine_core::scoring::{PokerHand, evaluate_poker_hand};
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
     let lua = std::env::var("BALATRO_AUDIT_LUA").unwrap_or_else(|_| "luajit".into());
     let output = std::process::Command::new(lua)

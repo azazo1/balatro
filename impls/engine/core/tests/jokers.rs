@@ -8,8 +8,8 @@
 
 mod common;
 
-use balatro_engine::jokers::Joker;
-use balatro_engine::scoring::{
+use balatro_engine_core::jokers::Joker;
+use balatro_engine_core::scoring::{
     BackEffect, EvalEnv, HandTable, PokerHand, evaluate_poker_hand, score_play,
 };
 use common::{card, hand};
@@ -19,8 +19,8 @@ fn table() -> HandTable {
 }
 
 /// 把手里换成指定的几张, 这样测的是**确定的牌型** —— 发出来的牌是什么全看种子.
-fn set_hand(run: &mut balatro_engine::run::RunState, codes: &[&str]) {
-    use balatro_engine::cards::CardInstance;
+fn set_hand(run: &mut balatro_engine_core::run::RunState, codes: &[&str]) {
+    use balatro_engine_core::cards::CardInstance;
 
     run.hand = codes
         .iter()
@@ -304,7 +304,7 @@ fn green_joker_grows_on_every_hand_and_shrinks_on_discard() {
     assert_eq!(first.mult, 3.0, "对子自己的 2 倍率加涨到 1");
 
     // 弃一张牌: 绿小丑掉 1 倍率 (城堡看花色长大那条在同一处, 这里用不到).
-    jokers[0].on_discard(&[balatro_engine::cards::CardInstance::from_key("C_5").expect("有这张")], None, false);
+    jokers[0].on_discard(&[balatro_engine_core::cards::CardInstance::from_key("C_5").expect("有这张")], None, false);
     assert_eq!(jokers[0].mult, 0.0, "弃一次牌掉回 0");
 }
 
@@ -778,8 +778,8 @@ fn pip_reading_jokers_pay_for_the_right_cards() {
 /// 钢铁小丑看整副存活牌中的钢铁牌, 蓝色小丑看摸牌堆张数.
 #[test]
 fn steel_and_blue_jokers_read_the_board() {
-    use balatro_engine::cards::{CardInstance, Enhancement};
-    use balatro_engine::scoring::score_play_with_held;
+    use balatro_engine_core::cards::{CardInstance, Enhancement};
+    use balatro_engine_core::scoring::score_play_with_held;
 
     let pair = ["C_5", "D_5"].map(card);
 
@@ -918,7 +918,7 @@ fn typed_xmult_jokers_only_fire_on_their_hand() {
     let pair = ["C_5", "D_5"].map(card);
     let straight = ["C_2", "D_3", "H_4", "S_5", "C_6"].map(card);
 
-    let score_one = |key: &str, cards: &[balatro_engine::scoring::HandCard]| -> f64 {
+    let score_one = |key: &str, cards: &[balatro_engine_core::scoring::HandCard]| -> f64 {
         let mut jokers = [Joker::new(key).expect("有这张")];
         score_play(cards, &table(), &EvalEnv::default(), BackEffect::Plain, &mut jokers)
             .expect("能识别牌型")
@@ -948,7 +948,7 @@ fn typed_xmult_jokers_only_fire_on_their_hand() {
 /// "含这一手"是关键: 游戏在 `evaluate_play` 开头就把计数加上去了, 所以第一次打也有 +1.
 #[test]
 fn supernova_pays_for_how_often_that_hand_was_played() {
-    use balatro_engine::scoring::{HandTable, PokerHand};
+    use balatro_engine_core::scoring::{HandTable, PokerHand};
 
     let pair = ["C_5", "D_5"].map(card);
 
@@ -1071,7 +1071,7 @@ fn stuntman_gives_a_flat_chip_bonus() {
 /// 它排在发牌之后 —— 改的是"这一回合还能怎么打", 不是发什么牌.
 #[test]
 fn burglar_takes_away_discards_and_adds_hands() {
-    use balatro_engine::run::RunState;
+    use balatro_engine_core::run::RunState;
 
     let without = {
         let mut run = RunState::new("ALEEB", 8);
@@ -1098,7 +1098,7 @@ fn burglar_takes_away_discards_and_adds_hands() {
 /// 用冰淇淋当样板 (它只给筹码, 不给倍率), 这样加进来的那份一看就知道是谁的.
 #[test]
 fn joker_editions_add_their_share() {
-    use balatro_engine::cards::Edition;
+    use balatro_engine_core::cards::Edition;
 
     let pair = ["C_5", "D_5"].map(card);
     let with = |edition: Option<Edition>| -> (f64, f64) {
@@ -1156,7 +1156,7 @@ fn half_joker_pays_only_for_small_plays() {
 /// 黑板: **手里每一张**都是黑桃或梅花时乘三倍.
 #[test]
 fn blackboard_needs_an_all_black_hand() {
-    use balatro_engine::scoring::score_play_with_held;
+    use balatro_engine_core::scoring::score_play_with_held;
 
     let pair = ["C_5", "D_5"].map(card);
 
@@ -1262,7 +1262,7 @@ fn bootstraps_pays_per_five_dollars() {
 /// 所以最后一手在计分时看到的次数是 0.
 #[test]
 fn acrobat_pays_on_the_last_hand_of_the_round() {
-    use balatro_engine::run::RunState;
+    use balatro_engine_core::run::RunState;
 
     let mut run = RunState::new("ALEEB", 8);
     run.start();
@@ -1334,7 +1334,7 @@ fn suit_per_card_jokers_pay_for_each_matching_card() {
     let clubs = ["C_2", "C_4", "C_6", "C_8", "C_T"].map(card);
     let diamonds = ["D_2", "D_4", "D_6", "D_8", "D_T"].map(card);
 
-    let score = |key: &str, cards: &[balatro_engine::scoring::HandCard]| -> (f64, f64, f64) {
+    let score = |key: &str, cards: &[balatro_engine_core::scoring::HandCard]| -> (f64, f64, f64) {
         let mut jokers = [Joker::new(key).expect("有这张")];
         let got = score_play(cards, &table(), &EvalEnv::default(), BackEffect::Plain, &mut jokers)
             .expect("同花能识别");
@@ -1342,7 +1342,7 @@ fn suit_per_card_jokers_pay_for_each_matching_card() {
     };
 
     // 先拿一张没有小丑的同花当基准.
-    let base_for = |cards: &[balatro_engine::scoring::HandCard]| -> (f64, f64, f64) {
+    let base_for = |cards: &[balatro_engine_core::scoring::HandCard]| -> (f64, f64, f64) {
         let mut none: [Joker; 0] = [];
         let got = score_play(cards, &table(), &EvalEnv::default(), BackEffect::Plain, &mut none)
             .expect("同花能识别");
@@ -1373,8 +1373,8 @@ fn suit_per_card_jokers_pay_for_each_matching_card() {
 /// 验的是真实路径, 而不是摆一个"中了"的布尔值.
 #[test]
 fn bloodstone_rolls_per_scoring_heart() {
-    use balatro_engine::rng::Rng;
-    use balatro_engine::scoring::score_play_with_rng;
+    use balatro_engine_core::rng::Rng;
+    use balatro_engine_core::scoring::score_play_with_rng;
 
     let hearts = ["H_5", "H_7", "H_9", "H_J", "H_K"].map(card);
 
@@ -1431,8 +1431,8 @@ fn bloodstone_rolls_per_scoring_heart() {
 /// 生意: 每张**人头牌**计分时掷一次 (1/2), 中了给两块.
 #[test]
 fn business_rolls_per_scoring_face_card() {
-    use balatro_engine::rng::Rng;
-    use balatro_engine::scoring::score_play_with_rng;
+    use balatro_engine_core::rng::Rng;
+    use balatro_engine_core::scoring::score_play_with_rng;
 
     // 葫芦 KKK + QQ: 五张都是人头牌, 而且**五张全部参与计分**.
     // (拿两对的话那个单张不参与计分, 只有四张会掷骰 —— 这里踩过一次.)
@@ -1471,7 +1471,7 @@ fn business_rolls_per_scoring_face_card() {
 /// 重触发重跑的是**整段逐卡效果** (含那张牌自己的筹码), 所以对子里的每张牌都会多给一份.
 #[test]
 fn retrigger_jokers_repeat_the_whole_card_effect() {
-    type Views = [balatro_engine::scoring::HandCard];
+    type Views = [balatro_engine_core::scoring::HandCard];
     let score = |key: &str, cards: &Views| -> f64 {
         let mut jokers = [Joker::new(key).expect("有这张")];
         score_play(cards, &table(), &EvalEnv::default(), BackEffect::Plain, &mut jokers)
@@ -1511,7 +1511,7 @@ fn retrigger_jokers_repeat_the_whole_card_effect() {
 /// 这两张要看回合状态, 所以走完整的 `play` 而不是光算分.
 #[test]
 fn dusk_and_selzer_depend_on_the_round_state() {
-    use balatro_engine::run::RunState;
+    use balatro_engine_core::run::RunState;
 
     let chips_after_play = |key: &str, hands_left: i64| -> f64 {
         let mut run = RunState::new("ALEEB", 8);
@@ -1538,9 +1538,9 @@ fn dusk_and_selzer_depend_on_the_round_state() {
 /// 证书那张必带蜡封 (种类另掷一次), 所以它不会是一张裸牌.
 #[test]
 fn marble_and_certificate_add_cards_when_the_blind_is_set() {
-    use balatro_engine::run::RunState;
+    use balatro_engine_core::run::RunState;
 
-    let deck_with = |joker: &str| -> Vec<balatro_engine::cards::CardInstance> {
+    let deck_with = |joker: &str| -> Vec<balatro_engine_core::cards::CardInstance> {
         let mut run = RunState::new("ALEEB", 8);
         run.start_run();
         let before = run.deck.len();
@@ -1614,8 +1614,8 @@ fn seeing_double_wants_a_club_and_one_other_suit() {
 /// 印错: 每次触发从 0 到 23 之间**取一个整数**加进倍率 (不是小数).
 #[test]
 fn misprint_rolls_an_integer_mult() {
-    use balatro_engine::rng::Rng;
-    use balatro_engine::scoring::score_play_with_rng;
+    use balatro_engine_core::rng::Rng;
+    use balatro_engine_core::scoring::score_play_with_rng;
 
     let pair = ["C_5", "D_5"].map(card);
     let mut seen = std::collections::HashSet::new();
@@ -1670,7 +1670,7 @@ fn jokers_with_values_inside_extra_are_not_silent_noops() {
     let pair = ["C_5", "D_5"].map(card);
     let straight = ["C_2", "D_3", "H_4", "S_5", "C_6"].map(card);
 
-    let score_with = |key: &str, cards: &[balatro_engine::scoring::HandCard], table: &HandTable| {
+    let score_with = |key: &str, cards: &[balatro_engine_core::scoring::HandCard], table: &HandTable| {
         let mut jokers = [Joker::new(key).expect("有这张")];
         score_play(cards, table, &EvalEnv::default(), BackEffect::Plain, &mut jokers)
             .expect("能识别牌型")
@@ -1720,7 +1720,7 @@ fn wee_grows_on_scored_twos_and_pays_the_same_hand() {
 /// 城堡整个没实现. 所以这里直接从钩子这一层测.
 #[test]
 fn castle_grows_only_on_its_own_suit() {
-    use balatro_engine::cards::{CardInstance, Suit};
+    use balatro_engine_core::cards::{CardInstance, Suit};
 
     let mut castle = Joker::new("j_castle").expect("有这张");
     let spade = CardInstance::from_key("S_5").expect("有这张");
@@ -1742,7 +1742,7 @@ fn castle_grows_only_on_its_own_suit() {
 /// 所以正好每 23 张涨一次. 顺序写反就会早一张.
 #[test]
 fn yorick_gains_mult_every_23_discarded_cards() {
-    use balatro_engine::cards::CardInstance;
+    use balatro_engine_core::cards::CardInstance;
 
     let mut yorick = Joker::new("j_yorick").expect("有这张");
     assert_eq!(yorick.x_mult, 1.0, "起始倍率是 1");
@@ -1766,7 +1766,7 @@ fn yorick_gains_mult_every_23_discarded_cards() {
 /// 无面者: 一次弃掉的牌里**至少三张人头牌**就给 $5; 不够就不给.
 #[test]
 fn faceless_pays_for_three_discarded_face_cards() {
-    use balatro_engine::cards::CardInstance;
+    use balatro_engine_core::cards::CardInstance;
 
     let cards = |keys: &[&str]| -> Vec<CardInstance> {
         keys.iter()
@@ -1792,7 +1792,7 @@ fn faceless_pays_for_three_discarded_face_cards() {
 /// 所以这里直接把环境里的花色设好, 看它会不会只对那种花色给.
 #[test]
 fn ancient_multiplies_only_its_own_suit() {
-    use balatro_engine::cards::Suit;
+    use balatro_engine_core::cards::Suit;
 
     let spades = ["C_5", "D_5"].map(card); // 先用两张凑一个对子
     let mut env = EvalEnv {
@@ -1800,7 +1800,7 @@ fn ancient_multiplies_only_its_own_suit() {
         ..Default::default()
     };
 
-    let score = |cards: &[balatro_engine::scoring::HandCard], env: &EvalEnv| {
+    let score = |cards: &[balatro_engine_core::scoring::HandCard], env: &EvalEnv| {
         let mut jokers = [Joker::new("j_ancient").expect("有这张")];
         score_play(cards, &table(), env, BackEffect::Plain, &mut jokers)
             .expect("能识别牌型")
@@ -1818,7 +1818,7 @@ fn ancient_multiplies_only_its_own_suit() {
 /// 天涯路: 每弃一张 J 涨 0.5 倍, 回合结束回到 1 倍.
 #[test]
 fn hit_the_road_grows_on_jacks_and_resets_at_round_end() {
-    use balatro_engine::cards::CardInstance;
+    use balatro_engine_core::cards::CardInstance;
 
     let mut joker = Joker::new("j_hit_the_road").expect("有这张");
     let jacks: Vec<CardInstance> = ["S_J", "H_J"]
@@ -1838,7 +1838,7 @@ fn hit_the_road_grows_on_jacks_and_resets_at_round_end() {
     assert_eq!(joker.x_mult, 2.5, "再弃一张 J 继续涨");
 
     // 回合结束回到 1.
-    let mut rng = balatro_engine::rng::Rng::new("ALEEB");
+    let mut rng = balatro_engine_core::rng::Rng::new("ALEEB");
     assert!(!joker.end_of_round_effect(&mut rng, 1.0), "不会自毁");
     assert_eq!(joker.x_mult, 1.0, "回合结束回 1");
 }
@@ -1846,7 +1846,7 @@ fn hit_the_road_grows_on_jacks_and_resets_at_round_end() {
 /// 海龟豆: 手牌上限的当前值是 5, 每回合掉一点, 掉到 0 之前那一次自毁.
 #[test]
 fn turtle_bean_shrinks_each_round_then_dies() {
-    let mut rng = balatro_engine::rng::Rng::new("ALEEB");
+    let mut rng = balatro_engine_core::rng::Rng::new("ALEEB");
     let mut bean = Joker::new("j_turtle_bean").expect("有这张");
     assert_eq!(bean.extra, 5.0, "当前值是 5");
 
@@ -1862,9 +1862,9 @@ fn turtle_bean_shrinks_each_round_then_dies() {
 /// 隐形小丑: 每过一个回合攒一点, 攒够之后再卖掉会把**另一个**小丑复制一份.
 #[test]
 fn invisible_joker_duplicates_another_joker_when_sold() {
-    use balatro_engine::run::RunState;
+    use balatro_engine_core::run::RunState;
 
-    let mut rng = balatro_engine::rng::Rng::new("ALEEB");
+    let mut rng = balatro_engine_core::rng::Rng::new("ALEEB");
     let mut run = RunState::new("ALEEB", 8);
     run.start();
     let mut invisible = Joker::new("j_invisible").expect("有这张");
@@ -1890,7 +1890,7 @@ fn invisible_joker_duplicates_another_joker_when_sold() {
 /// 所以顺手把"每回合清零"也补上了.
 #[test]
 fn chaos_the_clown_gives_one_free_reroll_each_round() {
-    use balatro_engine::run::RunState;
+    use balatro_engine_core::run::RunState;
 
     let mut run = RunState::new("ALEEB", 8);
     run.start();
@@ -1907,9 +1907,9 @@ fn chaos_the_clown_gives_one_free_reroll_each_round() {
 /// 蛋: 每过一个回合, 自己的**卖出价**涨 3 块 (涨的是卖价, 不是筹码).
 #[test]
 fn egg_grows_its_sell_value_each_round() {
-    use balatro_engine::rng::Rng;
-    use balatro_engine::run::RunState;
-    use balatro_engine::run::Phase;
+    use balatro_engine_core::rng::Rng;
+    use balatro_engine_core::run::RunState;
+    use balatro_engine_core::run::Phase;
 
     let mut rng = Rng::new("ALEEB");
     let mut egg = Joker::new("j_egg").expect("有这张");
@@ -1942,8 +1942,8 @@ fn egg_grows_its_sell_value_each_round() {
 /// 想构造"一张人头牌都不留"得把五张都打出去, 那就变成在测别的东西了.
 #[test]
 fn reserved_parking_rolls_for_held_face_cards() {
-    use balatro_engine::run::RunState;
-    use balatro_engine::scoring::{BackEffect, EvalEnv};
+    use balatro_engine_core::run::RunState;
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 
     let payouts = |seed: &str| -> f64 {
         let mut run = RunState::new(seed, 8);
@@ -1991,7 +1991,7 @@ fn the_contain_family_works_through_the_generic_branch() {
     let env = EvalEnv::default();
 
     // 手边这副牌里能凑出的各种牌型. 挑的时候只看"包含哪些", 不看"最高是哪一种".
-    let hand_of = |codes: [&str; 5]| -> [balatro_engine::scoring::HandCard; 5] {
+    let hand_of = |codes: [&str; 5]| -> [balatro_engine_core::scoring::HandCard; 5] {
         [
             card(codes[0]),
             card(codes[1]),
@@ -2000,7 +2000,7 @@ fn the_contain_family_works_through_the_generic_branch() {
             card(codes[4]),
         ]
     };
-    let pool: Vec<(&str, [balatro_engine::scoring::HandCard; 5])> = vec![
+    let pool: Vec<(&str, [balatro_engine_core::scoring::HandCard; 5])> = vec![
         // 高牌: 不成对, 不同花, 连不成顺.
         ("高牌", hand_of(["C_2", "D_7", "S_9", "H_J", "C_K"])),
         // 一对.
@@ -2020,17 +2020,17 @@ fn the_contain_family_works_through_the_generic_branch() {
         // 同花顺 (包含顺子与同花).
         ("同花顺", hand_of(["S_5", "S_6", "S_7", "S_8", "S_9"])),
     ];
-    let contains = |cards: &[balatro_engine::scoring::HandCard], hand: PokerHand| -> bool {
+    let contains = |cards: &[balatro_engine_core::scoring::HandCard], hand: PokerHand| -> bool {
         evaluate_poker_hand(cards, &env).has(hand)
     };
 
-    let baseline = |cards: &[balatro_engine::scoring::HandCard]| -> (f64, f64) {
+    let baseline = |cards: &[balatro_engine_core::scoring::HandCard]| -> (f64, f64) {
         let mut jokers: [Joker; 0] = [];
         let result = score_play(cards, &table(), &env, BackEffect::Plain, &mut jokers)
             .expect("能识别牌型");
         (result.chips, result.mult)
     };
-    let score = |key: &str, cards: &[balatro_engine::scoring::HandCard]| -> (f64, f64) {
+    let score = |key: &str, cards: &[balatro_engine_core::scoring::HandCard]| -> (f64, f64) {
         let mut jokers = [Joker::new(key).expect("有这张")];
         let result = score_play(cards, &table(), &env, BackEffect::Plain, &mut jokers)
             .expect("能识别牌型");
@@ -2046,7 +2046,7 @@ fn the_contain_family_works_through_the_generic_branch() {
 
     let mut checked = 0;
     for key in family {
-        let proto = balatro_engine::data::catalog::Catalog::get()
+        let proto = balatro_engine_core::data::catalog::Catalog::get()
             .record(key)
             .expect("在原型表里");
         let config = proto.config.clone().expect("这一族都带 config");
@@ -2104,8 +2104,8 @@ fn the_contain_family_works_through_the_generic_branch() {
 /// 拉面: 每弃一张牌掉 0.01 倍率, 掉到 1 就自毁.
 #[test]
 fn constellation_ticket_and_ramen_work() {
-    use balatro_engine::run::RunState;
-    use balatro_engine::scoring::{BackEffect, EvalEnv};
+    use balatro_engine_core::run::RunState;
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 
     // 星座: 用两张行星牌, 倍率该到 1.2.
     let mut run = RunState::new("ALEEB", 8);
@@ -2115,7 +2115,7 @@ fn constellation_ticket_and_ramen_work() {
     assert_eq!(run.jokers[0].x_mult, 1.0, "初始是 1");
     for key in ["c_mercury", "c_venus"] {
         run.consumables
-            .push(balatro_engine::run::consumable::Consumable::plain(key.to_owned()));
+            .push(balatro_engine_core::run::consumable::Consumable::plain(key.to_owned()));
         let index = run.consumables.len() - 1;
         run.use_consumable(index, &[]).expect("能用");
     }
@@ -2130,7 +2130,7 @@ fn constellation_ticket_and_ramen_work() {
     run.start();
     common::place_blind(&mut run);
     run.jokers.push(Joker::new("j_ticket").expect("有这张"));
-    run.hand[0].enhancement = Some(balatro_engine::cards::Enhancement::Gold);
+    run.hand[0].enhancement = Some(balatro_engine_core::cards::Enhancement::Gold);
     let result = run.play(&[0], &EvalEnv::default(), BackEffect::Plain).expect("能出牌");
     assert_eq!(result.dollars, 4.0, "一张黄金牌给 4 块");
 
@@ -2152,7 +2152,7 @@ fn constellation_ticket_and_ramen_work() {
 /// 玻璃小丑: 每碎一张玻璃牌涨 0.75 乘倍率.
 #[test]
 fn mime_retriggers_held_cards_and_glass_joker_grows() {
-    use balatro_engine::scoring::score_play_with_held;
+    use balatro_engine_core::scoring::score_play_with_held;
 
     // 手里留一张钢铁牌 (×1.5 倍率).
     let mut steel = card("S_9");
@@ -2187,11 +2187,11 @@ fn mime_retriggers_held_cards_and_glass_joker_grows() {
     let grew = ["ALEEB", "SEED1", "SEED2", "SEED3", "SEED4", "SEED5", "SEED6", "SEED7"]
         .iter()
         .any(|seed| {
-            let mut run = balatro_engine::run::RunState::new(seed, 8);
+            let mut run = balatro_engine_core::run::RunState::new(seed, 8);
             run.start();
             common::place_blind(&mut run);
             run.jokers.push(Joker::new("j_glass").expect("有这张"));
-            run.hand[0].enhancement = Some(balatro_engine::cards::Enhancement::Glass);
+            run.hand[0].enhancement = Some(balatro_engine_core::cards::Enhancement::Glass);
             let before = run.jokers[0].x_mult;
             run.play(&[0], &EvalEnv::default(), BackEffect::Plain)
                 .expect("能出牌");
@@ -2205,8 +2205,8 @@ fn mime_retriggers_held_cards_and_glass_joker_grows() {
 /// 与城堡的花色、邮件的点数同一套路 —— 这里把盯的那张直接设成手里第一张, 看它中不中.
 #[test]
 fn the_idol_doubles_for_its_chosen_card() {
-    use balatro_engine::run::RunState;
-    use balatro_engine::scoring::{BackEffect, EvalEnv};
+    use balatro_engine_core::run::RunState;
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 
     let total = |set_idol: bool| -> f64 {
         let mut run = RunState::new("ALEEB", 8);
@@ -2237,8 +2237,8 @@ fn the_idol_doubles_for_its_chosen_card() {
 /// 这样成长后的倍率这一手就生效, 而引擎也不必去碰"计分只读"那条约束.
 #[test]
 fn vampire_drains_enhancements_before_scoring() {
-    use balatro_engine::run::RunState;
-    use balatro_engine::scoring::{BackEffect, EvalEnv};
+    use balatro_engine_core::run::RunState;
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 
     let run_once = |with_vampire: bool| -> (f64, bool) {
         let mut run = RunState::new("ALEEB", 8);
@@ -2248,7 +2248,7 @@ fn vampire_drains_enhancements_before_scoring() {
             run.jokers.push(Joker::new("j_vampire").expect("有这张"));
         }
         // 把要打出去的这张牌变强化牌, 看它会不会被吸走.
-        run.hand[0].enhancement = Some(balatro_engine::cards::Enhancement::Mult);
+        run.hand[0].enhancement = Some(balatro_engine_core::cards::Enhancement::Mult);
         let result = run
             .play(&[0], &EvalEnv::default(), BackEffect::Plain)
             .expect("能出牌");
@@ -2275,8 +2275,8 @@ fn vampire_drains_enhancements_before_scoring() {
 /// 太空小丑: 计分之前掷一次 (1/4), 中了把这一手的牌型升一级.
 #[test]
 fn hologram_grows_on_card_added_and_space_joker_levels_up() {
-    use balatro_engine::run::RunState;
-    use balatro_engine::scoring::{BackEffect, EvalEnv};
+    use balatro_engine_core::run::RunState;
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 
     // 全息图 + 大理石 (大理石回合开始会给一张石头牌进牌堆).
     let mut run = RunState::new("ALEEB", 8);
@@ -2300,7 +2300,7 @@ fn hologram_grows_on_card_added_and_space_joker_levels_up() {
             common::place_blind(&mut run);
             run.jokers.push(Joker::new("j_space").expect("有这张"));
             // 打一张牌就是"高牌", 所以升级只会落在高牌上 —— 记它前后的等级来比.
-            let high = balatro_engine::scoring::PokerHand::HighCard;
+            let high = balatro_engine_core::scoring::PokerHand::HighCard;
             let before = run.hands.get(high).level;
             run.play(&[0], &EvalEnv::default(), BackEffect::Plain)
                 .expect("能出牌");
@@ -2315,7 +2315,7 @@ fn hologram_grows_on_card_added_and_space_joker_levels_up() {
 /// 顺带守一下"失效的牌先判否"这一条 —— 游戏里 `Card:is_face` 头一句就是判失效.
 #[test]
 fn pareidolia_makes_every_card_a_face_card() {
-    use balatro_engine::scoring::{score_play_with_held, PokerHand};
+    use balatro_engine_core::scoring::{score_play_with_held, PokerHand};
 
     let small = [card("S_2"), card("H_3"), card("C_4"), card("D_5"), card("S_6")];
 
@@ -2357,8 +2357,8 @@ fn pareidolia_makes_every_card_a_face_card() {
 /// 二是造好的牌**没人往运行状态里放** —— 计分那一层只负责"报告造了什么", 持有区归运行层管.
 #[test]
 fn eight_ball_creates_a_tarot_from_scored_eights() {
-    use balatro_engine::run::RunState;
-    use balatro_engine::scoring::{BackEffect, EvalEnv};
+    use balatro_engine_core::run::RunState;
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 
     // 样本量开够: 每次命中概率 1/4, 跑三十个种子时"一次都不中"的概率约万分之二.
     let hits: usize = (0..30)
@@ -2368,7 +2368,7 @@ fn eight_ball_creates_a_tarot_from_scored_eights() {
             run.start();
             common::place_blind(&mut run);
             run.jokers.push(Joker::new("j_8_ball").expect("有这张"));
-            run.hand[0].card.rank = balatro_engine::cards::Rank::Eight;
+            run.hand[0].card.rank = balatro_engine_core::cards::Rank::Eight;
             let before = run.consumables.len();
             run.play(&[0], &EvalEnv::default(), BackEffect::Plain)
                 .expect("能出牌");
@@ -2384,9 +2384,9 @@ fn eight_ball_creates_a_tarot_from_scored_eights() {
 /// 那样既绕又脆, 上一轮就是这么把测试写废的.
 #[test]
 fn superposition_creates_a_tarot_for_an_ace_straight() {
-    use balatro_engine::cards::{Rank, Suit};
-    use balatro_engine::run::RunState;
-    use balatro_engine::scoring::{BackEffect, EvalEnv};
+    use balatro_engine_core::cards::{Rank, Suit};
+    use balatro_engine_core::run::RunState;
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 
     let mut run = RunState::new("ALEEB", 8);
     run.start();
@@ -2413,9 +2413,9 @@ fn superposition_creates_a_tarot_for_an_ace_straight() {
 /// 通灵: 打出的牌型正好是配置里指定的那个 (它是"同花顺") ⇒ 造一张幽灵牌.
 #[test]
 fn seance_creates_a_spectral_for_its_hand_type() {
-    use balatro_engine::cards::{Rank, Suit};
-    use balatro_engine::run::RunState;
-    use balatro_engine::scoring::{BackEffect, EvalEnv};
+    use balatro_engine_core::cards::{Rank, Suit};
+    use balatro_engine_core::run::RunState;
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 
     let mut run = RunState::new("ALEEB", 8);
     run.start();
@@ -2447,9 +2447,9 @@ fn seance_creates_a_spectral_for_its_hand_type() {
 /// 于是五个条件里第一个就把整支挡掉了 (其余四个都是真的).
 #[test]
 fn sixth_sense_destroys_a_lone_first_hand_six() {
-    use balatro_engine::cards::Rank;
-    use balatro_engine::run::RunState;
-    use balatro_engine::scoring::{BackEffect, EvalEnv};
+    use balatro_engine_core::cards::Rank;
+    use balatro_engine_core::run::RunState;
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 
     let mut run = RunState::new("ALEEB", 8);
     run.start();
@@ -2483,9 +2483,9 @@ fn sixth_sense_destroys_a_lone_first_hand_six() {
 /// 知道这手会不会触发, 再用同一个种子真跑一遍对账.
 #[test]
 fn lucky_cat_grows_on_every_successful_lucky_trigger() {
-    use balatro_engine::cards::{CardInstance, Enhancement};
-    use balatro_engine::rng::Rng;
-    use balatro_engine::scoring::score_play_with_rng;
+    use balatro_engine_core::cards::{CardInstance, Enhancement};
+    use balatro_engine_core::rng::Rng;
+    use balatro_engine_core::scoring::score_play_with_rng;
 
     let mut run = common::aleeb_run();
     run.start();
@@ -2543,7 +2543,7 @@ fn lucky_cat_grows_on_every_successful_lucky_trigger() {
 /// 插入牌堆底是创建瞬间的规则, 不能要求随后洗牌的新牌仍位于下标 0.
 #[test]
 fn marble_created_at_setting_blind_participates_in_round_shuffle() {
-    use balatro_engine::run::RunState;
+    use balatro_engine_core::run::RunState;
 
     let mut run = RunState::new("ALEEB", 8);
     run.start_run();
@@ -2557,7 +2557,7 @@ fn marble_created_at_setting_blind_participates_in_round_shuffle() {
         .filter(|card| card.is_stone()).copied().collect();
     assert_eq!(new_stones.len(), 1);
     expected_deck.insert(0, new_stones[0]);
-    balatro_engine::lua::table_sort::sort_by(&mut expected_deck, |a, b| a.card.sort_id < b.card.sort_id);
+    balatro_engine_core::lua::table_sort::sort_by(&mut expected_deck, |a, b| a.card.sort_id < b.card.sort_id);
     oracle.pseudoshuffle(&mut expected_deck, "nr1");
     let mut expected_hand: Vec<_> = (0..8).map(|_| expected_deck.pop().unwrap()).collect();
     assert_eq!(run.deck, expected_deck, "新石头牌应参与回合洗牌, 剩余牌堆顺序完整匹配");

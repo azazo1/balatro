@@ -16,7 +16,7 @@
 //!
 //! 值域故意取小 (1..3), 好让相等频繁出现.
 
-use balatro_engine::lua::table_sort;
+use balatro_engine_core::lua::table_sort;
 
 const FIXTURE: &str = include_str!("data/luajit_sort.tsv");
 

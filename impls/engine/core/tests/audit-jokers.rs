@@ -1,14 +1,14 @@
 //! 小丑本体审计的关键回归, 期望来自实际游戏源码和 Steamodded 补丁.
 mod common;
 
-use balatro_engine::cards::{CardInstance, Enhancement, Suit};
-use balatro_engine::data::json::Json;
-use balatro_engine::jokers::{Joker, TriggerContext};
-use balatro_engine::rng::Rng;
-use balatro_engine::scoring::{BackEffect, EvalEnv, HandCard, HandTable, PokerHand, evaluate_poker_hand, score_play, score_play_with_held};
+use balatro_engine_core::cards::{CardInstance, Enhancement, Suit};
+use balatro_engine_core::data::json::Json;
+use balatro_engine_core::jokers::{Joker, TriggerContext};
+use balatro_engine_core::rng::Rng;
+use balatro_engine_core::scoring::{BackEffect, EvalEnv, HandCard, HandTable, PokerHand, evaluate_poker_hand, score_play, score_play_with_held};
 use common::card;
 
-fn ctx<'a>(cards: &'a [HandCard], hands: &'a balatro_engine::scoring::EvaluatedHand, table: &'a HandTable) -> TriggerContext<'a> {
+fn ctx<'a>(cards: &'a [HandCard], hands: &'a balatro_engine_core::scoring::EvaluatedHand, table: &'a HandTable) -> TriggerContext<'a> {
     TriggerContext {
         hand: hands.top().unwrap_or(PokerHand::HighCard), hands, cards, scoring: cards, held: &[],
         full_hand_len: cards.len(), played_this_round: 0, ancient_suit: None, idol_card: None,
@@ -36,7 +36,7 @@ fn stone_cards_have_neither_rank_suit_nor_faces_without_pareidolia() {
     }
     for key in ["j_fibonacci", "j_even_steven", "j_odd_todd", "j_scholar", "j_walkie_talkie", "j_8_ball"] {
         let mut low = stone;
-        low.card.rank = balatro_engine::cards::Rank::Two;
+        low.card.rank = balatro_engine_core::cards::Rank::Two;
         assert!(Joker::new(key).unwrap().individual(&low, &context, &mut rng).is_none(), "{key}");
     }
     assert_eq!(Joker::new("j_hack").unwrap().retrigger(&stone, &context), 0);
@@ -61,7 +61,7 @@ fn wild_and_smeared_use_effect_suits_without_giving_stones_suits() {
     assert!(Joker::new("j_arrowhead").unwrap().individual(&card("C_7"), &context, &mut rng).is_some());
     context.ancient_suit = Some(Suit::Spades);
     assert!(Joker::new("j_ancient").unwrap().individual(&wild, &context, &mut rng).is_some());
-    context.idol_card = Some((Suit::Hearts, balatro_engine::cards::Rank::Seven));
+    context.idol_card = Some((Suit::Hearts, balatro_engine_core::cards::Rank::Seven));
     assert!(Joker::new("j_idol").unwrap().individual(&wild, &context, &mut rng).is_some());
     wild.stone = true;
     assert!(!context.is_suit(&wild, Suit::Hearts, true));

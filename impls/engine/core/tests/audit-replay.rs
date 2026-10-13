@@ -1,7 +1,7 @@
 //! 回放校验只容忍游戏自身容忍的显示差异, 不能吞掉规则差异.
 
-use balatro_engine::data::json::Json;
-use balatro_engine::replay::{check, digest_diff, translated_action};
+use balatro_engine_core::data::json::Json;
+use balatro_engine_core::replay::{check, digest_diff, translated_action};
 
 #[test]
 fn booster_art_and_old_effect_names_are_display_only() {

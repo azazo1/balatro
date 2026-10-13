@@ -6,13 +6,13 @@
 
 mod common;
 
-use balatro_engine::agent::summary;
-use balatro_engine::cards::CardInstance;
-use balatro_engine::jokers::Joker;
-use balatro_engine::scoring::{BackEffect, EvalEnv, HandTable, PokerHand, score_play};
+use balatro_engine_core::agent::summary;
+use balatro_engine_core::cards::CardInstance;
+use balatro_engine_core::jokers::Joker;
+use balatro_engine_core::scoring::{BackEffect, EvalEnv, HandTable, PokerHand, score_play};
 
 /// 一套"手里这几张牌 + 这几张小丑"的计分.
-fn score(codes: &[&str], jokers: &mut [Joker]) -> balatro_engine::scoring::ScoreResult {
+fn score(codes: &[&str], jokers: &mut [Joker]) -> balatro_engine_core::scoring::ScoreResult {
     let cards: Vec<_> = codes.iter().map(|code| common::card(code)).collect();
     let env = EvalEnv::default();
     score_play(&cards, &HandTable::new(), &env, BackEffect::Plain, jokers).expect("这一手能识别")
@@ -44,22 +44,22 @@ fn a_joker_step_names_the_joker_and_its_amount() {
     let step = result
         .steps
         .iter()
-        .find(|step| matches!(step.source, balatro_engine::scoring::ScoreSource::Joker { .. }))
+        .find(|step| matches!(step.source, balatro_engine_core::scoring::ScoreSource::Joker { .. }))
         .expect("含对子, 欢快小丑应当记一步");
     match &step.source {
-        balatro_engine::scoring::ScoreSource::Joker { key } => assert_eq!(key, "j_jolly"),
+        balatro_engine_core::scoring::ScoreSource::Joker { key } => assert_eq!(key, "j_jolly"),
         other => panic!("来源应当是那张小丑, 实际 {other:?}"),
     }
     assert_eq!(
         step.kind,
-        balatro_engine::scoring::ScoreKind::Mult,
+        balatro_engine_core::scoring::ScoreKind::Mult,
         "欢快小丑给的是倍率"
     );
     assert_eq!(step.amount, 8.0, "欢快小丑给 +8 倍率");
 
     // 报出来的名字要认得出是哪张牌 —— 中文名, 不是内部键名.
     // 名字从手册取而不是写死: 这里要验的是"取了手册的名字", 而不是"某个译名没变".
-    let (name, _) = balatro_engine::data::knowledge::describe("j_jolly").expect("手册里有这张");
+    let (name, _) = balatro_engine_core::data::knowledge::describe("j_jolly").expect("手册里有这张");
     let text = summary::score_report(&result, &[], 0, &Default::default());
     assert!(text.contains(name), "明细里要有中文名 {name}: {text}");
     assert!(!text.contains("j_jolly"), "不该露出内部键名: {text}");
@@ -75,7 +75,7 @@ fn every_scoring_card_gets_its_own_step() {
         .filter(|step| {
             matches!(
                 step.source,
-                balatro_engine::scoring::ScoreSource::Card { .. }
+                balatro_engine_core::scoring::ScoreSource::Card { .. }
             )
         })
         .collect();
@@ -85,7 +85,7 @@ fn every_scoring_card_gets_its_own_step() {
     let indices: Vec<usize> = card_steps
         .iter()
         .map(|step| match step.source {
-            balatro_engine::scoring::ScoreSource::Card { index, .. } => index,
+            balatro_engine_core::scoring::ScoreSource::Card { index, .. } => index,
             _ => unreachable!(),
         })
         .collect();
@@ -112,7 +112,7 @@ fn a_joker_that_does_nothing_records_nothing() {
     assert!(
         !result.steps.iter().any(|step| matches!(
             step.source,
-            balatro_engine::scoring::ScoreSource::Joker { .. }
+            balatro_engine_core::scoring::ScoreSource::Joker { .. }
         )),
         "条件没命中的小丑不该记步: {:?}",
         result.steps
@@ -166,8 +166,8 @@ fn the_report_shows_the_hand_level() {
 /// 游戏那边的写法是 `被盲注封禁 | 本手不计分 | 0x0`, 这里对齐它.
 #[test]
 fn a_blocked_hand_says_why_it_scored_zero() {
-    use balatro_engine::run::{BlindKind, RunState};
-    use balatro_engine::scoring::BackEffect;
+    use balatro_engine_core::run::{BlindKind, RunState};
+    use balatro_engine_core::scoring::BackEffect;
 
     // 眼 (The Eye): 同一回合里打重复的牌型就整手不计分.
     let mut run = RunState::new("ALEEB", 8);
@@ -179,7 +179,7 @@ fn a_blocked_hand_says_why_it_scored_zero() {
         .iter()
         .enumerate()
         .map(|(index, code)| {
-            let mut card = balatro_engine::cards::CardInstance::from_key(code).expect("能造出牌");
+            let mut card = balatro_engine_core::cards::CardInstance::from_key(code).expect("能造出牌");
             card.card.sort_id = index as u32;
             card
         })
@@ -192,7 +192,7 @@ fn a_blocked_hand_says_why_it_scored_zero() {
         .iter()
         .enumerate()
         .map(|(index, code)| {
-            let mut card = balatro_engine::cards::CardInstance::from_key(code).expect("能造出牌");
+            let mut card = balatro_engine_core::cards::CardInstance::from_key(code).expect("能造出牌");
             card.card.sort_id = index as u32;
             card
         })

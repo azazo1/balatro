@@ -7,7 +7,7 @@
 
 mod common;
 
-use balatro_engine::scoring::{BackEffect, EvalEnv};
+use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 use common::{aleeb_run, hand_keys};
 
 #[test]
@@ -73,7 +73,7 @@ fn first_ante_can_be_replayed_step_by_step() {
     println!("结算栏 {eval:?}, 领取 {cashed}, 现在 {}$", run.dollars);
 }
 
-use balatro_engine::run::Phase;
+use balatro_engine_core::run::Phase;
 
 /// 用 user 手动那一局 (红牌组 / 白赌注 / 种子 LG7RIX92) 的前几步做整局重放.
 ///
@@ -83,7 +83,7 @@ use balatro_engine::run::Phase;
 /// 各步真值取自回放文件的 digest. 操作参数按前后两条 digest 的手牌顺序倒推.
 #[test]
 fn manual_run_replays_step_by_step() {
-    use balatro_engine::run::{BlindKind, Phase, RunState};
+    use balatro_engine_core::run::{BlindKind, Phase, RunState};
 
     let mut run = RunState::new("LG7RIX92", 1);
     let env = EvalEnv::default();
@@ -95,14 +95,14 @@ fn manual_run_replays_step_by_step() {
     assert_eq!(run.blind_on_deck, BlindKind::Small);
 
     // step 1: 打出 K,K,Q,7,3 (下标 0,1,2,6,7). 没达标, 补满手牌.
-    run.play(&[0, 1, 2, 6, 7], &env, balatro_engine::scoring::BackEffect::Plain)
+    run.play(&[0, 1, 2, 6, 7], &env, balatro_engine_core::scoring::BackEffect::Plain)
         .expect("能出这手牌");
     assert_eq!(run.phase, Phase::SelectingHand, "没打到目标, 继续");
     assert_eq!(hand_keys(&run), "S_A,S_T,D_T,S_9,S_8,S_4,C_4,H_2");
     assert_eq!(run.deck.len(), 39);
 
     // step 2: 打出黑桃同花 (下标 0,1,3,4,5), 这一手过关.
-    run.play(&[0, 1, 3, 4, 5], &env, balatro_engine::scoring::BackEffect::Plain)
+    run.play(&[0, 1, 3, 4, 5], &env, balatro_engine_core::scoring::BackEffect::Plain)
         .expect("能出这手牌");
     assert_eq!(run.phase, Phase::RoundEval);
     assert_eq!(run.deck.len(), 52, "回合收尾把牌都收回牌堆");
@@ -184,7 +184,7 @@ fn ante_promotion_keeps_the_deal_on_track() {
 /// 还没定位, 记在 `docs/rewrite/README.md` 的待查里.
 #[test]
 fn manual_run_deals_match_the_verified_rounds() {
-    use balatro_engine::run::RunState;
+    use balatro_engine_core::run::RunState;
 
     // 只收到已经核对一致的范围. 底注 3 的三副见上面那段说明.
     let expected = [
@@ -267,8 +267,8 @@ fn strength_tarot_restores_the_third_ante_deal() {
 /// 难度档都无关地共用着同一套递推, 换一组参数能验证它没有被别的参数牵连.
 #[test]
 fn another_seed_and_stake_deals_the_same_cards() {
-    use balatro_engine::run::{BlindKind, RunState};
-    use balatro_engine::scoring::BackEffect;
+    use balatro_engine_core::run::{BlindKind, RunState};
+    use balatro_engine_core::scoring::BackEffect;
 
     let mut run = RunState::new("7GU9BJP9", 6).with_deck_scaling(2.0);
     assert_eq!(run.scaling, 3, "紫色赌注是难度档 3");
@@ -330,7 +330,7 @@ fn another_seed_and_stake_deals_the_same_cards() {
 /// 真值取自导出的前三手发牌.
 #[test]
 fn blue_deck_run_replays_its_early_rounds() {
-    use balatro_engine::run::RunState;
+    use balatro_engine_core::run::RunState;
 
     let mut run = RunState::new("RFX5JN8R", 1).with_deck("b_blue");
     run.start();

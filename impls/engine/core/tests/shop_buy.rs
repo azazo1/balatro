@@ -7,8 +7,8 @@
 
 mod common;
 
-use balatro_engine::run::shop::{ShopCard, shop_cost};
-use balatro_engine::run::{ActionError, Phase};
+use balatro_engine_core::run::shop::{ShopCard, shop_cost};
+use balatro_engine_core::run::{ActionError, Phase};
 use common::aleeb_run;
 
 /// 造一张带价签的商店卡, 免得每个用例都写一遍全部字段.
@@ -28,7 +28,7 @@ fn shop_card(key: &str, cost: f64) -> ShopCard {
 }
 
 /// 开一个能买东西的局面: 到了商店, 手里有钱, 货架空着.
-fn ready_to_buy(dollars: f64) -> balatro_engine::run::RunState {
+fn ready_to_buy(dollars: f64) -> balatro_engine_core::run::RunState {
     let mut run = aleeb_run();
     run.phase = Phase::Shop;
     run.dollars = dollars;
@@ -46,7 +46,7 @@ fn joker_prices_match_the_real_game() {
 
 #[test]
 fn editions_and_rentals_change_the_price() {
-    use balatro_engine::cards::Edition;
+    use balatro_engine_core::cards::Edition;
 
     // 版本加价: 闪箔 +2, 全息 +3, 多彩与负片 +5.
     assert_eq!(shop_cost(4.0, Some(Edition::Foil), false, 0.0, 0.0), 6.0);
@@ -255,7 +255,7 @@ fn picking_from_a_pack_rejects_bad_input() {
 /// 后面所有随机数都会偏.
 #[test]
 fn cash_out_stocks_the_shelf_and_reroll_only_touches_jokers() {
-    use balatro_engine::scoring::{BackEffect, EvalEnv};
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 
     let mut run = aleeb_run();
     run.start();
@@ -356,7 +356,7 @@ fn reroll_respects_the_debt_limit_too() {
 
     // 持卡之后能欠着抽.
     run.jokers
-        .push(balatro_engine::jokers::Joker::new("j_credit_card").expect("有这张"));
+        .push(balatro_engine_core::jokers::Joker::new("j_credit_card").expect("有这张"));
     run.bankrupt_at = -20.0;
     assert_eq!(run.reroll_shop().expect("能欠着抽"), 5.0);
     assert_eq!(run.dollars, -4.0);
@@ -368,7 +368,7 @@ fn coupon_tag_marks_only_the_initial_joker_and_booster_shelf() {
     let mut run = ready_to_buy(50.0);
     run.tags.push("tag_coupon".to_owned());
     run.phase = Phase::RoundEval;
-    run.round_eval = Some(balatro_engine::run::RoundEval::default());
+    run.round_eval = Some(balatro_engine_core::run::RoundEval::default());
     run.cash_out().expect("这一回合在结算");
     let shop = run.shop.as_ref().unwrap();
     assert!(shop.jokers.iter().all(|card| card.couponed && card.cost == 0.0));
@@ -389,7 +389,7 @@ fn coupon_tag_marks_only_the_initial_joker_and_booster_shelf() {
     run.next_round().unwrap();
 
     run.phase = Phase::RoundEval;
-    run.round_eval = Some(balatro_engine::run::RoundEval::default());
+    run.round_eval = Some(balatro_engine_core::run::RoundEval::default());
     run.cash_out().unwrap();
     assert!(!run.shop_free);
     assert!(run.shop.as_ref().unwrap().jokers.iter().all(|card| !card.couponed));
@@ -401,7 +401,7 @@ fn d6_tag_makes_the_first_shop_reroll_free() {
     let mut run = ready_to_buy(10.0);
     run.tags.push("tag_d_six".to_owned());
     run.phase = Phase::RoundEval;
-    run.round_eval = Some(balatro_engine::run::RoundEval::default());
+    run.round_eval = Some(balatro_engine_core::run::RoundEval::default());
     run.cash_out().expect("这一回合在结算");
     assert!(run.free_reroll, "进商店时标记上");
     assert_eq!(run.reroll_cost(), 0.0, "重抽不要钱");
@@ -500,7 +500,7 @@ fn stuntman_and_troubadour_change_the_limits() {
 /// 天文学家: 行星牌与天体包在他手里**不要钱**.
 #[test]
 fn astronomer_makes_planets_and_celestial_packs_free() {
-    use balatro_engine::jokers::Joker;
+    use balatro_engine_core::jokers::Joker;
 
     let spend = |with_astronomer: bool, key: &str, cost: f64| -> f64 {
         let mut run = ready_to_buy(20.0);
@@ -527,8 +527,8 @@ fn astronomer_makes_planets_and_celestial_packs_free() {
 /// 摔角手: 把它**卖掉**就禁用当前的 Boss 盲注.
 #[test]
 fn luchador_disables_the_boss_when_sold() {
-    use balatro_engine::jokers::Joker;
-    use balatro_engine::run::{BlindKind, Phase};
+    use balatro_engine_core::jokers::Joker;
+    use balatro_engine_core::run::{BlindKind, Phase};
 
     let mut run = ready_to_buy(20.0);
     run.boss_key = Some("bl_water".to_owned());
@@ -554,7 +554,7 @@ fn luchador_disables_the_boss_when_sold() {
 /// 而不是去统计"多掷几次能不能撞上" —— 后者不稳定, 也没法当回归测试.
 #[test]
 fn oops_all_sixes_doubles_and_undoes_the_probability_scale() {
-    use balatro_engine::run::Phase;
+    use balatro_engine_core::run::Phase;
 
     let mut run = ready_to_buy(20.0);
     assert_eq!(run.probability_scale, 1.0, "平时是正常概率");
@@ -570,7 +570,7 @@ fn oops_all_sixes_doubles_and_undoes_the_probability_scale() {
 /// 闪光: 在商店里每重掷一次涨 2 点倍率.
 #[test]
 fn flash_card_grows_with_every_shop_reroll() {
-    use balatro_engine::jokers::Joker;
+    use balatro_engine_core::jokers::Joker;
 
     let mut run = ready_to_buy(50.0);
     run.jokers.push(Joker::new("j_flash").expect("有这张"));
@@ -630,17 +630,17 @@ fn buying_a_playing_card_puts_it_into_the_deck() {
 /// 中途重新掷一次或者直接丢掉, 那张牌就"少了它该有的样子", 而且不报错.
 #[test]
 fn a_bought_playing_card_keeps_its_enhancement_and_edition() {
-    use balatro_engine::cards::Edition;
+    use balatro_engine_core::cards::Edition;
 
     let mut run = ready_to_buy(99.0);
     let mut card = shop_card("C_6", 1.0);
-    card.enhancement = balatro_engine::cards::Enhancement::from_key("m_mult");
+    card.enhancement = balatro_engine_core::cards::Enhancement::from_key("m_mult");
     card.edition = Some(Edition::Foil);
     run.buy(&card).expect("能买下来");
 
     assert_eq!(
         run.deck[0].enhancement,
-        balatro_engine::cards::Enhancement::from_key("m_mult"),
+        balatro_engine_core::cards::Enhancement::from_key("m_mult"),
         "强化要在买下来之后还在"
     );
     assert_eq!(run.deck[0].edition, Some(Edition::Foil), "版本要在买下来之后还在");

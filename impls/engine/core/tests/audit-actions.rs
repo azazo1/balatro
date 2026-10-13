@@ -1,11 +1,11 @@
 //! 动作适配层必须与游戏端点使用相同参数语义.
 
-use balatro_engine::agent::action;
-use balatro_engine::data::json::Json;
-use balatro_engine::run::consumable::Consumable;
-use balatro_engine::run::shop::{Shop, ShopCard};
-use balatro_engine::run::{Phase, RunState};
-use balatro_engine::scoring::{EvalEnv, PokerHand};
+use balatro_engine_core::agent::action;
+use balatro_engine_core::data::json::Json;
+use balatro_engine_core::run::consumable::Consumable;
+use balatro_engine_core::run::shop::{Shop, ShopCard};
+use balatro_engine_core::run::{Phase, RunState};
+use balatro_engine_core::scoring::{EvalEnv, PokerHand};
 
 fn shop_card(key: &str) -> ShopCard {
     ShopCard { sort_id: 0, key: key.to_owned(), cost: 3.0, edition: None, eternal: false,

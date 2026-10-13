@@ -1,8 +1,8 @@
 //! 批量并行跑对局.
 
-use balatro_engine::batch::{RunOutcome, run_batch};
-use balatro_engine::run::RunState;
-use balatro_engine::scoring::{BackEffect, EvalEnv};
+use balatro_engine_core::batch::{RunOutcome, run_batch};
+use balatro_engine_core::run::RunState;
+use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 
 /// 一个最小策略: 一路"选盲注 - 出一手 - 结算"直到打不动.
 ///
@@ -10,14 +10,14 @@ use balatro_engine::scoring::{BackEffect, EvalEnv};
 fn play_along(run: &mut RunState) -> usize {
     let mut steps = 0;
     for _ in 0..60 {
-        if run.phase == balatro_engine::run::Phase::GameOver {
+        if run.phase == balatro_engine_core::run::Phase::GameOver {
             break;
         }
         match run.phase {
-            balatro_engine::run::Phase::BlindSelect => {
+            balatro_engine_core::run::Phase::BlindSelect => {
                 run.select_blind().expect("在选盲注阶段");
             }
-            balatro_engine::run::Phase::SelectingHand => {
+            balatro_engine_core::run::Phase::SelectingHand => {
                 let cards: Vec<usize> = (0..run.hand.len().min(5)).collect();
                 if run
                     .play(&cards, &EvalEnv::default(), BackEffect::Plain)
@@ -26,10 +26,10 @@ fn play_along(run: &mut RunState) -> usize {
                     break;
                 }
             }
-            balatro_engine::run::Phase::RoundEval => {
+            balatro_engine_core::run::Phase::RoundEval => {
                 let _ = run.cash_out();
             }
-            balatro_engine::run::Phase::Shop => {
+            balatro_engine_core::run::Phase::Shop => {
                 run.next_round().expect("这一回合有商店");
             }
             _ => break,

@@ -1,7 +1,7 @@
 //! 无图形环境的逐局回放校验入口.
 
-use balatro_engine::data::json::Json;
-use balatro_engine::replay;
+use engine::data::json::Json;
+use engine::replay;
 use std::path::Path;
 
 fn run(path: &Path, strict: bool) -> Result<bool, String> {
@@ -50,7 +50,7 @@ fn main() {
                 return;
             },
             "-V" | "--version" => {
-                println!("replay_check {}", balatro_engine::VERSION);
+                println!("replay_check {}", engine::VERSION);
                 return;
             },
             _ => paths.push(argument),

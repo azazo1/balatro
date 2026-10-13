@@ -9,9 +9,9 @@
 
 mod common;
 
-use balatro_engine::agent::{dynamics, prompt, summary};
-use balatro_engine::run::RunState;
-use balatro_engine::scoring::EvalEnv;
+use balatro_engine_core::agent::{dynamics, prompt, summary};
+use balatro_engine_core::run::RunState;
+use balatro_engine_core::scoring::EvalEnv;
 
 /// 停在**选盲注**阶段的局. `start()` 会顺手把第一个盲注也选了, 而这一层有好几项信息
 /// (预告的目标分, 跳过奖励) 只有停在选盲注时才看得到.
@@ -71,7 +71,7 @@ fn hand_and_jokers_carry_chinese_names_and_effects() {
     assert!(text.contains("[0]"), "手牌要有下标: {text}");
 
     // 塞一张效果文字明确的牌, 摘要里要出现它的中文名与效果, 而不是键名.
-    use balatro_engine::jokers::Joker;
+    use balatro_engine_core::jokers::Joker;
     run.jokers.push(Joker::new("j_odd_todd").expect("有这张"));
     let text = summary::render(&run, &summary::Extras::default());
     assert!(text.contains("奇数托德"), "要显示中文名: {text}");
@@ -83,7 +83,7 @@ fn hand_and_jokers_carry_chinese_names_and_effects() {
 fn dynamic_values_are_reported_against_the_joker_that_uses_them() {
     // 会随局面变的值是这个引擎最容易"给了名字但没给值"的地方:
     // 手册里这些是占位符, 实际值只有引擎知道, 报不出来 agent 就只能猜.
-    use balatro_engine::jokers::Joker;
+    use balatro_engine_core::jokers::Joker;
     let mut run = in_round();
 
     // 没有这些牌时不该冒出这些行 —— 否则 agent 会以为手上有一张并不存在的牌.
@@ -114,7 +114,7 @@ fn dynamic_values_are_reported_against_the_joker_that_uses_them() {
 fn joker_growth_is_reported_only_where_it_exists() {
     // "已成长到 X" 这类值报错是双输: 报在没有成长的小丑上会让 agent 以为它很强,
     // 报漏了又会让 agent 低估它. 所以既要在有值的牌上报出来, 也要在别的牌上不出现.
-    use balatro_engine::jokers::Joker;
+    use balatro_engine_core::jokers::Joker;
     let mut run = in_round();
 
     let mut plain = Joker::new("j_joker").expect("有这张");
@@ -172,9 +172,9 @@ fn rejections_explain_what_is_allowed_now() {
     let mut run = at_blind_select();
     // 选盲注阶段不能出牌.
     let error = run
-        .play(&[0, 1], &EvalEnv::default(), balatro_engine::scoring::BackEffect::Plain)
+        .play(&[0, 1], &EvalEnv::default(), balatro_engine_core::scoring::BackEffect::Plain)
         .expect_err("选盲注阶段不能出牌");
-    let text = balatro_engine::agent::action::explain(&error, &run);
+    let text = balatro_engine_core::agent::action::explain(&error, &run);
     assert!(text.contains("select"), "要指出现在能做 select: {text}");
     assert!(!text.contains("NotInPhase"), "不要暴露内部变体名: {text}");
 }

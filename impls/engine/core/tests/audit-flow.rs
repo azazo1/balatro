@@ -1,9 +1,9 @@
 //! 流程审计的关键行为回归.
 
-use balatro_engine::cards::CardInstance;
-use balatro_engine::jokers::Joker;
-use balatro_engine::run::{BlindKind, Phase, RunState};
-use balatro_engine::scoring::{BackEffect, EvalEnv};
+use balatro_engine_core::cards::CardInstance;
+use balatro_engine_core::jokers::Joker;
+use balatro_engine_core::run::{BlindKind, Phase, RunState};
+use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 
 fn card(key: &str) -> CardInstance {
     CardInstance::from_key(key).unwrap()
@@ -102,7 +102,7 @@ fn swashbuckler_reads_current_other_sell_prices_before_scoring() {
 fn rejected_tarot_does_not_change_usage_or_growth() {
     let mut run = ready();
     run.add_joker(Joker::new("j_fortune_teller").unwrap());
-    run.consumables.push(balatro_engine::run::consumable::Consumable::plain("c_strength"));
+    run.consumables.push(balatro_engine_core::run::consumable::Consumable::plain("c_strength"));
     let before = format!("{run:?}");
     assert!(run.use_consumable(0, &[99]).is_err());
     assert_eq!(format!("{run:?}"), before);
@@ -112,7 +112,7 @@ fn rejected_tarot_does_not_change_usage_or_growth() {
 fn gold_cards_pay_before_interest_is_calculated() {
     let mut run = ready();
     let mut gold = card("S_2");
-    gold.set_enhancement(balatro_engine::cards::Enhancement::Gold);
+    gold.set_enhancement(balatro_engine_core::cards::Enhancement::Gold);
     run.hand = vec![gold];
     run.dollars = 4.0;
     run.chips = 10_000.0;
@@ -125,8 +125,8 @@ fn gold_cards_pay_before_interest_is_calculated() {
 fn gold_red_seal_and_mime_repeat_held_round_end_rewards() {
     let mut run = ready();
     let mut gold = card("S_2");
-    gold.set_enhancement(balatro_engine::cards::Enhancement::Gold);
-    gold.seal = Some(balatro_engine::cards::Seal::Red);
+    gold.set_enhancement(balatro_engine_core::cards::Enhancement::Gold);
+    gold.seal = Some(balatro_engine_core::cards::Seal::Red);
     run.hand = vec![gold];
     run.add_joker(Joker::new("j_mime").unwrap());
     run.dollars = 4.0;
@@ -163,7 +163,7 @@ fn every_joker_gain_path_applies_and_reverses_rule_changes() {
 fn selling_consumables_grows_campfire() {
     let mut run = ready();
     run.add_joker(Joker::new("j_campfire").unwrap());
-    run.consumables.push(balatro_engine::run::consumable::Consumable::plain("c_mercury"));
+    run.consumables.push(balatro_engine_core::run::consumable::Consumable::plain("c_mercury"));
     run.sell_consumable(0).unwrap();
     assert_eq!(run.jokers[0].x_mult, 1.25);
 }
@@ -205,8 +205,8 @@ fn d6_tag_zeros_only_the_next_shop_base_and_preserves_later_tags() {
     assert_eq!(run.tags.iter().filter(|tag| tag.as_str() == "tag_d_six").count(), 1);
 }
 
-fn voucher(key: &str) -> balatro_engine::run::shop::ShopCard {
-    balatro_engine::run::shop::ShopCard {
+fn voucher(key: &str) -> balatro_engine_core::run::shop::ShopCard {
+    balatro_engine_core::run::shop::ShopCard {
         key: key.to_owned(), sort_id: 0, edition: None, eternal: false, perishable: false,
         rental: false, couponed: false, todo: None, enhancement: None, cost: 10.0,
     }
@@ -258,7 +258,7 @@ fn double_then_voucher_tag_creates_two_extra_objects_without_restocking_them() {
 
 #[test]
 fn pack_transfer_keeps_birth_order_even_when_player_picks_in_reverse() {
-    use balatro_engine::run::shop::{OpenPack, PackCard};
+    use balatro_engine_core::run::shop::{OpenPack, PackCard};
     let mut run = ready();
     run.deck.clear();
     run.hand.clear();
@@ -279,8 +279,8 @@ fn pack_transfer_keeps_birth_order_even_when_player_picks_in_reverse() {
     let last_birth = run.next_card_id;
     run.pick_from_pack(4).unwrap();
     run.pick_from_pack(2).unwrap();
-    let ace = run.deck.iter().find(|card| card.card.rank == balatro_engine::cards::Rank::Ace).unwrap();
-    let king = run.deck.iter().find(|card| card.card.rank == balatro_engine::cards::Rank::King).unwrap();
+    let ace = run.deck.iter().find(|card| card.card.rank == balatro_engine_core::cards::Rank::Ace).unwrap();
+    let king = run.deck.iter().find(|card| card.card.rank == balatro_engine_core::cards::Rank::King).unwrap();
     assert_eq!(ace.card.sort_id, before + 3);
     assert_eq!(king.card.sort_id, before + 5);
     assert!(ace.card.sort_id < king.card.sort_id);
@@ -303,7 +303,7 @@ fn stock_joker_transfer_preserves_birth_but_ankh_copy_gets_new_identity() {
     run.buy(&stock).unwrap();
     assert_eq!(run.jokers[0].sort_id, stock.sort_id);
     assert_eq!(run.next_card_id, before);
-    run.consumables.push(balatro_engine::run::consumable::Consumable::plain("c_ankh"));
+    run.consumables.push(balatro_engine_core::run::consumable::Consumable::plain("c_ankh"));
     run.use_consumable(0, &[]).unwrap();
     assert_eq!(run.jokers.len(), 2);
     assert_eq!(run.jokers[0].sort_id, stock.sort_id);

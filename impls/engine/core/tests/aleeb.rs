@@ -13,7 +13,7 @@
 
 mod common;
 
-use balatro_engine::run::RunState;
+use balatro_engine_core::run::RunState;
 use common::{aleeb_uda, hand_keys, place_blind};
 
 /// 造一个 ALEEB 的局面并开局.
@@ -67,7 +67,7 @@ fn aleeb_first_shop_matches_the_game() {
 
     // 录像里那两步: 先弃掉右半边四张, 再打出手上最左五张.
     run.discard(&[0, 1, 2, 7]).expect("弃得成");
-    let env = balatro_engine::scoring::EvalEnv::default();
+    let env = balatro_engine_core::scoring::EvalEnv::default();
     let back = run.back_effect();
     run.play(&[0, 1, 2, 3, 4], &env, back).expect("出得成");
 

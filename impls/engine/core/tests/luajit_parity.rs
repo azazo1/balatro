@@ -8,7 +8,7 @@
 //! luajit engine/tests/lua/dump_rng.lua > engine/tests/data/luajit_rng.tsv
 //! ```
 
-use balatro_engine::rng::{pseudohash, Rng};
+use balatro_engine_core::rng::{pseudohash, Rng};
 
 const FIXTURE: &str = include_str!("data/luajit_rng.tsv");
 

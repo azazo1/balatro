@@ -13,7 +13,7 @@
 
 use std::collections::HashMap;
 
-use balatro_engine::run::{RunState, ShopRates, create_card_for_shop, get_pack};
+use balatro_engine_core::run::{RunState, ShopRates, create_card_for_shop, get_pack};
 
 const UDA_TSV: &str = include_str!("data/aleeb-uda.tsv");
 
@@ -77,7 +77,7 @@ fn aleeb_first_shop_matches_replay() {
 /// 灵魂判定用的是对键.
 #[test]
 fn opening_the_arcana_pack_yields_a_soul() {
-    use balatro_engine::run::open_pack;
+    use balatro_engine_core::run::open_pack;
 
     let mut run = aleeb_run();
     let (_, packs) = first_shop(&mut run);
@@ -102,7 +102,7 @@ fn opening_the_arcana_pack_yields_a_soul() {
 /// 那会让牌面上出现 `c_` 或 `j_` 开头的键.
 #[test]
 fn standard_pack_opens_playing_cards() {
-    use balatro_engine::run::open_pack;
+    use balatro_engine_core::run::open_pack;
 
     let mut run = aleeb_run();
     let contents = open_pack(&mut run, "p_standard_normal_1");
@@ -115,7 +115,7 @@ fn standard_pack_opens_playing_cards() {
         );
         // 牌面要能反查回一张真正的牌, 而不是拼错的花色或点数.
         assert!(
-            balatro_engine::cards::CardInstance::from_key(&card.key).is_some(),
+            balatro_engine_core::cards::CardInstance::from_key(&card.key).is_some(),
             "{} 反查不回去",
             card.key
         );
@@ -127,8 +127,8 @@ fn standard_pack_opens_playing_cards() {
 /// 标签是随机抽的, 所以测试直接往持有列表里塞一个待测的.
 #[test]
 fn rarity_tags_force_the_shop_slot() {
-    use balatro_engine::cards::Edition;
-    use balatro_engine::data::catalog::Catalog;
+    use balatro_engine_core::cards::Edition;
+    use balatro_engine_core::data::catalog::Catalog;
 
     let rarity_of = |key: &str| -> Option<i64> {
         Catalog::get().record(key).and_then(|proto| proto.rarity)
@@ -175,11 +175,11 @@ fn rarity_tags_force_the_shop_slot() {
 /// 少了这条例外, "表演者"就变成一张没用的小丑.
 #[test]
 fn showman_lets_used_jokers_come_back() {
-    use balatro_engine::jokers::Joker;
+    use balatro_engine_core::jokers::Joker;
 
     // 把某张普通小丑标记成"用过", 然后让它成为池子里唯一还剩的那张.
     let mut run = aleeb_run();
-    for proto in balatro_engine::data::catalog::Catalog::get().jokers_by_rarity(1) {
+    for proto in balatro_engine_core::data::catalog::Catalog::get().jokers_by_rarity(1) {
         run.used_jokers.insert(proto.id.clone());
     }
     // 池子里一个可用的都没有时, 抽出来的是占位, 商店照常给一张别的.
@@ -187,14 +187,14 @@ fn showman_lets_used_jokers_come_back() {
 
     // 加上表演者之后, 那些"用过的"又能抽了.
     let mut run = aleeb_run();
-    for proto in balatro_engine::data::catalog::Catalog::get().jokers_by_rarity(1) {
+    for proto in balatro_engine_core::data::catalog::Catalog::get().jokers_by_rarity(1) {
         run.used_jokers.insert(proto.id.clone());
     }
     run.jokers.push(Joker::new("j_ring_master").expect("有这张"));
     let with = create_card_for_shop(&mut run, &ShopRates::default());
 
     // 带表演者时抽出的应当是一张真的普通小丑 (而不是占位或低稀有度之外的东西).
-    let rarity = balatro_engine::data::catalog::Catalog::get()
+    let rarity = balatro_engine_core::data::catalog::Catalog::get()
         .record(&with.key)
         .and_then(|proto| proto.rarity);
     assert!(
@@ -214,8 +214,8 @@ fn showman_lets_used_jokers_come_back() {
 /// 这个错是在整局对拍里抓到的: 秘术包里灵魂牌的位置比真游戏早了一张.
 #[test]
 fn shop_slots_skip_the_soul_dice() {
-    use balatro_engine::run::shop;
-    use balatro_engine::rng::Rng;
+    use balatro_engine_core::run::shop;
+    use balatro_engine_core::rng::Rng;
 
     // 全新骰子上第一次掷灵魂键的种子.
     let mut fresh = Rng::new("ALEEB");
@@ -245,7 +245,7 @@ fn shop_slots_skip_the_soul_dice() {
 /// 卡文迪什"那条玩家熟知的规则. 少了它, 池子里的占位格子对不上, 商店抽出来的小丑会整体偏.
 #[test]
 fn pool_flags_swap_gros_michel_for_cavendish() {
-    use balatro_engine::run::shop;
+    use balatro_engine_core::run::shop;
 
     // 开关没置位: 卡文迪什**一次都不该出现** (它是 `yes_pool_flag`, 没置位就不在池子里).
     for round in 0..40 {
@@ -287,9 +287,9 @@ fn pool_flags_swap_gros_michel_for_cavendish() {
 /// 这三条都直接影响"商店与包里能出现什么", 少了任何一条, 池子里的占位格子就对不上.
 #[test]
 fn pools_apply_the_hidden_and_gate_rules() {
-    use balatro_engine::cards::Enhancement;
-    use balatro_engine::run::shop;
-    use balatro_engine::scoring::PokerHand;
+    use balatro_engine_core::cards::Enhancement;
+    use balatro_engine_core::run::shop;
+    use balatro_engine_core::scoring::PokerHand;
 
     // 一, 灵魂与黑洞带 `hidden`: **永远不进池子**, 只能从"灵魂那一骰"里出来.
     // 商店这条路不掷那一骰, 所以这里出现的任何一个都只能是池子给的.
@@ -345,8 +345,8 @@ fn pools_apply_the_hidden_and_gate_rules() {
 /// 少了后者, 灵魂用掉之后就再也开不出第二张 —— 整局对拍里第 31 步那张传奇就是这么丢的.
 #[test]
 fn the_soul_gate_closes_and_reopens() {
-    use balatro_engine::run::shop;
-    use balatro_engine::rng::Rng;
+    use balatro_engine_core::run::shop;
+    use balatro_engine_core::rng::Rng;
 
     // 关门时: 造一张塔罗**不该**动灵魂键, 所以第一次读到的还是 1 号种子.
     let mut run = RunState::new("ALEEB", 8);
@@ -370,9 +370,9 @@ fn the_soul_gate_closes_and_reopens() {
 fn using_a_consumable_forgets_it() {
     let mut run = RunState::new("ALEEB", 8);
     run.start_run();
-    run.phase = balatro_engine::run::Phase::SelectingHand;
+    run.phase = balatro_engine_core::run::Phase::SelectingHand;
     // 用一张已经实现、且不需要指定目标的 (行星牌就是这种).
-    run.consumables.push(balatro_engine::run::consumable::Consumable::plain("c_mercury".to_owned()));
+    run.consumables.push(balatro_engine_core::run::consumable::Consumable::plain("c_mercury".to_owned()));
     run.used_jokers.insert("c_mercury".to_owned());
     run.use_consumable(0, &[]).expect("这张行星牌能直接用");
     assert!(
@@ -388,7 +388,7 @@ fn using_a_consumable_forgets_it() {
 /// 整局对拍里秘术包第 13 步那一张就是这么偏的.
 #[test]
 fn consumable_pools_cull_used_cards() {
-    use balatro_engine::run::shop;
+    use balatro_engine_core::run::shop;
 
     // 没记录过时能抽到; 记录过之后抽不到 (抽中会重抽, 所以外面看是"它不再出现").
     let mut seen_before = false;

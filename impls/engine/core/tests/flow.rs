@@ -13,8 +13,8 @@ mod common;
 
 /// 把手里换成指定的几张, 这样测的是**确定的牌型** —— 发出来的牌是什么全看种子,
 /// 拿"前两张"当对子迟早会翻车.
-fn set_hand(run: &mut balatro_engine::run::RunState, codes: &[&str]) {
-    use balatro_engine::cards::CardInstance;
+fn set_hand(run: &mut balatro_engine_core::run::RunState, codes: &[&str]) {
+    use balatro_engine_core::cards::CardInstance;
 
     run.hand = codes
         .iter()
@@ -28,7 +28,7 @@ fn set_hand(run: &mut balatro_engine::run::RunState, codes: &[&str]) {
 }
 
 use common::{aleeb_run, hand_keys};
-use balatro_engine::run::{ActionError, Phase};
+use balatro_engine_core::run::{ActionError, Phase};
 
 #[test]
 fn opening_deal_matches_the_first_digest() {
@@ -75,7 +75,7 @@ fn discard_is_rejected_when_it_should_be() {
 
 #[test]
 fn playing_a_hand_scores_and_refills() {
-    use balatro_engine::scoring::{BackEffect, EvalEnv};
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 
     let mut run = aleeb_run();
     run.start();
@@ -100,7 +100,7 @@ fn playing_a_hand_scores_and_refills() {
 
 #[test]
 fn first_round_settles_and_cashes_out_like_the_replay() {
-    use balatro_engine::scoring::{BackEffect, EvalEnv};
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 
     let mut run = aleeb_run();
     run.start();
@@ -125,7 +125,7 @@ fn first_round_settles_and_cashes_out_like_the_replay() {
 
 #[test]
 fn actions_are_rejected_outside_selecting_hand() {
-    use balatro_engine::scoring::{BackEffect, EvalEnv};
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 
     let mut run = aleeb_run();
     run.start();
@@ -150,9 +150,9 @@ fn actions_are_rejected_outside_selecting_hand() {
 /// 游戏只给 3795.
 #[test]
 fn a_new_round_forgets_the_hands_played_last_round() {
-    use balatro_engine::jokers::Joker;
-    use balatro_engine::run::{Phase, RunState};
-    use balatro_engine::scoring::{BackEffect, EvalEnv, PokerHand};
+    use balatro_engine_core::jokers::Joker;
+    use balatro_engine_core::run::{Phase, RunState};
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv, PokerHand};
 
     // 单张出牌是"高牌", 分数很低, 不会顺手把盲注打通 (那会自动结束回合, 后面的步骤就没得测了).
     let play_one = |run: &mut RunState| {
@@ -205,8 +205,8 @@ fn a_new_round_forgets_the_hands_played_last_round() {
 /// (`shop_pack` 之类), 而每个键的递推是独立的, 洗牌用的 `nr1` 不受影响.
 #[test]
 fn second_round_deal_matches_the_replay() {
-    use balatro_engine::run::BlindKind;
-    use balatro_engine::scoring::{BackEffect, EvalEnv};
+    use balatro_engine_core::run::BlindKind;
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 
     let mut run = aleeb_run();
     run.start();
@@ -242,7 +242,7 @@ fn second_round_deal_matches_the_replay() {
 /// 注意回合计数 `round` 是全局限次, 进下一底之后不重置, 所以底注 2 的小盲注是 `round=4`.
 #[test]
 fn boss_and_next_ante_match_the_replay() {
-    use balatro_engine::run::BlindKind;
+    use balatro_engine_core::run::BlindKind;
 
     let mut run = aleeb_run();
     run.start();
@@ -257,7 +257,7 @@ fn boss_and_next_ante_match_the_replay() {
     // 引擎当时没查阶段; 现在它查了 (游戏那边这一步在别的阶段是非法的), 所以这里把
     // "这一回合打完了" 摆出来 —— 这条测试关心的是**底注与 Boss 的推算**, 不是打牌本身.
     for _ in 0..2 {
-        run.phase = balatro_engine::run::Phase::Shop;
+        run.phase = balatro_engine_core::run::Phase::Shop;
         run.next_round().expect("在商店里, 走得成");
         common::place_blind(&mut run);
     }
@@ -298,7 +298,7 @@ fn boss_and_next_ante_match_the_replay() {
 
 #[test]
 fn blind_amount_tables_match_the_three_difficulties() {
-    use balatro_engine::run::blind_amount;
+    use balatro_engine_core::run::blind_amount;
 
     // 三张表的第一个底注都是 300.
     for scaling in 1..=3 {
@@ -321,7 +321,7 @@ fn blind_amount_tables_match_the_three_difficulties() {
 /// 这几条属于"不实现就静默算错"的类型: 玩家会发现自己少了一次弃牌, 而引擎照旧给三次.
 #[test]
 fn bosses_that_change_the_round_limits() {
-    use balatro_engine::run::{BlindKind, RunState};
+    use balatro_engine_core::run::{BlindKind, RunState};
 
     let with_boss = |key: &str| -> RunState {
         let mut run = RunState::new("ALEEB", 8);
@@ -349,7 +349,7 @@ fn bosses_that_change_the_round_limits() {
     chicot.start();
     chicot
         .jokers
-        .push(balatro_engine::jokers::Joker::new("j_chicot").expect("有这张"));
+        .push(balatro_engine_core::jokers::Joker::new("j_chicot").expect("有这张"));
     chicot.boss_key = Some("bl_water".to_owned());
     chicot.blind_on_deck = BlindKind::Boss;
     common::place_blind(&mut chicot);
@@ -378,8 +378,8 @@ fn bosses_that_change_the_round_limits() {
 /// 牙 (The Tooth): 每打出一张牌扣一块.
 #[test]
 fn the_tooth_charges_per_card_played() {
-    use balatro_engine::run::{BlindKind, RunState};
-    use balatro_engine::scoring::{BackEffect, EvalEnv};
+    use balatro_engine_core::run::{BlindKind, RunState};
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 
     let with_boss = |key: &str| -> RunState {
         let mut run = RunState::new("ALEEB", 8);
@@ -409,8 +409,8 @@ fn the_tooth_charges_per_card_played() {
 /// 臂 (The Arm): 打出的牌型等级降一级, 所以**这一手**就按降过的等级算.
 #[test]
 fn the_arm_lowers_the_played_hand_level() {
-    use balatro_engine::run::{BlindKind, RunState};
-    use balatro_engine::scoring::{BackEffect, EvalEnv, PokerHand};
+    use balatro_engine_core::run::{BlindKind, RunState};
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv, PokerHand};
 
     let with_boss = |key: &str| -> RunState {
         let mut run = RunState::new("ALEEB", 8);
@@ -450,8 +450,8 @@ fn the_arm_lowers_the_played_hand_level() {
 /// 牛 (The Ox): 打出"本局最常打的牌型"时把钱清零, 其他牌型不管.
 #[test]
 fn the_ox_empties_the_wallet_on_the_most_played_hand() {
-    use balatro_engine::run::{BlindKind, RunState};
-    use balatro_engine::scoring::{BackEffect, EvalEnv, PokerHand};
+    use balatro_engine_core::run::{BlindKind, RunState};
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv, PokerHand};
 
     let with_boss = |key: &str| -> RunState {
         let mut run = RunState::new("ALEEB", 8);
@@ -484,8 +484,8 @@ fn the_ox_empties_the_wallet_on_the_most_played_hand() {
 /// 燧石 (The Flint): 牌型的基础筹码与倍率各砍一半, 牌的加成照常算.
 #[test]
 fn the_flint_halves_the_hand_base() {
-    use balatro_engine::run::{BlindKind, RunState};
-    use balatro_engine::scoring::{BackEffect, EvalEnv};
+    use balatro_engine_core::run::{BlindKind, RunState};
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 
     let with_boss = |key: &str| -> RunState {
         let mut run = RunState::new("ALEEB", 8);
@@ -520,8 +520,8 @@ fn the_flint_halves_the_hand_base() {
 /// 记的是"这一回合打过哪些牌型"; 被拦下的那一手仍然算打过 (次数照加), 只是不给分.
 #[test]
 fn the_eye_refuses_a_repeated_hand_type() {
-    use balatro_engine::run::{BlindKind, RunState};
-    use balatro_engine::scoring::{BackEffect, EvalEnv, PokerHand};
+    use balatro_engine_core::run::{BlindKind, RunState};
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv, PokerHand};
 
     let with_boss = |key: &str| -> RunState {
         let mut run = RunState::new("ALEEB", 8);
@@ -569,8 +569,8 @@ fn the_eye_refuses_a_repeated_hand_type() {
 /// 嘴 (The Mouth): 这一回合只能打**同一种**牌型, 换了就不给分.
 #[test]
 fn the_mouth_allows_only_one_hand_type() {
-    use balatro_engine::run::{BlindKind, RunState};
-    use balatro_engine::scoring::{BackEffect, EvalEnv};
+    use balatro_engine_core::run::{BlindKind, RunState};
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 
     let mut mouth = RunState::new("ALEEB", 8);
     mouth.start();
@@ -605,8 +605,8 @@ fn the_mouth_allows_only_one_hand_type() {
 /// 开局发牌不受影响 —— 那时这一回合还没出过牌也没弃过牌.
 #[test]
 fn the_serpent_always_draws_three() {
-    use balatro_engine::run::{BlindKind, RunState};
-    use balatro_engine::scoring::{BackEffect, EvalEnv};
+    use balatro_engine_core::run::{BlindKind, RunState};
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 
     let mut serpent = RunState::new("ALEEB", 8);
     serpent.start();
@@ -644,8 +644,8 @@ fn the_serpent_always_draws_three() {
 /// 对拍时只能靠分数间接判断 (实测按公式算 560 分而实际只拿到 448, 差额正来自被削的牌).
 #[test]
 fn the_pillar_debuffs_cards_played_this_ante() {
-    use balatro_engine::run::{BlindKind, RunState};
-    use balatro_engine::scoring::{BackEffect, EvalEnv};
+    use balatro_engine_core::run::{BlindKind, RunState};
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 
     let mut run = RunState::new("ALEEB", 8);
     run.start();
@@ -690,8 +690,8 @@ fn the_pillar_debuffs_cards_played_this_ante() {
 /// 会让不该削的牌也失效, 表现为分数莫名其妙偏低).
 #[test]
 fn suit_and_face_bosses_debuff_matching_cards() {
-    use balatro_engine::cards::Suit;
-    use balatro_engine::run::{BlindKind, RunState};
+    use balatro_engine_core::cards::Suit;
+    use balatro_engine_core::run::{BlindKind, RunState};
 
     let with_boss = |key: &str| -> RunState {
         let mut run = RunState::new("ALEEB", 8);
@@ -701,7 +701,7 @@ fn suit_and_face_bosses_debuff_matching_cards() {
         common::place_blind(&mut run);
         run
     };
-    let every_card = |run: &RunState| -> Vec<balatro_engine::cards::CardInstance> {
+    let every_card = |run: &RunState| -> Vec<balatro_engine_core::cards::CardInstance> {
         run.deck.iter().chain(run.hand.iter()).cloned().collect()
     };
 
@@ -738,8 +738,8 @@ fn suit_and_face_bosses_debuff_matching_cards() {
 /// 通灵 (The Psychic) 要求出的牌至少五张 —— 它是**出牌合法性**的限制, 不是削牌.
 #[test]
 fn the_psychic_refuses_small_plays() {
-    use balatro_engine::run::{ActionError, BlindKind, RunState};
-    use balatro_engine::scoring::{BackEffect, EvalEnv};
+    use balatro_engine_core::run::{ActionError, BlindKind, RunState};
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 
     let mut run = RunState::new("ALEEB", 8);
     run.start();
@@ -768,8 +768,8 @@ fn the_psychic_refuses_small_plays() {
 /// 钩子 (The Hook) 每出一手随机弃掉手里两张 —— 是**出牌之后**的连锁, 与选盲注无关.
 #[test]
 fn the_hook_discards_two_cards_after_each_hand() {
-    use balatro_engine::run::{BlindKind, RunState};
-    use balatro_engine::scoring::{BackEffect, EvalEnv};
+    use balatro_engine_core::run::{BlindKind, RunState};
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 
     let mut run = RunState::new("ALEEB", 8);
     run.start();
@@ -811,7 +811,7 @@ fn the_hook_discards_two_cards_after_each_hand() {
 /// 标签在开局就抽好, 而且底注之内不重抽 —— 跳过哪个盲注能拿到什么是提前定下的.
 #[test]
 fn blind_tags_are_drawn_once_per_ante() {
-    use balatro_engine::run::{RunState, tag_pool};
+    use balatro_engine_core::run::{RunState, tag_pool};
 
     let mut run = RunState::new("ALEEB", 8);
     run.start();
@@ -842,7 +842,7 @@ fn blind_tags_are_drawn_once_per_ante() {
 /// 注意 `start` 会直接选好小盲注 (为了对准开局发牌), 所以跳过是从大盲注开始测的.
 #[test]
 fn skipping_a_blind_advances_without_counting_a_round() {
-    use balatro_engine::run::{ActionError, BlindKind, RunState};
+    use balatro_engine_core::run::{ActionError, BlindKind, RunState};
 
     let mut run = RunState::new("ALEEB", 8);
     run.start();
@@ -851,7 +851,7 @@ fn skipping_a_blind_advances_without_counting_a_round() {
     run.end_round();
     run.cash_out().expect("这一回合在结算");
     run.next_round().expect("这一回合有商店");
-    assert_eq!(run.phase, balatro_engine::run::Phase::BlindSelect);
+    assert_eq!(run.phase, balatro_engine_core::run::Phase::BlindSelect);
     assert_eq!(run.blind_on_deck, BlindKind::Big);
 
     // 标签是随机抽的, 而"白送包"那一类会顺手把局面推进到开包状态. 这里只关心跳过本身,
@@ -879,7 +879,7 @@ fn skipping_a_blind_advances_without_counting_a_round() {
 /// `start` 是"开局顺带选好第一个盲注"的便利方法, 走它就没机会跳小盲注了.
 #[test]
 fn start_run_stops_at_blind_select() {
-    use balatro_engine::run::{BlindKind, Phase, RunState};
+    use balatro_engine_core::run::{BlindKind, Phase, RunState};
 
     let mut run = RunState::new("ALEEB", 8);
     run.start_run();
@@ -906,7 +906,7 @@ fn start_run_stops_at_blind_select() {
 /// 标签里有一类是"到手就结算"的. 标签本身是随机抽的, 所以测试先把待测那个装进去.
 #[test]
 fn immediate_tags_pay_out_when_earned() {
-    use balatro_engine::run::{Phase, RunState};
+    use balatro_engine_core::run::{Phase, RunState};
 
     let skip_and_check = |tag: &str| -> (f64, f64) {
         let mut run = RunState::new("ALEEB", 8);
@@ -945,7 +945,7 @@ fn immediate_tags_pay_out_when_earned() {
 /// 杂耍标签只增强下一次真正打的盲注, 结算时必须撤销.
 #[test]
 fn juggle_tag_only_raises_the_next_blind_hand_limit() {
-    use balatro_engine::run::RunState;
+    use balatro_engine_core::run::RunState;
 
     let mut run = RunState::new("ALEEB", 8);
     run.start_run();
@@ -971,8 +971,8 @@ fn juggle_tag_only_raises_the_next_blind_hand_limit() {
 /// 补货标签: 白送两个**普通**小丑 (原型里那个 `_rarity = 0` 落在一级).
 #[test]
 fn top_up_tag_spawns_two_common_jokers() {
-    use balatro_engine::data::catalog::Catalog;
-    use balatro_engine::run::RunState;
+    use balatro_engine_core::data::catalog::Catalog;
+    use balatro_engine_core::run::RunState;
 
     let mut run = RunState::new("ALEEB", 8);
     run.start_run();
@@ -1001,8 +1001,8 @@ fn top_up_tag_spawns_two_common_jokers() {
 /// 轨道标签: 把**某一个**已显示的牌型抬三级, 而且只抬一个.
 #[test]
 fn orbital_tag_raises_one_hand_by_three_levels() {
-    use balatro_engine::run::RunState;
-    use balatro_engine::scoring::PokerHand;
+    use balatro_engine_core::run::RunState;
+    use balatro_engine_core::scoring::PokerHand;
 
     let mut run = RunState::new("ALEEB", 8);
     run.start_run();
@@ -1036,7 +1036,7 @@ fn orbital_tag_raises_one_hand_by_three_levels() {
 /// 写成后者的话, 一次跳过会拿到两个双倍标签, 之后又不复制, 结果完全不对.
 #[test]
 fn double_tag_duplicates_the_next_tag() {
-    use balatro_engine::run::RunState;
+    use balatro_engine_core::run::RunState;
 
     let mut run = RunState::new("ALEEB", 8);
     run.start_run();
@@ -1070,7 +1070,7 @@ fn double_tag_duplicates_the_next_tag() {
 /// 实际效果是白送一个 mega 包.
 #[test]
 fn free_pack_tags_open_a_booster_right_away() {
-    use balatro_engine::run::{Phase, RunState};
+    use balatro_engine_core::run::{Phase, RunState};
 
     for (tag, want) in [
         ("tag_standard", "p_standard_mega_1"),
@@ -1105,7 +1105,7 @@ fn free_pack_tags_open_a_booster_right_away() {
 /// Boss 标签白重抽一次这一底的 Boss (正常重抽要花 10 块).
 #[test]
 fn boss_tag_rerolls_the_boss() {
-    use balatro_engine::run::RunState;
+    use balatro_engine_core::run::RunState;
 
     let mut run = RunState::new("ALEEB", 8);
     run.start_run();
@@ -1120,7 +1120,7 @@ fn boss_tag_rerolls_the_boss() {
 /// 优惠券标签让商店的券那一格多摆一张.
 #[test]
 fn voucher_tag_adds_a_second_voucher() {
-    use balatro_engine::run::{Phase, RunState};
+    use balatro_engine_core::run::{Phase, RunState};
 
     let mut run = RunState::new("ALEEB", 8);
     run.start_run();
@@ -1130,7 +1130,7 @@ fn voucher_tag_adds_a_second_voucher() {
     // 打到进商店.
     common::place_blind(&mut run);
     run.chips = 999_999.0;
-    run.play(&[0], &balatro_engine::scoring::EvalEnv::default(), balatro_engine::scoring::BackEffect::Plain)
+    run.play(&[0], &balatro_engine_core::scoring::EvalEnv::default(), balatro_engine_core::scoring::BackEffect::Plain)
         .expect("能出牌");
     if run.phase == Phase::RoundEval {
         run.cash_out().expect("这一回合在结算");
@@ -1148,9 +1148,9 @@ fn voucher_tag_adds_a_second_voucher() {
 /// 回合末给钱的小丑: 那笔钱算进结算栏的 `card_bonus`, 与黄金牌金封同一个口袋.
 #[test]
 fn end_of_round_jokers_pay_out() {
-    use balatro_engine::jokers::Joker;
-    use balatro_engine::run::{Phase, RunState};
-    use balatro_engine::scoring::{BackEffect, EvalEnv};
+    use balatro_engine_core::jokers::Joker;
+    use balatro_engine_core::run::{Phase, RunState};
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 
     let after_round = |joker: Option<&str>| -> (f64, usize) {
         let mut run = RunState::new("ALEEB", 8);
@@ -1196,9 +1196,9 @@ fn end_of_round_jokers_pay_out() {
 /// 只验一种的话, "永远碎"和"永远不碎"都能通过.
 #[test]
 fn glass_cards_may_shatter_after_scoring() {
-    use balatro_engine::cards::Enhancement;
-    use balatro_engine::run::RunState;
-    use balatro_engine::scoring::{BackEffect, EvalEnv};
+    use balatro_engine_core::cards::Enhancement;
+    use balatro_engine_core::run::RunState;
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 
     let mut shattered = 0;
     let mut survived = 0;
@@ -1242,9 +1242,9 @@ fn glass_cards_may_shatter_after_scoring() {
 /// 只判定不挪走的话它们会一直待在队里, 而且不报错 (这一段确实漏过).
 #[test]
 fn melted_jokers_leave_the_team() {
-    use balatro_engine::jokers::Joker;
-    use balatro_engine::run::RunState;
-    use balatro_engine::scoring::{BackEffect, EvalEnv};
+    use balatro_engine_core::jokers::Joker;
+    use balatro_engine_core::run::RunState;
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 
     let play_once = |joker: Joker| -> usize {
         let mut run = RunState::new("ALEEB", 8);
@@ -1278,8 +1278,8 @@ fn melted_jokers_leave_the_team() {
 /// 它们就永远是张普通小丑 (不报错, 只是那个特性不存在).
 #[test]
 fn rental_pays_rent_and_perishable_expires() {
-    use balatro_engine::jokers::Joker;
-    use balatro_engine::run::RunState;
+    use balatro_engine_core::jokers::Joker;
+    use balatro_engine_core::run::RunState;
 
     let money_after_round = |joker: Option<Joker>| -> f64 {
         let mut run = RunState::new("ALEEB", 8);
@@ -1311,7 +1311,7 @@ fn rental_pays_rent_and_perishable_expires() {
     assert!(run.jokers[0].debuffed, "但已经被削弱");
 
     // 被削弱之后它的效果就停了 (用完整算分验一遍).
-    use balatro_engine::scoring::{BackEffect, EvalEnv, HandTable, score_play};
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv, HandTable, score_play};
     let pair = [common::card("C_5"), common::card("D_5")];
     let mut debuffed = [run.jokers[0].clone()];
     let got = score_play(&pair, &HandTable::new(), &EvalEnv::default(), BackEffect::Plain, &mut debuffed)
@@ -1329,8 +1329,8 @@ fn rental_pays_rent_and_perishable_expires() {
 /// 正好是一张租赁小丑的租金 (探针记到 `calculate_rental` 被调用了, 但它前后钱没变).
 #[test]
 fn losing_round_skips_rent_but_still_expires_perishable() {
-    use balatro_engine::jokers::Joker;
-    use balatro_engine::run::{Phase, RunState};
+    use balatro_engine_core::jokers::Joker;
+    use balatro_engine_core::run::{Phase, RunState};
 
     let mut rental = Joker::new("j_joker").expect("有这张");
     rental.rental = true;
@@ -1357,8 +1357,8 @@ fn losing_round_skips_rent_but_still_expires_perishable() {
 /// 后面的随机序列也会整体偏掉. 所以这里跑一批包, 要求真的能掷出带标记的来.
 #[test]
 fn buffoon_pack_jokers_can_carry_flags() {
-    use balatro_engine::run::shop::ShopCard;
-    use balatro_engine::run::{RunState, shop};
+    use balatro_engine_core::run::shop::ShopCard;
+    use balatro_engine_core::run::{RunState, shop};
 
     let mut flagged = 0;
     let mut editions = 0;
@@ -1383,7 +1383,7 @@ fn buffoon_pack_jokers_can_carry_flags() {
     for i in 0..30 {
         let mut run = RunState::new(&format!("PACK{i:02}"), 8);
         run.start();
-        run.phase = balatro_engine::run::Phase::Shop;
+        run.phase = balatro_engine_core::run::Phase::Shop;
         run.dollars = 20.0;
         run.buy(&ShopCard {
             sort_id: 0,
@@ -1435,9 +1435,9 @@ fn buffoon_pack_jokers_can_carry_flags() {
 /// 不报错, 只是永远不生效.
 #[test]
 fn play_hands_the_remaining_cards_to_scoring() {
-    use balatro_engine::cards::Enhancement;
-    use balatro_engine::run::RunState;
-    use balatro_engine::scoring::{BackEffect, EvalEnv};
+    use balatro_engine_core::cards::Enhancement;
+    use balatro_engine_core::run::RunState;
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 
     let mult_after_play = |steel: bool| -> f64 {
         let mut run = RunState::new("ALEEB", 8);
@@ -1465,8 +1465,8 @@ fn play_hands_the_remaining_cards_to_scoring() {
 /// (`calculate_joker` 在前, 租金与易腐在后).
 #[test]
 fn round_end_jokers_roll_and_decay() {
-    use balatro_engine::jokers::Joker;
-    use balatro_engine::run::RunState;
+    use balatro_engine_core::jokers::Joker;
+    use balatro_engine_core::run::RunState;
 
     let end_round_with = |joker: Joker| -> RunState {
         let mut run = RunState::new("ALEEB", 8);
@@ -1515,10 +1515,10 @@ fn round_end_jokers_roll_and_decay() {
 /// 所以这里走**完整出牌流程** —— 只调计分函数是验不出这根线接没接上的.
 #[test]
 fn deck_wide_jokers_count_the_living_cards() {
-    use balatro_engine::cards::Enhancement;
-    use balatro_engine::jokers::Joker;
-    use balatro_engine::run::RunState;
-    use balatro_engine::scoring::{BackEffect, EvalEnv};
+    use balatro_engine_core::cards::Enhancement;
+    use balatro_engine_core::jokers::Joker;
+    use balatro_engine_core::run::RunState;
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 
     // 石头小丑: 整副牌里每张石头牌 +25 筹码. 拿"带小丑"减"不带"来比, 免得自己算基准.
     let stone_chips = |stones: usize, with_joker: bool| -> f64 {
@@ -1591,15 +1591,15 @@ fn deck_wide_jokers_count_the_living_cards() {
 /// 焦小丑的"第一次"判不出来.
 #[test]
 fn burnt_joker_levels_up_only_on_the_first_discard() {
-    use balatro_engine::jokers::Joker;
-    use balatro_engine::run::RunState;
+    use balatro_engine_core::jokers::Joker;
+    use balatro_engine_core::run::RunState;
 
     let mut run = RunState::new("ALEEB", 8);
     run.start();
     common::place_blind(&mut run);
     run.jokers.push(Joker::new("j_burnt").expect("有这张"));
 
-    let pair_before = run.hands.get(balatro_engine::scoring::PokerHand::Pair).level;
+    let pair_before = run.hands.get(balatro_engine_core::scoring::PokerHand::Pair).level;
     // 这一手是 D_A, S_K, H_K, C_Q, ... —— 中间那两张正好是一对, 就弃它们.
     let pair_at: Vec<usize> = run
         .hand
@@ -1612,7 +1612,7 @@ fn burnt_joker_levels_up_only_on_the_first_discard() {
     run.discard(&pair_at).expect("能弃");
     assert_eq!(run.discards_used, 1, "弃牌计数要累加");
     assert_eq!(
-        run.hands.get(balatro_engine::scoring::PokerHand::Pair).level,
+        run.hands.get(balatro_engine_core::scoring::PokerHand::Pair).level,
         pair_before + 1,
         "第一次弃牌升的是弃掉那几张的牌型"
     );
@@ -1621,7 +1621,7 @@ fn burnt_joker_levels_up_only_on_the_first_discard() {
     run.discard(&[0]).expect("能弃");
     assert_eq!(run.discards_used, 2);
     assert_eq!(
-        run.hands.get(balatro_engine::scoring::PokerHand::Pair).level,
+        run.hands.get(balatro_engine_core::scoring::PokerHand::Pair).level,
         pair_before + 1,
         "只有第一次弃牌才升"
     );
@@ -1633,9 +1633,9 @@ fn burnt_joker_levels_up_only_on_the_first_discard() {
 /// 这样不用去猜"多出来那张现在在牌堆还是手牌还是弃牌堆".
 #[test]
 fn dna_copies_the_single_card_of_the_first_hand() {
-    use balatro_engine::jokers::Joker;
-    use balatro_engine::run::RunState;
-    use balatro_engine::scoring::{BackEffect, EvalEnv};
+    use balatro_engine_core::jokers::Joker;
+    use balatro_engine_core::run::RunState;
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 
     let total = |with_dna: bool| -> usize {
         let mut run = RunState::new("ALEEB", 8);
@@ -1663,8 +1663,8 @@ fn dna_copies_the_single_card_of_the_first_hand() {
 /// 于是底注 8 一个候选都没有, 直接"抽不出 Boss". 游戏那边是两支并列的判断, 终局那一支**不看 min**.
 #[test]
 fn showdown_antes_pick_the_final_bosses() {
-    use balatro_engine::data::catalog::Catalog;
-    use balatro_engine::run::RunState;
+    use balatro_engine_core::data::catalog::Catalog;
+    use balatro_engine_core::run::RunState;
 
     let boss_at = |ante: i64| -> String {
         let mut run = RunState::new("ALEEB", 8);
@@ -1699,8 +1699,8 @@ fn showdown_antes_pick_the_final_bosses() {
 /// 所以这条与"一百条短对局"那类烟测是互补的: 那条铺广度, 这条钻深度.
 #[test]
 fn a_long_run_survives_many_antes() {
-    use balatro_engine::run::RunState;
-    use balatro_engine::scoring::{BackEffect, EvalEnv};
+    use balatro_engine_core::run::RunState;
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 
     let env = EvalEnv::default();
     let mut run = RunState::new("ALEEB", 8);
@@ -1713,25 +1713,25 @@ fn a_long_run_survives_many_antes() {
             blind.chips = 1.0;
         }
         match run.phase {
-            balatro_engine::run::Phase::GameOver => break,
-            balatro_engine::run::Phase::BlindSelect => {
+            balatro_engine_core::run::Phase::GameOver => break,
+            balatro_engine_core::run::Phase::BlindSelect => {
                 common::place_blind(&mut run);
             }
-            balatro_engine::run::Phase::SelectingHand => {
+            balatro_engine_core::run::Phase::SelectingHand => {
                 let cards: Vec<usize> = (0..run.hand.len().min(5)).collect();
                 let _ = run.play(&cards, &env, BackEffect::Plasma);
             }
-            balatro_engine::run::Phase::RoundEval => {
+            balatro_engine_core::run::Phase::RoundEval => {
                 if run.win_overlay {
                     assert!(run.won);
                     run.endless().expect("长跑需要先确认进入无尽");
                 }
                 run.cash_out().expect("这一回合在结算");
             }
-            balatro_engine::run::Phase::Shop => {
+            balatro_engine_core::run::Phase::Shop => {
                 run.next_round().expect("这一回合有商店");
             }
-            balatro_engine::run::Phase::BoosterOpened => {
+            balatro_engine_core::run::Phase::BoosterOpened => {
                 let _ = run.pick_from_pack(0);
             }
         }
@@ -1746,7 +1746,7 @@ fn a_long_run_survives_many_antes() {
     // 那正是无尽模式: 通关不是结束.
     assert!(run.won, "过了决战底该记成通关");
     assert!(
-        run.phase != balatro_engine::run::Phase::GameOver,
+        run.phase != balatro_engine_core::run::Phase::GameOver,
         "通关之后对局不该被判结束"
     );
 }
@@ -1764,8 +1764,8 @@ fn a_long_run_survives_many_antes() {
 /// 存档里的最高分, 再拿它去比大小 (那是**存档展示层**的问题, 与规则无关, 引擎里没有那一层).
 #[test]
 fn endless_mode_ends_at_ante_39_and_loses_cleanly() {
-    use balatro_engine::run::{ActionError, BlindKind, Phase, RunState};
-    use balatro_engine::scoring::{BackEffect, EvalEnv};
+    use balatro_engine_core::run::{ActionError, BlindKind, Phase, RunState};
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 
     /// 直接站到底注 `ante` 的小盲注面前.
     fn at_ante(ante: i64) -> RunState {
@@ -1848,8 +1848,8 @@ fn endless_mode_ends_at_ante_39_and_loses_cleanly() {
 /// 3. 该局的阶段**不是** `GameOver`: 通关不是结束.
 #[test]
 fn winning_the_final_boss_marks_the_run_won_and_keeps_going() {
-    use balatro_engine::run::{BlindKind, Phase, RunState};
-    use balatro_engine::scoring::{BackEffect, EvalEnv};
+    use balatro_engine_core::run::{BlindKind, Phase, RunState};
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 
     /// 把一局推到"底注 8 的 Boss 面前", 目标分数压到 1, 于是随便出一张牌就过.
     ///
@@ -1894,8 +1894,8 @@ fn winning_the_final_boss_marks_the_run_won_and_keeps_going() {
 /// 它们只在很靠后才出现, 短对局永远碰不到 —— 所以前面一直没人写, 也没人发现缺.
 #[test]
 fn showdown_bosses_have_their_effects() {
-    use balatro_engine::jokers::Joker;
-    use balatro_engine::run::{BlindKind, RunState};
+    use balatro_engine_core::jokers::Joker;
+    use balatro_engine_core::run::{BlindKind, RunState};
 
     let with_boss = |key: &str| -> RunState {
         let mut run = RunState::new("ALEEB", 8);
@@ -1931,8 +1931,8 @@ fn showdown_bosses_have_their_effects() {
     );
     // press_play 重新设置 Heart.prepped, 弃牌补牌本身不重新挑目标.
     heart.blind.as_mut().unwrap().chips = 1e100;
-    heart.play(&[0], &balatro_engine::scoring::EvalEnv::default(),
-        balatro_engine::scoring::BackEffect::Plain).expect("出牌后发生真实补牌");
+    heart.play(&[0], &balatro_engine_core::scoring::EvalEnv::default(),
+        balatro_engine_core::scoring::BackEffect::Plain).expect("出牌后发生真实补牌");
     assert_eq!(
         heart.jokers.iter().filter(|joker| joker.debuffed).count(),
         1,
@@ -1943,8 +1943,8 @@ fn showdown_bosses_have_their_effects() {
 /// 翠叶的"直到卖掉一张小丑为止": 卖掉之后这个盲注的效果整条关掉.
 #[test]
 fn verdant_leaf_turns_off_when_a_joker_is_sold() {
-    use balatro_engine::jokers::Joker;
-    use balatro_engine::run::{BlindKind, Phase, RunState};
+    use balatro_engine_core::jokers::Joker;
+    use balatro_engine_core::run::{BlindKind, Phase, RunState};
 
     let mut run = RunState::new("ALEEB", 8);
     run.start();
@@ -1976,8 +1976,8 @@ fn verdant_leaf_turns_off_when_a_joker_is_sold() {
 /// 一个本来打得过的盲注直接判负. 这类"改过了但没撤"的错误在短对局里根本碰不到.
 #[test]
 fn disabling_a_blind_undoes_its_target_score() {
-    use balatro_engine::jokers::Joker;
-    use balatro_engine::run::{BlindKind, RunState};
+    use balatro_engine_core::jokers::Joker;
+    use balatro_engine_core::run::{BlindKind, RunState};
 
     let with_boss = |key: &str, chicot: bool| -> f64 {
         let mut run = RunState::new("ALEEB", 8);
@@ -2031,8 +2031,8 @@ fn disabling_a_blind_undoes_its_target_score() {
 /// `pick_index` 于是抽到另一张 —— 而且会连着两次抽中同一张, 游戏不会.
 #[test]
 fn crimson_heart_never_redebuffs_the_same_joker() {
-    use balatro_engine::jokers::Joker;
-    use balatro_engine::run::{BlindKind, RunState};
+    use balatro_engine_core::jokers::Joker;
+    use balatro_engine_core::run::{BlindKind, RunState};
 
     let mut run = RunState::new("ALEEB", 8);
     run.start();
@@ -2051,8 +2051,8 @@ fn crimson_heart_never_redebuffs_the_same_joker() {
         .position(|joker| joker.debuffed)
         .expect("发完牌该有一张失效");
     for round in 0..30 {
-        run.play(&[0], &balatro_engine::scoring::EvalEnv::default(),
-            balatro_engine::scoring::BackEffect::Plain).expect("出牌后发生真实补牌");
+        run.play(&[0], &balatro_engine_core::scoring::EvalEnv::default(),
+            balatro_engine_core::scoring::BackEffect::Plain).expect("出牌后发生真实补牌");
         let now = run
             .jokers
             .iter()
@@ -2083,8 +2083,8 @@ fn crimson_heart_never_redebuffs_the_same_joker() {
 /// 少了那次排序, 两次会从不同队形出发, 结果就分岔.
 #[test]
 fn amber_acorn_sorts_the_jokers_before_each_shuffle() {
-    use balatro_engine::jokers::Joker;
-    use balatro_engine::run::{BlindKind, RunState};
+    use balatro_engine_core::jokers::Joker;
+    use balatro_engine_core::run::{BlindKind, RunState};
 
     let setup = |reversed: bool| -> RunState {
         let mut run = RunState::new("ALEEB", 8);
@@ -2132,8 +2132,8 @@ fn amber_acorn_sorts_the_jokers_before_each_shuffle() {
 /// (审判 / 灵魂 / 商店) 也立刻关掉 Boss. 少接这一条, 那一回合的 Boss 效果会照常生效到底.
 #[test]
 fn chicot_acquired_mid_round_disables_the_boss() {
-    use balatro_engine::jokers::Joker;
-    use balatro_engine::run::{BlindKind, RunState};
+    use balatro_engine_core::jokers::Joker;
+    use balatro_engine_core::run::{BlindKind, RunState};
 
     let mut run = RunState::new("ALEEB", 8);
     run.start();
@@ -2158,8 +2158,8 @@ fn chicot_acquired_mid_round_disables_the_boss() {
 /// 蓝铃 (决战 Boss): 每次发牌锁住手里的一张, 那张**不能取消选中** —— 出牌时会被自动带上.
 #[test]
 fn cerulean_bell_forces_one_card_into_the_play() {
-    use balatro_engine::run::{BlindKind, RunState};
-    use balatro_engine::scoring::{BackEffect, EvalEnv};
+    use balatro_engine_core::run::{BlindKind, RunState};
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 
     let mut run = RunState::new("ALEEB", 8);
     run.start();
@@ -2191,8 +2191,8 @@ fn cerulean_bell_forces_one_card_into_the_play() {
 /// 邮件回扣: 弃掉**本回合定下的那个点数**的牌, 每张给 5 块.
 #[test]
 fn mail_in_rebate_pays_for_its_rank() {
-    use balatro_engine::jokers::Joker;
-    use balatro_engine::run::RunState;
+    use balatro_engine_core::jokers::Joker;
+    use balatro_engine_core::run::RunState;
 
     let mut run = RunState::new("ALEEB", 8);
     run.start();
@@ -2212,10 +2212,10 @@ fn mail_in_rebate_pays_for_its_rank() {
     common::place_blind(&mut other);
     other.jokers.push(Joker::new("j_mail").expect("有这张"));
     let hand_rank = other.hand[0].card.rank;
-    other.mail_rank = Some(if hand_rank == balatro_engine::cards::Rank::Ace {
-        balatro_engine::cards::Rank::Two
+    other.mail_rank = Some(if hand_rank == balatro_engine_core::cards::Rank::Ace {
+        balatro_engine_core::cards::Rank::Two
     } else {
-        balatro_engine::cards::Rank::Ace
+        balatro_engine_core::cards::Rank::Ace
     });
     let before = other.dollars;
     other.discard(&[0]).expect("能弃");
@@ -2227,8 +2227,8 @@ fn mail_in_rebate_pays_for_its_rank() {
 /// 验证"销毁"用的是**总牌数**: 弃一张之后再补一张, 手牌还是满的, 但整副牌少了一张.
 #[test]
 fn trading_card_destroys_a_lone_first_discard() {
-    use balatro_engine::jokers::Joker;
-    use balatro_engine::run::RunState;
+    use balatro_engine_core::jokers::Joker;
+    use balatro_engine_core::run::RunState;
 
     let total = |with_joker: bool| -> (usize, f64) {
         let mut run = RunState::new("ALEEB", 8);
@@ -2254,9 +2254,9 @@ fn trading_card_destroys_a_lone_first_discard() {
 /// 待办清单匹配时支付 4 块, 目标只在回合末重新抽取.
 #[test]
 fn todo_list_pays_on_a_match_and_rerolls_at_round_end() {
-    use balatro_engine::jokers::Joker;
-    use balatro_engine::run::RunState;
-    use balatro_engine::scoring::{BackEffect, EvalEnv, PokerHand};
+    use balatro_engine_core::jokers::Joker;
+    use balatro_engine_core::run::RunState;
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv, PokerHand};
 
     let mut run = RunState::new("ALEEB", 8);
     run.start();
@@ -2289,10 +2289,10 @@ fn todo_list_pays_on_a_match_and_rerolls_at_round_end() {
 /// 徒步者与迈达斯面具: 都是**改被打出去的那几张牌本身**, 所以打完去看弃牌堆里的牌就对了.
 #[test]
 fn hiker_and_midas_mask_change_the_played_cards_themselves() {
-    use balatro_engine::cards::Enhancement;
-    use balatro_engine::jokers::Joker;
-    use balatro_engine::run::RunState;
-    use balatro_engine::scoring::{BackEffect, EvalEnv};
+    use balatro_engine_core::cards::Enhancement;
+    use balatro_engine_core::jokers::Joker;
+    use balatro_engine_core::run::RunState;
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 
     let mut run = RunState::new("ALEEB", 8);
     run.start();
@@ -2334,9 +2334,9 @@ fn hiker_and_midas_mask_change_the_played_cards_themselves() {
 /// 怀旧: 乘倍率 = 1 + 跳过的盲注数 × 0.25, 每次出牌都重算.
 #[test]
 fn throwback_scales_with_skipped_blinds() {
-    use balatro_engine::jokers::Joker;
-    use balatro_engine::run::RunState;
-    use balatro_engine::scoring::{BackEffect, EvalEnv};
+    use balatro_engine_core::jokers::Joker;
+    use balatro_engine_core::run::RunState;
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 
     let mut run = RunState::new("ALEEB", 8);
     run.start();
@@ -2354,9 +2354,9 @@ fn throwback_scales_with_skipped_blinds() {
 /// 这里验最直观的两个: 飞溅让所有打出的牌都计分, 四指把同花的门槛从 5 张降到 4 张.
 #[test]
 fn hand_evaluation_jokers_actually_reach_the_evaluator() {
-    use balatro_engine::jokers::Joker;
-    use balatro_engine::run::RunState;
-    use balatro_engine::scoring::{BackEffect, EvalEnv, PokerHand};
+    use balatro_engine_core::jokers::Joker;
+    use balatro_engine_core::run::RunState;
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv, PokerHand};
 
     let play = |with: Option<&str>, back: BackEffect| -> (PokerHand, f64) {
         let mut run = RunState::new("ALEEB", 8);
@@ -2380,9 +2380,9 @@ fn hand_evaluation_jokers_actually_reach_the_evaluator() {
 /// 斗牛士: 这一手正好是 Boss 削弱的牌型时给 8 块.
 #[test]
 fn matador_pays_when_the_boss_debuffs_the_hand() {
-    use balatro_engine::jokers::Joker;
-    use balatro_engine::run::{BlindKind, RunState};
-    use balatro_engine::scoring::{BackEffect, EvalEnv};
+    use balatro_engine_core::jokers::Joker;
+    use balatro_engine_core::run::{BlindKind, RunState};
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 
     // 眼 (The Eye): 这一回合不许重复打过同一个牌型.
     let mut run = RunState::new("ALEEB", 8);
@@ -2404,8 +2404,8 @@ fn matador_pays_when_the_boss_debuffs_the_hand() {
 /// 天文台 (优惠券): 消耗区里**对应本手牌型**的行星牌, 每张给一次 ×1.5, 落在所有小丑效果之后.
 #[test]
 fn observatory_multiplies_for_matching_planets_in_the_consumables() {
-    use balatro_engine::run::RunState;
-    use balatro_engine::scoring::{BackEffect, EvalEnv};
+    use balatro_engine_core::run::RunState;
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 
     // 打一手对子, 消耗区里放一张水星 (对子) 与一张金星 (同花).
     let total = |with_voucher: bool| -> f64 {
@@ -2416,9 +2416,9 @@ fn observatory_multiplies_for_matching_planets_in_the_consumables() {
             run.used_vouchers.insert("v_observatory".to_owned());
         }
         run.consumables
-            .push(balatro_engine::run::consumable::Consumable::plain("c_mercury".to_owned()));
+            .push(balatro_engine_core::run::consumable::Consumable::plain("c_mercury".to_owned()));
         run.consumables
-            .push(balatro_engine::run::consumable::Consumable::plain("c_venus".to_owned()));
+            .push(balatro_engine_core::run::consumable::Consumable::plain("c_venus".to_owned()));
 
         let pair: Vec<usize> = (0..run.hand.len())
             .filter(|index| {
@@ -2447,7 +2447,7 @@ fn observatory_multiplies_for_matching_planets_in_the_consumables() {
 /// 没买这张券时秘术包里**只会有塔罗**, 买了之后才可能出现幽灵牌.
 #[test]
 fn omen_globe_can_turn_arcana_cards_into_spectrals() {
-    use balatro_engine::run::RunState;
+    use balatro_engine_core::run::RunState;
 
     let kinds = |with_voucher: bool, seed: &str| -> (usize, usize) {
         let mut run = RunState::new(seed, 8);
@@ -2455,14 +2455,14 @@ fn omen_globe_can_turn_arcana_cards_into_spectrals() {
         if with_voucher {
             run.used_vouchers.insert("v_omen_globe".to_owned());
         }
-        let contents = balatro_engine::run::open_pack(&mut run, "p_arcana_normal_1");
+        let contents = balatro_engine_core::run::open_pack(&mut run, "p_arcana_normal_1");
         // 注意把 `c_soul` / `c_black_hole` 排除掉: 那两张本来就在塔罗与行星包的池子里
         // (各约千分之一的概率), 与字母球无关 —— 不排除的话"没买券"那一组也会数出"幽灵牌"来.
         let spectral = contents
             .iter()
             .filter(|card| card.key != "c_soul" && card.key != "c_black_hole")
             .filter(|card| {
-                balatro_engine::data::catalog::Catalog::get()
+                balatro_engine_core::data::catalog::Catalog::get()
                     .record(&card.key)
                     .is_some_and(|proto| proto.category == "Spectral")
             })
@@ -2490,8 +2490,8 @@ fn omen_globe_can_turn_arcana_cards_into_spectrals() {
 /// 只要第一张是水星, 就说明指定卡确实生效了.
 #[test]
 fn telescope_puts_the_most_played_hand_planet_first() {
-    use balatro_engine::run::RunState;
-    use balatro_engine::scoring::{BackEffect, EvalEnv};
+    use balatro_engine_core::run::RunState;
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 
     let first_card_of_celestial_pack = |with_voucher: bool, play_pair: bool| -> String {
         let mut run = RunState::new("ALEEB", 8);
@@ -2513,7 +2513,7 @@ fn telescope_puts_the_most_played_hand_planet_first() {
         if with_voucher {
             run.used_vouchers.insert("v_telescope".to_owned());
         }
-        let contents = balatro_engine::run::open_pack(&mut run, "p_celestial_normal_1");
+        let contents = balatro_engine_core::run::open_pack(&mut run, "p_celestial_normal_1");
         contents[0].key.clone()
     };
 
@@ -2535,7 +2535,7 @@ fn telescope_puts_the_most_played_hand_planet_first() {
 /// 照常参与. 权利来自优惠券 —— 只买"导演剪辑版"每底一次, 买了"重新规划"则不限次.
 #[test]
 fn rerolling_the_boss_costs_ten_and_needs_the_voucher() {
-    use balatro_engine::run::{BlindKind, RunState};
+    use balatro_engine_core::run::{BlindKind, RunState};
 
     let ready = |vouchers: &[&str]| -> RunState {
         let mut run = RunState::new("ALEEB", 8);
@@ -2577,8 +2577,8 @@ fn rerolling_the_boss_costs_ten_and_needs_the_voucher() {
 /// 疯狂涨 0.5 并销毁一个随机的其他小丑、仪式匕首销毁它**右边**那一张并把对方卖价的两倍加给自己.
 #[test]
 fn blind_select_jokers_create_and_destroy() {
-    use balatro_engine::jokers::Joker;
-    use balatro_engine::run::{BlindKind, RunState};
+    use balatro_engine_core::jokers::Joker;
+    use balatro_engine_core::run::{BlindKind, RunState};
 
     // 即兴小丑: 有空位就造两张.
     let mut run = RunState::new("ALEEB", 8);
@@ -2633,8 +2633,8 @@ fn blind_select_jokers_create_and_destroy() {
 /// 红牌 / 骨先生 / 幻觉: 三张都在**运行层**已有的事件上, 不牵涉"计分过程中造牌".
 #[test]
 fn red_card_mr_bones_and_hallucination() {
-    use balatro_engine::jokers::Joker;
-    use balatro_engine::run::{Phase, RunState};
+    use balatro_engine_core::jokers::Joker;
+    use balatro_engine_core::run::{Phase, RunState};
 
     // 红牌: 跳过补充包时涨 3 倍率.
     let mut run = RunState::new("ALEEB", 8);
@@ -2671,7 +2671,7 @@ fn red_card_mr_bones_and_hallucination() {
             run.start();
             run.jokers.push(Joker::new("j_hallucination").expect("有这张"));
             let before = run.consumables.len();
-            balatro_engine::run::open_pack(&mut run, "p_arcana_normal_1");
+            balatro_engine_core::run::open_pack(&mut run, "p_arcana_normal_1");
             run.consumables.len() - before
         })
         .sum();
@@ -2682,9 +2682,9 @@ fn red_card_mr_bones_and_hallucination() {
 /// 减肥可乐: 卖掉时换一个"双倍"标签.
 #[test]
 fn swashbuckler_and_diet_cola() {
-    use balatro_engine::jokers::Joker;
-    use balatro_engine::run::{Phase, RunState};
-    use balatro_engine::scoring::{BackEffect, EvalEnv};
+    use balatro_engine_core::jokers::Joker;
+    use balatro_engine_core::run::{Phase, RunState};
+    use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 
     // 大摇大摆提供其他小丑卖价之和作为额外倍率.
     let mut run = RunState::new("ALEEB", 8);
@@ -2736,8 +2736,8 @@ fn swashbuckler_and_diet_cola() {
 /// 所以不必关心这一回合还掷过别的什么, 只管 `wheel` 这个键自己走了多少步.
 #[test]
 fn the_wheel_rolls_once_per_card_drawn() {
-    use balatro_engine::rng::Rng;
-    use balatro_engine::run::{BlindKind, RunState};
+    use balatro_engine_core::rng::Rng;
+    use balatro_engine_core::run::{BlindKind, RunState};
 
     let mut wheel = RunState::new("ALEEB", 8);
     wheel.start_run();

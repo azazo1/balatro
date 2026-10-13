@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use balatro_engine::run::{RunState, ShopRates, Timeline, create_card_for_shop, get_pack};
+use balatro_engine_core::run::{RunState, ShopRates, Timeline, create_card_for_shop, get_pack};
 
 const UDA_TSV: &str = include_str!("data/aleeb-uda.tsv");
 

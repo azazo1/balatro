@@ -2,9 +2,9 @@
 //!
 //! 它不断言"打得好不好", 只要求: 每局都能结束, 步数有限, 状态自洽.
 
-use balatro_engine::batch::run_batch;
-use balatro_engine::run::{Phase, RunState};
-use balatro_engine::scoring::{BackEffect, EvalEnv};
+use balatro_engine_core::batch::run_batch;
+use balatro_engine_core::run::{Phase, RunState};
+use balatro_engine_core::scoring::{BackEffect, EvalEnv};
 
 /// 随手打: 能出就出, 能买就买 (买最便宜的), 走不动就停.
 fn play_along(run: &mut RunState) -> usize {

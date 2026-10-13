@@ -1,10 +1,10 @@
 //! 已应用 mod 的运行层副作用和计分边界回归.
 mod common;
 
-use balatro_engine::cards::{CardInstance, Edition, Enhancement, Seal, Rank, standard_deck};
-use balatro_engine::jokers::Joker;
-use balatro_engine::run::{BlindKind, RunState};
-use balatro_engine::scoring::{BackEffect, EvalEnv, PokerHand};
+use balatro_engine_core::cards::{CardInstance, Edition, Enhancement, Seal, Rank, standard_deck};
+use balatro_engine_core::jokers::Joker;
+use balatro_engine_core::run::{BlindKind, RunState};
+use balatro_engine_core::scoring::{BackEffect, EvalEnv, PokerHand};
 
 fn boss(key: &str) -> RunState {
     let mut run = RunState::new("flow-audit", 1);
@@ -110,7 +110,7 @@ fn riff_raff_reserves_capacity_for_multiple_sources_and_ignores_debuffed() {
     run.jokers[1].edition = Some(Edition::Negative);
     common::place_blind(&mut run);
     assert_eq!(run.jokers.len(), 7);
-    assert!(run.jokers[3..].iter().all(|joker| balatro_engine::data::catalog::Catalog::get().record(&joker.key).unwrap().rarity == Some(1)));
+    assert!(run.jokers[3..].iter().all(|joker| balatro_engine_core::data::catalog::Catalog::get().record(&joker.key).unwrap().rarity == Some(1)));
     let mut run = RunState::new("riff-disabled-audit", 1);
     run.start_run();
     let mut disabled = Joker::new("j_riff_raff").unwrap();
@@ -162,7 +162,7 @@ fn disabling_heart_restores_passive_joker_effects_not_expired_perishables() {
 }
 
 fn use_tarot(run: &mut RunState, key: &str) {
-    run.consumables.push(balatro_engine::run::consumable::Consumable::plain(key));
+    run.consumables.push(balatro_engine_core::run::consumable::Consumable::plain(key));
     run.use_consumable(run.consumables.len()-1, &[0]).unwrap();
 }
 

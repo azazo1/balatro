@@ -111,7 +111,7 @@ end
 "#);
     for row in luajit_eval(&script).lines() {
         let f: Vec<&str> = row.split('\t').collect();
-        let mut rng = balatro_engine::rng::Rng::new(&format!("ORACLE{}", f[0]));
+        let mut rng = balatro_engine_core::rng::Rng::new(&format!("ORACLE{}", f[0]));
         assert_eq!(rng.hashed_seed(), f[1].parse::<f64>().unwrap(), "hash {row}");
         let ps = rng.pseudoseed("edi");
         assert_eq!(ps, f[2].parse::<f64>().unwrap(), "pseudoseed {row}");
@@ -186,12 +186,12 @@ end end
     assert!(rows.next().is_none());
 }
 
-use balatro_engine::cards::Edition;
-use balatro_engine::data::catalog::Catalog;
-use balatro_engine::jokers::Joker;
-use balatro_engine::run::{RunState, open_pack};
-use balatro_engine::run::shop::{create_joker, create_card_inner, pick_joker_of_rarity, poll_edition, roll_todo};
-use balatro_engine::scoring::{HandTable, PokerHand};
+use balatro_engine_core::cards::Edition;
+use balatro_engine_core::data::catalog::Catalog;
+use balatro_engine_core::jokers::Joker;
+use balatro_engine_core::run::{RunState, open_pack};
+use balatro_engine_core::run::shop::{create_joker, create_card_inner, pick_joker_of_rarity, poll_edition, roll_todo};
+use balatro_engine_core::scoring::{HandTable, PokerHand};
 
 #[test]
 fn generated_stock_and_all_pack_choices_have_birth_order_ids() {
@@ -206,7 +206,7 @@ fn generated_stock_and_all_pack_choices_have_birth_order_ids() {
             last = card.sort_id;
         }
     }
-    let shop = balatro_engine::run::shop::Shop::restock(&mut run);
+    let shop = balatro_engine_core::run::shop::Shop::restock(&mut run);
     let mut ids: Vec<u32> = shop.jokers.iter().chain(shop.packs.iter()).chain(shop.vouchers.iter()).map(|card| card.sort_id).collect();
     assert!(ids.iter().all(|id| *id > last));
     ids.sort_unstable();
@@ -217,20 +217,20 @@ fn generated_stock_and_all_pack_choices_have_birth_order_ids() {
 fn rarity_tags_create_free_stickered_jokers_and_consume_only_one_tag() {
     let mut run = RunState::new("RARITYTAG", 8);
     run.tags = vec!["tag_uncommon".to_owned(), "tag_uncommon".to_owned()];
-    let card = balatro_engine::run::create_card_for_shop(&mut run, &Default::default());
+    let card = balatro_engine_core::run::create_card_for_shop(&mut run, &Default::default());
     assert_eq!(card.cost, 0.0);
     assert_eq!(run.tags, vec!["tag_uncommon".to_owned()]);
-    let mut expected_rng = balatro_engine::rng::Rng::new("RARITYTAG");
+    let mut expected_rng = balatro_engine_core::rng::Rng::new("RARITYTAG");
     expected_rng.pseudorandom("etperpoll1");
     assert_eq!(run.rng.pseudoseed("etperpoll1"), expected_rng.pseudoseed("etperpoll1"));
 }
 
 #[test]
 fn edition_tags_apply_to_normal_jokers_and_only_consume_the_first_tag() {
-    let rates = balatro_engine::run::ShopRates { joker: 1.0, tarot: 0.0, planet: 0.0, playing_card: 0.0, spectral: 0.0 };
+    let rates = balatro_engine_core::run::ShopRates { joker: 1.0, tarot: 0.0, planet: 0.0, playing_card: 0.0, spectral: 0.0 };
     let mut run = RunState::new("EDITIONTAG", 1);
     run.tags = vec!["tag_foil".to_owned(), "tag_negative".to_owned()];
-    let card = balatro_engine::run::create_card_for_shop(&mut run, &rates);
+    let card = balatro_engine_core::run::create_card_for_shop(&mut run, &rates);
     assert_eq!(card.edition, Some(Edition::Foil));
     assert_eq!(card.cost, 0.0);
     assert_eq!(run.tags, vec!["tag_negative".to_owned()]);
@@ -257,12 +257,12 @@ fn creation_enhancement_gates_see_the_hand_and_discard_pile() {
     let mut run = RunState::new("ENHANCEMENT", 1);
     run.start_run();
     let mut held = run.deck.pop().unwrap();
-    held.enhancement = Some(balatro_engine::cards::Enhancement::Steel);
+    held.enhancement = Some(balatro_engine_core::cards::Enhancement::Steel);
     run.hand.push(held);
     let mut discarded = run.deck.pop().unwrap();
-    discarded.enhancement = Some(balatro_engine::cards::Enhancement::Stone);
+    discarded.enhancement = Some(balatro_engine_core::cards::Enhancement::Stone);
     run.discard_pile.push(discarded);
-    let creation = balatro_engine::run::shop::creation_from(&run);
+    let creation = balatro_engine_core::run::shop::creation_from(&run);
     assert!(creation.enhanced.contains("m_steel"));
     assert!(creation.enhanced.contains("m_stone"));
 }
@@ -271,7 +271,7 @@ fn creation_enhancement_gates_see_the_hand_and_discard_pile() {
 fn an_empty_booster_pool_uses_the_game_fallback_instead_of_panicking() {
     let mut run = RunState::new("BANNEDBOOSTERS", 1);
     run.banned_keys.extend(Catalog::get().pool("Booster").iter().map(|proto| proto.id.clone()));
-    assert_eq!(balatro_engine::run::get_pack(&mut run, "shop_pack"), "p_buffoon_normal_1");
+    assert_eq!(balatro_engine_core::run::get_pack(&mut run, "shop_pack"), "p_buffoon_normal_1");
 }
 
 #[test]
@@ -295,7 +295,7 @@ fn hallucination_rolls_once_per_live_instance_and_blueprint_with_capacity_buffer
 
 #[test]
 fn pseudoseed_seed_uses_the_unkeyed_global_stream() {
-    let mut rng = balatro_engine::rng::Rng::new("UNKEYED");
+    let mut rng = balatro_engine_core::rng::Rng::new("UNKEYED");
     rng.pseudorandom("edi");
     let mut expected = rng.clone();
     assert_eq!(rng.pseudoseed("seed"), expected.random());
@@ -308,27 +308,27 @@ fn enhanced_cards_keep_banned_prototypes_as_unavailable_slots() {
         let mut run = RunState::new(&format!("ENHBAN{seed}"), 1);
         run.banned_keys.extend(Catalog::get().pool("Enhanced").iter().filter(|p| p.id != "m_bonus").map(|p| p.id.clone()));
         for card in open_pack(&mut run, "p_standard_mega_1") {
-            assert!(card.enhancement.is_none() || card.enhancement == Some(balatro_engine::cards::Enhancement::Bonus));
+            assert!(card.enhancement.is_none() || card.enhancement == Some(balatro_engine_core::cards::Enhancement::Bonus));
         }
         run.used_vouchers.insert("v_illusion".to_owned());
-        let rates = balatro_engine::run::ShopRates { joker: 0.0, tarot: 0.0, planet: 0.0, playing_card: 1.0, spectral: 0.0 };
+        let rates = balatro_engine_core::run::ShopRates { joker: 0.0, tarot: 0.0, planet: 0.0, playing_card: 1.0, spectral: 0.0 };
         for _ in 0..10 {
-            let card = balatro_engine::run::create_card_for_shop(&mut run, &rates);
-            assert!(card.enhancement.is_none() || card.enhancement == Some(balatro_engine::cards::Enhancement::Bonus));
+            let card = balatro_engine_core::run::create_card_for_shop(&mut run, &rates);
+            assert!(card.enhancement.is_none() || card.enhancement == Some(balatro_engine_core::cards::Enhancement::Bonus));
         }
     }
 }
 
 #[test]
 fn astronomer_prices_generated_planets_and_celestial_packs_at_zero() {
-    let rates = balatro_engine::run::ShopRates { joker: 0.0, tarot: 0.0, planet: 1.0, playing_card: 0.0, spectral: 0.0 };
+    let rates = balatro_engine_core::run::ShopRates { joker: 0.0, tarot: 0.0, planet: 1.0, playing_card: 0.0, spectral: 0.0 };
     let mut celestial = 0;
     for seed in 0..40 {
         let mut run = RunState::new(&format!("ASTRO{seed}"), 1);
         run.jokers.push(Joker::new("j_astronomer").unwrap());
-        let card = balatro_engine::run::create_card_for_shop(&mut run, &rates);
+        let card = balatro_engine_core::run::create_card_for_shop(&mut run, &rates);
         assert_eq!(card.cost, 0.0);
-        let shop = balatro_engine::run::shop::Shop::restock(&mut run);
+        let shop = balatro_engine_core::run::shop::Shop::restock(&mut run);
         for card in shop.packs {
             if card.key.starts_with("p_celestial") { celestial += 1; assert_eq!(card.cost, 0.0); }
         }
@@ -342,9 +342,9 @@ fn voucher_tags_use_their_independent_key_without_ante_suffix() {
         for seed in 0..30 {
             let mut run = RunState::new(&format!("VTAG{seed}"), 1);
             run.ante = ante;
-            let (pool, _) = balatro_engine::run::voucher_pool(&run);
+            let (pool, _) = balatro_engine_core::run::voucher_pool(&run);
             let mut expected_rng = run.rng.clone();
-            let expected = balatro_engine::run::pick_or_resample(&mut expected_rng, &pool, "Voucher_fromtag");
+            let expected = balatro_engine_core::run::pick_or_resample(&mut expected_rng, &pool, "Voucher_fromtag");
             assert_eq!(run.next_voucher_key_from_tag(), expected);
             assert_eq!(run.rng.pseudoseed("Voucher_fromtag"), expected_rng.pseudoseed("Voucher_fromtag"));
         }
@@ -466,12 +466,12 @@ fn forced_consumables_are_registered_as_used_without_drawing_a_pool() {
 #[test]
 fn tags_respect_minimum_ante_and_discovered_prerequisites_without_shrinking_pool() {
     let mut run = RunState::new("TAGS", 1);
-    let (pool, _) = balatro_engine::run::tag_pool(&run);
+    let (pool, _) = balatro_engine_core::run::tag_pool(&run);
     assert_eq!(pool.len(), Catalog::get().pool("Tag").len());
     assert!(!pool.iter().any(|key| matches!(key.as_str(), "tag_negative" | "tag_meteor" | "tag_rare" | "tag_foil")));
     run.ante = 2;
     run.uda.insert("j_blueprint".to_owned(), "ud".to_owned());
-    let (pool, _) = balatro_engine::run::tag_pool(&run);
+    let (pool, _) = balatro_engine_core::run::tag_pool(&run);
     assert!(pool.contains(&"tag_meteor".to_owned()));
     assert!(pool.contains(&"tag_rare".to_owned()));
     assert!(!pool.contains(&"tag_foil".to_owned()));
@@ -480,7 +480,7 @@ fn tags_respect_minimum_ante_and_discovered_prerequisites_without_shrinking_pool
 #[test]
 fn spectral_soul_hit_still_draws_the_second_black_hole_roll() {
     let seed = (0..5000).map(|n| format!("SOUL{n}")).find(|seed| {
-        let mut rng = balatro_engine::rng::Rng::new(seed);
+        let mut rng = balatro_engine_core::rng::Rng::new(seed);
         rng.pseudorandom("soul_Spectral1") > 0.997
     }).unwrap();
     let mut run = RunState::new(&seed, 1);

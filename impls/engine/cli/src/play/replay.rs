@@ -7,9 +7,9 @@
 //! 不同, 所以这份文件同时是交给游戏的断言集. 摘要是"这一步做完之后"的状态, 取早取晚都会让游戏在
 //! 正确的地方报不一致.
 
-use balatro_engine::data::json::Json;
-use balatro_engine::run::RunState;
-use balatro_engine::run::digest::digest;
+use engine::data::json::Json;
+use engine::run::RunState;
+use engine::run::digest::digest;
 
 use crate::session;
 

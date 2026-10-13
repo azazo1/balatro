@@ -10,8 +10,8 @@
 //! 30 筹码 × 4 倍率, 加上五张牌的点数 6+7+8+9+10=40, 得到 70. 等离子牌组把两者平均成 37,
 //! 于是 37 × 37 = 1369.
 
-use balatro_engine::cards::{PlayingCard, Rank, Suit};
-use balatro_engine::scoring::{BackEffect, EvalEnv, HandCard, HandTable, PokerHand, score_play};
+use balatro_engine_core::cards::{PlayingCard, Rank, Suit};
+use balatro_engine_core::scoring::{BackEffect, EvalEnv, HandCard, HandTable, PokerHand, score_play};
 
 /// 写 `C_5` 或 `C5` 都认, 前者是游戏里的原型键写法.
 fn card(code: &str) -> HandCard {
@@ -134,7 +134,7 @@ fn a_higher_level_raises_the_base() {
 /// 负片只加小丑格子数, 计分上没有东西.
 #[test]
 fn card_editions_add_their_share() {
-    use balatro_engine::cards::Edition;
+    use balatro_engine_core::cards::Edition;
 
     let table = HandTable::new();
     let with = |edition: Option<Edition>| -> (f64, f64) {
@@ -161,7 +161,7 @@ fn card_editions_add_their_share() {
     let mut held = card("H_7");
     held.edition = Some(Edition::Foil);
     let played = [card("C_5"), card("D_5")];
-    let r = balatro_engine::scoring::score_play_with_held(
+    let r = balatro_engine_core::scoring::score_play_with_held(
         &played,
         &[held],
         &table,

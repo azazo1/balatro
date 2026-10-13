@@ -5,8 +5,8 @@
 //!
 //! 这条链路把开局会用到的随机都串了起来, 任何一处调用顺序或参数不对都会在这里露出来.
 
-use balatro_engine::cards::{PlayingCard, sort_by_nominal_desc, sort_by_sort_id, standard_deck};
-use balatro_engine::rng::Rng;
+use balatro_engine_core::cards::{PlayingCard, sort_by_nominal_desc, sort_by_sort_id, standard_deck};
+use balatro_engine_core::rng::Rng;
 
 /// 按开局的顺序洗完一副标准牌, 并发出第一手.
 ///

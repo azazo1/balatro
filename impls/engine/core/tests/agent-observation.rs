@@ -1,13 +1,13 @@
 //! 观察边界, 盲注生命周期和通关动作门禁的关键行为回归.
 
-use balatro_engine::agent::{action, dynamics, observation, summary};
-use balatro_engine::agent::observation::{BlindStatus, ScoreVisibility};
-use balatro_engine::cards::{CardInstance, Enhancement, Rank, Suit};
-use balatro_engine::data::json::Json;
-use balatro_engine::jokers::Joker;
-use balatro_engine::run::{ActionError, BlindKind, Phase, RunState};
-use balatro_engine::run::shop::{OpenPack, PackCard};
-use balatro_engine::scoring::{BackEffect, EvalEnv, ScoreSource};
+use balatro_engine_core::agent::{action, dynamics, observation, summary};
+use balatro_engine_core::agent::observation::{BlindStatus, ScoreVisibility};
+use balatro_engine_core::cards::{CardInstance, Enhancement, Rank, Suit};
+use balatro_engine_core::data::json::Json;
+use balatro_engine_core::jokers::Joker;
+use balatro_engine_core::run::{ActionError, BlindKind, Phase, RunState};
+use balatro_engine_core::run::shop::{OpenPack, PackCard};
+use balatro_engine_core::scoring::{BackEffect, EvalEnv, ScoreSource};
 
 fn boss(key: &str, ante: i64) -> RunState {
     let mut run = RunState::new("OBSERVE", 8);
@@ -78,13 +78,13 @@ fn hidden_identity_exchange_does_not_change_public_observation() {
     let mut run = boss("bl_house", 1);
     let before = summary::render(&run, &Default::default());
     let dynamics_before = dynamics::render(&run);
-    let raw = balatro_engine::run::digest(&run);
+    let raw = balatro_engine_core::run::digest(&run);
     std::mem::swap(&mut run.hand[0], &mut run.deck[0]);
     run.hand[0].face_down = true;
     run.deck[0].face_down = false;
     assert_eq!(before, summary::render(&run, &Default::default()));
     assert_eq!(dynamics_before, dynamics::render(&run));
-    assert_ne!(raw, balatro_engine::run::digest(&run));
+    assert_ne!(raw, balatro_engine_core::run::digest(&run));
 }
 
 #[test]
@@ -157,12 +157,12 @@ fn victory_blocks_actions_until_explicit_endless_without_losing_won() {
     assert!(run.won && run.win_overlay);
     assert_eq!(run.phase, Phase::RoundEval);
     let dollars = run.dollars;
-    let raw = balatro_engine::run::digest(&run);
+    let raw = balatro_engine_core::run::digest(&run);
     assert!(matches!(run.cash_out(), Err(ActionError::NotAllowed(_))));
     let sort = Json::parse(r#"{"method":"sort_hand_value"}"#).unwrap();
     assert!(matches!(action::apply(&sort, &mut run, &Default::default()), Err(ActionError::NotAllowed(_))));
     assert_eq!(run.dollars, dollars);
-    assert_eq!(balatro_engine::run::digest(&run), raw);
+    assert_eq!(balatro_engine_core::run::digest(&run), raw);
     let endless = Json::parse(r#"{"method":"endless"}"#).unwrap();
     action::apply(&endless, &mut run, &Default::default()).unwrap();
     assert!(run.won && !run.win_overlay);
@@ -230,7 +230,7 @@ fn pack_stickers_are_observable_and_copying_does_not_copy_facing() {
 fn replay_validates_endless_instead_of_skipping_it_as_observation() {
     let header = Json::parse(r#"{"seed":"OBSERVE","deck":"RED","stake":"GOLD","uda":{}}"#).unwrap();
     let step = Json::parse(r#"{"method":"endless","ok":false}"#).unwrap();
-    let report = balatro_engine::replay::check(&header, &[step], false);
+    let report = balatro_engine_core::replay::check(&header, &[step], false);
     assert!(report.failure.is_none());
     assert_eq!(report.matched_refusals, 1);
     assert_eq!(report.skipped_observations, 0);

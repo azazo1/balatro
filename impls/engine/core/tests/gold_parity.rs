@@ -2,12 +2,12 @@
 
 mod common;
 
-use balatro_engine::cards::Edition;
-use balatro_engine::jokers::Joker;
-use balatro_engine::run::blind::BlindKind;
-use balatro_engine::run::shop::{Shop, ShopCard};
-use balatro_engine::run::{Phase, RunState};
-use balatro_engine::scoring::{BackEffect, EvalEnv, HandTable, score_play};
+use balatro_engine_core::cards::Edition;
+use balatro_engine_core::jokers::Joker;
+use balatro_engine_core::run::blind::BlindKind;
+use balatro_engine_core::run::shop::{Shop, ShopCard};
+use balatro_engine_core::run::{Phase, RunState};
+use balatro_engine_core::scoring::{BackEffect, EvalEnv, HandTable, score_play};
 
 fn item(key: &str, cost: f64) -> ShopCard {
     ShopCard {
@@ -146,7 +146,7 @@ fn edition_changes_and_negative_consumables_use_current_prices() {
     run.use_consumable(0, &[]).unwrap();
     assert_eq!(run.jokers[0].edition, Some(Edition::Polychrome));
     assert_eq!(run.jokers[0].cost, 7.0);
-    run.consumables.push(balatro_engine::run::consumable::Consumable::with_edition(
+    run.consumables.push(balatro_engine_core::run::consumable::Consumable::with_edition(
         "c_fool", Some(Edition::Negative)));
     assert_eq!(run.sell_consumable(0).unwrap(), 3.0);
 }
@@ -155,7 +155,7 @@ fn edition_changes_and_negative_consumables_use_current_prices() {
 fn debuffed_scoring_card_has_no_persistent_joker_side_effects() {
     let mut run = RunState::new("4AH77J5E", 8);
     run.start();
-    let mut card = balatro_engine::cards::CardInstance::from_key("D_K").unwrap();
+    let mut card = balatro_engine_core::cards::CardInstance::from_key("D_K").unwrap();
     card.debuffed = true;
     card.card.sort_id = 9999;
     run.hand = vec![card];
