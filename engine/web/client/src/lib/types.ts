@@ -10,13 +10,18 @@ export interface Item {
 export interface Blind extends Item { kind: string; status: string; target?: number; reward?: number; tag?: Item | null }
 export interface HistoryNode { id: number; parent: number | null; kind: string; label: string; phase: string; ante: number; edited: boolean }
 export interface Level { name: string; level: number; chips: number; mult: number; played: number; played_this_round: number }
+/** 结算栏: 盲注奖金与逐行金额来源, 对照原版 ROUND_EVAL. */
+export interface RoundEval {
+  blind: string | null; blind_key: string | null; target: number | null; blind_reward: number;
+  rows: { label: string; amount: number }[]; total: number;
+}
 export interface Observation {
   deck_back: string; phase: string; phase_name: string; won: boolean; win_overlay: boolean;
   stats: Record<string, number>; hand: Item[]; jokers: Item[]; consumables: Item[]; blinds: Blind[];
   shop: { cards: Item[]; vouchers: Item[]; packs: Item[]; reroll_cost: number } | null;
   pack: { name: string; choices_left: number; cards: Item[] } | null;
   levels: Level[]; note: string; last_hand: string | null; dynamics: string; summary: string;
-  tags: Item[]; vouchers: Item[]; differences: { field: string; before: number; after: number }[];
+  tags: Item[]; vouchers: Item[]; round_eval: RoundEval | null; differences: { field: string; before: number; after: number }[];
   debug: { values: Record<string, number>; digest: string; rng: string; deck: Item[]; discard: Item[] } | null;
 }
 export interface View {

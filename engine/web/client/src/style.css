@@ -188,7 +188,10 @@ h1, h2, h3, p, pre { margin: 0; }
 
 /* 结算. */
 .cash-blind { display: flex; align-items: center; gap: .5em; font-size: 1.2em; }
-.cash-note { white-space: pre-wrap; font: inherit; font-size: .85em; max-height: calc(var(--u) * 5); overflow: auto; text-align: left; background: #1f2b2c; border-radius: .4em; padding: .4em .6em; }
+.cash-blind .cash-amount { margin-left: auto; }
+.cash-rows { list-style: none; margin: 0; padding: .4em .6em; min-width: calc(var(--u) * 9); background: #1f2b2c; border-radius: .4em; border-top: 2px dashed rgba(255,255,255,.25); }
+.cash-rows li { display: flex; align-items: center; justify-content: space-between; gap: 1em; padding: .15em 0; font-size: .9em; }
+.cash-amount { letter-spacing: .05em; }
 
 /* 商店: 招牌 + 红色边框面板. */
 .shop { display: flex; flex-direction: column; align-items: center; height: 100%; width: 100%; }

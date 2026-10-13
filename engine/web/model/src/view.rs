@@ -63,6 +63,22 @@ fn stats(run: &RunState) -> Value {
         "joker_capacity":run.joker_capacity(),"consumable_capacity":run.consumable_capacity()})
 }
 
+/// 结算栏, 对照原版 ROUND_EVAL 的逐行金额来源. 金额为零的行不显示, 与原版一致.
+fn round_eval(run: &RunState) -> Value {
+    let Some(eval) = run.round_eval.filter(|_| run.phase == Phase::RoundEval) else { return Value::Null };
+    let money = |v: f64| summary::number(v);
+    let mut rows = Vec::new();
+    let mut push = |label: String, amount: f64| if amount != 0.0 { rows.push(json!({"label":label,"amount":amount})) };
+    push(format!("剩余出牌 {} 次 (每次 ${})", run.hands_left.max(0), money(run.money_per_hand)), eval.hand_bonus);
+    push(format!("剩余弃牌 {} 次 (每次 ${})", run.discards_left.max(0), money(run.money_per_discard)), eval.discard_bonus);
+    push("小丑".to_owned(), eval.card_bonus);
+    push(format!("利息: 每 $5 得 ${} (最多 ${})", money(run.interest_rate), money(run.interest_rate * (run.interest_cap / 5.0).floor())), eval.interest);
+    push("投资标签".to_owned(), eval.tag_bonus);
+    let blind = run.blind.as_ref();
+    json!({"blind":blind.map(|b| item(&b.key)["name"].clone()),"blind_key":blind.map(|b| b.key.clone()),
+        "target":blind.map(|b| b.chips),"blind_reward":eval.blind_reward,"rows":rows,"total":eval.total()})
+}
+
 pub fn render(session: &Session) -> Value {
     let run = session.state();
     let node = &session.nodes[session.current];
@@ -145,6 +161,7 @@ pub fn render(session: &Session) -> Value {
             "dynamics":dynamics::render(run),"summary":summary::render(run,&summary::Extras {last_hand:node.report.as_deref(),note:None}),
             "tags":run.tags.iter().map(|k|item(k)).collect::<Vec<_>>(),
             "vouchers":vouchers,
+            "round_eval":round_eval(run),
             "differences":differences,"debug":debug_data}})
 }
 

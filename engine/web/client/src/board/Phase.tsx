@@ -8,6 +8,8 @@ import type { Scoring } from '../preview/usePreview';
 
 type Act = (method: string, params?: Record<string, unknown>) => void;
 const statusName: Record<string, string> = { Select: '选择', Upcoming: '即将到来', Active: '进行中', Defeated: '已击败', Skipped: '已跳过', Failed: '失败' };
+/** 原版结算栏用一串 $ 表示金额, 太多时改写数字. */
+const dollars = (amount: number) => amount > 0 && amount <= 10 ? '$'.repeat(amount) : `$${number(amount)}`;
 const kindName: Record<string, string> = { Small: '小盲注', Big: '大盲注', Boss: 'Boss 盲注' };
 
 /** 盲注选择卡, 对照 UI_definitions.lua create_UIBox_blind_choice. */
@@ -62,11 +64,22 @@ export function Phase({ view, busy, locked, selected, act, scoring }: { view: Vi
   </div>;
   if (o.phase === 'BlindSelect') return <div className="blind-row">{o.blinds.map(b => <BlindCard key={b.kind} blind={b} view={view} locked={locked} act={act} />)}</div>;
   if (o.phase === 'RoundEval') {
-    const blind = o.blinds.find(b => b.status === 'Defeated' || b.status === 'Active');
+    // 盲注取自结算栏本身 (刚打完的那一个), 而不是从三张盲注里猜.
+    const ev = o.round_eval;
+    const chip = ev?.blind_key ? { key: ev.blind_key, name: ev.blind ?? '', effect: '', kind: '', status: '' } : undefined;
     return <div className="panel-box center-panel cash-out">
-      {blind && <div className="cash-blind"><BlindChip blind={blind} size={2.4} /><span>{blind.name}</span></div>}
-      <pre className="cash-note">{o.note}</pre>
-      <button className="btn orange big" disabled={locked} onClick={() => act('cash_out')}>提现</button>
+      {ev && <>
+        <div className="cash-blind">
+          <BlindChip blind={chip} size={2.4} />
+          <span>{ev.blind}</span>
+          {ev.target != null && <span>至少得分 <strong className="mult-text">{number(ev.target)}</strong></span>}
+          {ev.blind_reward > 0 && <b className="money cash-amount">{dollars(ev.blind_reward)}</b>}
+        </div>
+        <ul className="cash-rows">{ev.rows.map((row, i) => <li key={i}>
+          <span>{row.label}</span><b className="money cash-amount">{dollars(row.amount)}</b>
+        </li>)}</ul>
+      </>}
+      <button className="btn orange big" disabled={locked} onClick={() => act('cash_out')}>提现: ${number(ev?.total ?? 0)}</button>
     </div>;
   }
   if (o.phase === 'Shop' && o.shop) return <div className="shop">
