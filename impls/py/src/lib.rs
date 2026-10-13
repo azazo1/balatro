@@ -16,7 +16,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 /// 内置的全解锁档, 与命令行 `play` 的默认档是同一份文件.
-const UDA_ALL: &str = include_str!("../../data/uda-all.json");
+const UDA_ALL: &str = include_str!("../../engine/core/data/uda-all.json");
 
 /// 取存档进度表: 既接受裸的 uda 对象, 也接受录像那种 `{"snapshot":{"uda":{...}}}`.
 fn uda_of(text: &str) -> PyResult<HashMap<String, String>> {

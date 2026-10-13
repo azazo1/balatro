@@ -72,7 +72,7 @@ pub fn run(argv: &[String]) {
         Some("prompt") => ("prompt", &argv[1..]),
         Some("step") => ("step", &argv[1..]),
         // 不写子命令时按对局走, 这样最常用的一条路径不必多打一个词.
-        Some(_) => ("step", &argv[..]),
+        Some(_) => ("step", argv),
     };
     match command {
         "lookup" => run_lookup(rest),
