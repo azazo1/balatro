@@ -115,20 +115,26 @@ just play search 利息               # 全局搜子串
 重放换来的是无状态 —— 不需要常驻进程, 中途断开也不怕. 动作**先执行, 成功了才写进文件**,
 所以被拒绝的动作不会留在历史里, agent 犯错不会把对局弄废.
 
-导出游戏回放需要一份原始录像作为完整快照模板. 默认旧录像不存在时,
-通过 `BALATRO_REPLAY_TEMPLATE` 指定模板; 对局与导出使用同一份解锁快照.
-单元测试使用显式最小模板验证序列化, 不依赖用户机器上的录像路径.
+存档进度 (那份"解锁了什么") 内置两份, 默认**全解锁**, 所以不需要任何外部文件就能开局:
+
+- `all` (默认): 全解锁的真实存档快照. 往高底注打要用这份, 候选池里没有未解锁的占位格子.
+- `new`: 新存档, 一切按原型的初始值 —— 要复现"从头开始"的场面时用.
 
 ```shell
-BALATRO_REPLAY_TEMPLATE=<原始回放文件> just play step --deck RED --stake GOLD --actions .tmp/agent/RUN.actions.jsonl
+just play step --seed ALEEB --deck RED --stake GOLD --actions .tmp/agent/RUN.actions.jsonl
+just play step --seed ALEEB --deck RED --stake GOLD --uda new --actions .tmp/agent/RUN.actions.jsonl
 ```
+
+档是开局参数的一部分, 开完就记进动作文件, 之后每步不必再给. 想用**自己那份存档**就把
+`BALATRO_REPLAY_TEMPLATE` 指向一份原始录像 —— 对局按录像里的解锁进度走. 导出回放
+(`--emit`) 也走这个变量: 回放要照抄 LÖVE 存档格式里的 `snapshot` 与版本号, 引擎自己造不出来.
 
 ### 开局参数
 
-`--seed` / `--deck` / `--stake` 只在**新开一局**时给一次, 之后**记进动作文件的第一行**:
+`--seed` / `--deck` / `--stake` / `--uda` 只在**新开一局**时给一次, 之后**记进动作文件的第一行**:
 
 ```json
-{"method":"start","params":{"seed":"QSHVZSFR","deck":"RED","stake":"WHITE"}}
+{"method":"start","params":{"seed":"QSHVZSFR","deck":"RED","stake":"WHITE","uda":"all"}}
 ```
 
 再给一遍就得与文件里记的一致, 不一致会报错而不是默默按其中一个走 —— 两者不一致时无论选哪个都是

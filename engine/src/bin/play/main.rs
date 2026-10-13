@@ -48,7 +48,8 @@ step 的参数:
                                         定下来之后记进动作文件, 之后不用再给.
   --actions 文件                        这一局的动作文件, 也是全部历史 (必给)
   --do JSON                             追加并执行一条动作
-  --emit 文件                           把这局导出成游戏能回放的文件
+  --emit 文件                           把这局导出成游戏能回放的文件 (要有一份原始录像当模板)
+  --uda all|new                         存档解锁档: all 全解锁 (默认), new 新存档
 
 牌组可写 RED 或 b_red; 赌注可写 GOLD 或 8.
 
@@ -101,6 +102,7 @@ struct StepArgs {
     actions: PathBuf,
     do_action: Option<String>,
     emit: Option<PathBuf>,
+    uda: session::Profile,
 }
 
 /// 这一局的开局参数.
@@ -112,6 +114,9 @@ struct Opening {
     seed: String,
     deck: String,
     stake: String,
+    /// 这一局用哪份解锁档. 与其它开局参数一样, 定下来就记进动作文件 —— 换了档候选池就变了,
+    /// 中途改会让重放出来的局面与历史对不上.
+    uda: String,
 }
 
 /// 从动作文件的第一行取开局参数. 旧格式 (`{"method":"start"}` 不带 `params`) 给 `None`.
@@ -126,16 +131,19 @@ fn opening_from(actions: &[Json]) -> Option<Opening> {
         seed: text("seed")?,
         deck: text("deck")?,
         stake: text("stake")?,
+        // 老动作文件里没记这一项: 那时只有一份档, 于是按全解锁走.
+        uda: text("uda").unwrap_or_else(|| "all".to_owned()),
     })
 }
 
 /// 开局那一行动作. 参数按 JSON 转义, 免得路径或别的字段里有引号.
 fn start_line(opening: &Opening) -> String {
     format!(
-        "{{\"method\":\"start\",\"params\":{{\"seed\":{},\"deck\":{},\"stake\":{}}}}}",
+        "{{\"method\":\"start\",\"params\":{{\"seed\":{},\"deck\":{},\"stake\":{},\"uda\":{}}}}}",
         replay::quote(&opening.seed),
         replay::quote(&opening.deck),
-        replay::quote(&opening.stake)
+        replay::quote(&opening.stake),
+        replay::quote(&opening.uda)
     )
 }
 
@@ -212,6 +220,7 @@ fn check_conflict(
     cli_seed: Option<&str>,
     cli_deck: Option<&str>,
     cli_stake: Option<&str>,
+    cli_uda: Option<&str>,
 ) {
     let mut problems: Vec<String> = Vec::new();
     if let Some(seed) = cli_seed
@@ -228,6 +237,11 @@ fn check_conflict(
         && session::stake_of(stake) != session::stake_of(&recorded.stake)
     {
         problems.push(format!("--stake {stake} (文件里记的是 {})", recorded.stake));
+    }
+    if let Some(uda) = cli_uda
+        && !uda.eq_ignore_ascii_case(&recorded.uda)
+    {
+        problems.push(format!("--uda {uda} (文件里记的是 {})", recorded.uda));
     }
     if problems.is_empty() {
         return;
@@ -255,6 +269,7 @@ fn run_step(args: &[String]) {
     let cli_seed = value_of(args, "--seed").map(str::to_owned);
     let cli_deck = value_of(args, "--deck").map(str::to_owned);
     let cli_stake = value_of(args, "--stake").map(str::to_owned);
+    let cli_uda = value_of(args, "--uda").map(str::to_owned);
 
     // 动作文件是这一局的全部历史, 所以先读它 —— 开局参数以它记的为准.
     let mut actions = read_actions(&actions_path);
@@ -264,6 +279,7 @@ fn run_step(args: &[String]) {
             cli_seed.as_deref(),
             cli_deck.as_deref(),
             cli_stake.as_deref(),
+            cli_uda.as_deref(),
         );
         recorded
     } else {
@@ -279,6 +295,8 @@ fn run_step(args: &[String]) {
             seed: cli_seed.unwrap_or_else(generate_seed),
             deck: need("--deck"),
             stake: need("--stake"),
+            // 不给就是全解锁档; 存小写, 免得同一份档因为大小写不同被当成两回事.
+            uda: cli_uda.unwrap_or_else(|| "all".to_owned()).to_ascii_lowercase(),
         }
     };
 
@@ -294,16 +312,18 @@ fn run_step(args: &[String]) {
         actions.push(Json::parse(&line).expect("刚拼出来的是合法 JSON"));
     }
 
+    let profile = session::Profile::parse(&opening.uda);
     let step = StepArgs {
         opening,
         actions: actions_path,
         do_action: value_of(args, "--do").map(str::to_owned),
         emit: value_of(args, "--emit").map(PathBuf::from),
+        uda: profile,
     };
 
     let mut run = RunState::new(&step.opening.seed, session::stake_of(&step.opening.stake))
         .with_deck(&session::deck_of(&step.opening.deck))
-        .with_uda(session::uda_from_template());
+        .with_uda(session::uda_from(step.uda));
 
     let env = EvalEnv::default();
     let verbose = std::env::var("PLAY_VERBOSE").is_ok();
@@ -609,6 +629,7 @@ mod tests {
             seed: "ALEEB".to_owned(),
             deck: "RED".to_owned(),
             stake: "WHITE".to_owned(),
+            uda: "all".to_owned(),
         };
         // 大写相同 -> 不冲突 (这条不该退出, 用不 panic 的方式验: 直接比对规范化结果)
         assert_eq!(session::deck_of("red"), session::deck_of("RED"));
@@ -622,6 +643,7 @@ mod tests {
             seed: "5RSSBWA9".to_owned(),
             deck: "RED".to_owned(),
             stake: "WHITE".to_owned(),
+            uda: "new".to_owned(),
         };
         let line = start_line(&opening);
         let parsed = Json::parse(&line).expect("拼出来的要是合法 JSON");
@@ -631,6 +653,18 @@ mod tests {
         assert_eq!(back.seed, opening.seed);
         assert_eq!(back.deck, opening.deck);
         assert_eq!(back.stake, opening.stake);
+        assert_eq!(back.uda, opening.uda);
+    }
+
+    /// 加解锁档之前记下的动作文件里没有 `uda`, 按全解锁走 —— 那时只有这一份档.
+    #[test]
+    fn an_old_start_line_without_uda_falls_back_to_all() {
+        let old = Json::parse(
+            "{\"method\":\"start\",\"params\":{\"seed\":\"ALEEB\",\"deck\":\"RED\",\"stake\":\"WHITE\"}}",
+        )
+        .expect("合法 JSON");
+        let opening = opening_from(&[old]).expect("要能读出来");
+        assert_eq!(opening.uda, "all");
     }
 
     /// 旧格式 (`{"method":"start"}` 不带 params) 读不到开局参数, 调用方据此要求补 `--seed`.
