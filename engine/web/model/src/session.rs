@@ -48,6 +48,15 @@ pub struct Session {
     pub current: usize,
     pub revision: u64,
     pub debug: bool,
+    /// 载入旧版本存档时的提示, 只在本次会话内展示, 不写进存档.
+    pub notice: Option<Notice>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct Notice {
+    pub message: String,
+    /// 重放失败而丢弃的节点数, 大于 0 时前端会先备份原存档.
+    pub dropped: usize,
 }
 
 impl Session {
@@ -60,7 +69,7 @@ impl Session {
             opening: spec,
             nodes: vec![Node { id: 0, parent: None, event: None, snapshot: run.snapshot("开局"),
                 report: None, note: "开局".to_owned(), edited: false }],
-            current: 0, revision: 0, debug: false,
+            current: 0, revision: 0, debug: false, notice: None,
         })
     }
 

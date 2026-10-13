@@ -138,7 +138,7 @@ pub fn render(session: &Session) -> Value {
     voucher_keys.sort();
     let vouchers: Vec<_> = voucher_keys.into_iter().map(|k| item(k)).collect();
     json!({"version":engine::VERSION,"opening":session.opening,"revision":session.revision,"current":session.current,
-        "debug":session.debug,"edited":node.edited,"max_nodes":MAX_NODES,"history":history,
+        "debug":session.debug,"edited":node.edited,"max_nodes":MAX_NODES,"history":history,"notice":session.notice,
         "observation":{"deck_back":session.opening.deck,"phase":format!("{:?}",run.phase),"phase_name":summary::phase_zh(run.phase),"won":run.won,"win_overlay":run.win_overlay,
             "stats":current_stats,"hand":hand,"jokers":jokers,"consumables":consumables,"blinds":blinds,
             "shop":shop,"pack":pack,"levels":levels,"note":node.note,"last_hand":node.report,

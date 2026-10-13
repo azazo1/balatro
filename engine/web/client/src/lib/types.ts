@@ -22,6 +22,8 @@ export interface Observation {
 export interface View {
   version: string; session_id?: string; opening: Opening; revision: number; current: number;
   debug: boolean; edited: boolean; max_nodes: number; history: HistoryNode[]; observation: Observation;
+  /** 载入其他引擎构建的存档时的说明. */
+  notice?: { message: string; dropped: number } | null;
 }
 export interface Info { version: string; format_version: number; decks: Item[]; stakes: string[]; max_nodes: number; max_file_bytes: number }
 export interface Action { method: string; params: Record<string, unknown> }

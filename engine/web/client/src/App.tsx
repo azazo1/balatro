@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { Action, Backend, Info, Mode, Opening, View } from './lib/types';
 import { HttpBackend, OperationError, WasmBackend } from './engine/backend';
-import { download, readAutosave, writeAutosave } from './lib/storage';
+import { backupKey, download, readAutosave, writeAutosave } from './lib/storage';
 import { toggleSelection } from './lib/game';
 import log from './lib/log';
 import { loadSprites, lookup, spriteCss } from './assets/sprites';
@@ -69,11 +69,20 @@ export function App() {
           if (mode === 'http') { try { restored = await instance.observe(); } catch (e) { if (!(e instanceof OperationError) || e.status !== 404) throw e; } }
           if (!restored) {
             const saved = await readAutosave(mode);
-            if (saved) restored = await instance.restore(saved.file);
+            if (saved) {
+              restored = await instance.restore(saved.file);
+              // 旧构建存档丢了节点: 先把原文件另存, 再让自动存档覆盖.
+              if (restored.notice?.dropped) await writeAutosave(backupKey(mode), saved.file);
+            }
           }
         }
         if (!alive) return;
-        if (restored) { accept(restored); await autosave(instance, mode); }
+        if (restored) {
+          accept(restored); await autosave(instance, mode);
+          const notice = restored.notice;
+          if (notice?.dropped) setError(`${notice.message}. 原存档已备份, 可用 备份存档 下载`);
+          else if (notice) setStatus(notice.message);
+        }
         else { setNewGame(true); setStatus('引擎就绪, 选择配置开始对局'); }
       } catch (e) {
         if (!alive) return;
@@ -136,7 +145,13 @@ export function App() {
     try { setPendingFile(await file.text()); } catch (e) { setError(String(e)); }
   }
   async function backupAutosave() {
-    try { const saved = await readAutosave(mode); if (saved) download('engine-lab-autosave.session.json', saved.file); else setError('此模式没有自动存档'); }
+    try {
+      const saved = await readAutosave(mode);
+      const before = await readAutosave(backupKey(mode));
+      if (saved) download('engine-lab-autosave.session.json', saved.file);
+      if (before) download('engine-lab-before-rebuild.session.json', before.file);
+      if (!saved && !before) setError('此模式没有自动存档');
+    }
     catch (e) { setError(String(e)); }
   }
   function start(opening: Opening) { void run(b => b.create(opening), '正在创建对局').then(ok => { if (ok) setNewGame(false); }); }
@@ -212,7 +227,13 @@ export function App() {
       {view && <p className="hint warn">当前全部分支会被替换, 如需保留请先保存.</p>}
       <div className="modal-actions">
         <button className="btn grey" disabled={busy} onClick={() => setPendingFile(null)}>取消</button>
-        <button className="btn blue big" disabled={busy || !info} onClick={() => { const text = pendingFile; void run(b => b.restore(text), '正在验证并重建全部分支').then(ok => { if (ok) setPendingFile(null); }); }}>确认载入</button>
+        <button className="btn blue big" disabled={busy || !info} onClick={() => { const text = pendingFile; void run(b => b.restore(text), '正在验证并重建全部分支').then(ok => {
+              if (!ok) return;
+              setPendingFile(null);
+              // 手动载入的原文件还在 user 手里, 不必另存备份, 只提示结果.
+              const notice = current.current?.notice;
+              if (notice?.dropped) setError(notice.message); else if (notice) setStatus(notice.message);
+            }); }}>确认载入</button>
       </div>
     </section></div>}
   </div>;
