@@ -1,0 +1,84 @@
+name: pages
+
+# 触发方式:
+#   - push 到 main: 构建纯 WASM 的 Web 调试台, 部署到 GitHub Pages
+#   - 手动触发: 对当前 ref 重新构建并部署
+# 站点只有一份, 部署会整体覆盖, 所以只认 main, 其它分支的 push 不动线上页面.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# 部署 Pages 需要这两个权限: pages 写站点, id-token 让 runner 取到 OIDC 凭据.
+# 其余权限保持只读, 这个 workflow 不改仓库内容.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 站点只有一份, 新的部署取代排队中的旧部署; 正在进行的部署不打断, 免得页面停在半截.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  # 只构建纯静态的 Web/WASM: 页面默认就在浏览器 Worker 里跑引擎, 不需要 HTTP 服务,
+  # 所以这里不打包 CLI, Python wheel 与原生二进制.
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: engine/web
+
+      # wasm-bindgen 由构建脚本按锁文件版本装进 .tmp/engine-web-tools,
+      # 编译一次要一分多钟, 按锁文件缓存.
+      - uses: actions/cache@v4
+        with:
+          path: .tmp/engine-web-tools
+          key: engine-web-tools-${{ runner.os }}-${{ hashFiles('engine/web/Cargo.lock') }}
+
+      # 这一步同时做完了贴图同步, WASM 编译, 绑定生成, 前端构建与 WASM 运行 smoke.
+      # 版本不注入参数, 取 <上游版本>+<短哈希>, 页面页脚因此能对上提交.
+      - name: 构建静态 Web/WASM
+        shell: bash
+        run: uv run --no-project python scripts/engine_web.py build
+
+      - name: 检查站点入口
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in index.html wasm/engine_lab.js wasm/engine_lab_bg.wasm game/sprites.json; do
+            test -f "engine/web/client/dist/$f" || { echo "::error::缺少 $f"; exit 1; }
+          done
+          du -sh engine/web/client/dist
+
+      - uses: actions/configure-pages@v6
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: engine/web/client/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

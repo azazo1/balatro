@@ -69,6 +69,8 @@ HTTP 服务重启后可从自动存档重建. 新局和载入会替换当前会�
 
 综合发行包只有一个平台归档, 包含 `bin/`, `python/`, `web/` 与内部 SHA256 manifest.
 启动其中的 HTTP 服务即可自动找到静态产物. 纯 WASM 部署只需托管 `web/`.
+仓库的调试台由 `.github/workflows/pages.yml` 在 main 更新时发布到
+<https://azazo1.github.io/balatro/>, 该站点只含 WASM 模式.
 必须通过 HTTP/HTTPS 打开, 不支持 `file://`. WASM 在 Worker 内运行, 不把大块计算放在 UI 线程.
 
 HTTP 服务只绑定 127.0.0.1, 检查 Host 与 Origin, 不启用宽松 CORS, 不暴露本机文件路径接口.
