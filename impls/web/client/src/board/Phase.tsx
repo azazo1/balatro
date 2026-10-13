@@ -2,6 +2,7 @@ import type { Blind, Item, View } from '../lib/types';
 import { lookup, spriteCss } from '../assets/sprites';
 import { number, parseReport } from '../lib/game';
 import { Card } from './Card';
+import { TagSlot } from './Tooltip';
 import { BlindChip, blindColour } from './Hud';
 import { ScorePreview } from '../preview/ScorePreview';
 import type { Scoring } from '../preview/usePreview';
@@ -28,8 +29,7 @@ function BlindCard({ blind, view, locked, act }: { blind: Blind; view: View; loc
       {blind.effect && blind.kind === 'Boss' && <p className="blind-effect">{blind.effect}</p>}
     </div>
     {blind.tag && <div className="blind-skip">
-      <div className="tag-slot"><div className="tag-icon" style={spriteCss(lookup(blind.tag.key)) ?? {}} role="img" aria-label={blind.tag.name} tabIndex={0} />
-        <div className="tooltip tooltip-top" role="tooltip"><div className="tooltip-title">{blind.tag.name}</div><div className="tooltip-body"><p>{blind.tag.effect}</p></div></div></div>
+      <TagSlot tag={blind.tag} placement="top" />
       <button className="btn red small" disabled={!selectable || locked} onClick={() => act('skip')}>跳过盲注</button>
     </div>}
     {canReroll && <button className="btn red small" disabled={locked} onClick={() => act('reroll_boss')}>重掷 Boss</button>}

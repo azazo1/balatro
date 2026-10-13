@@ -210,6 +210,9 @@ export function App() {
             <button className="btn blue big" disabled={busy || !info} onClick={() => setNewGame(true)}>开始</button>
             <button className="btn orange big" disabled={busy} onClick={() => fileInput.current?.click()}>载入</button>
             <button className="btn grey big" disabled={busy} onClick={() => void backupAutosave()}>备份存档</button>
+            {/* 开始页也要能切后端: HTTP 连不上时 (例如静态 Pages) 只能从这里切回 WASM. */}
+            <button className="btn grey big" disabled={busy} onClick={() => void switchMode(mode === 'wasm' ? 'http' : 'wasm')}
+              title="切换计算后端">{mode === 'wasm' ? '后端: WASM' : '后端: HTTP'}</button>
           </div>
           <p className="dim">{status}</p>
         </div>}

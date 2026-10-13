@@ -44,7 +44,7 @@ h1, h2, h3, p, pre { margin: 0; }
 
 /* 顶层布局: 舞台 + 调试侧栏 + 状态条, 页面本身不滚动. */
 .app {
-  height: 100vh; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) 24px;
+  height: 100vh; height: 100dvh; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) 24px;
   background: radial-gradient(ellipse at 50% 42%, #3d6e62 0%, #27463f 50%, #142322 100%);
 }
 .app.with-sidebar { grid-template-columns: minmax(0, 1fr) var(--sidebar-w, 380px); }
@@ -54,7 +54,7 @@ h1, h2, h3, p, pre { margin: 0; }
 .app:has(.sidebar-resizer.dragging) { cursor: col-resize; user-select: none; }
 .stage-wrap { position: relative; min-width: 0; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
 .stage {
-  --u: 30px; --sw: 40; position: relative; width: calc(var(--u) * var(--sw)); height: calc(var(--u) * 22.5); font-size: calc(var(--u) * .56);
+  --u: 30px; --sw: 40; --sh: 22.5; position: relative; width: calc(var(--u) * var(--sw)); height: calc(var(--u) * var(--sh)); font-size: calc(var(--u) * .56);
   display: grid; grid-template-columns: calc(var(--u) * 9.4) minmax(0, 1fr); gap: calc(var(--u) * .3); padding: calc(var(--u) * .3);
 }
 .status-bar {
@@ -162,13 +162,19 @@ h1, h2, h3, p, pre { margin: 0; }
 .tooltip-top { bottom: calc(100% + .3em); transform: translateX(-50%); }
 .tooltip-bottom { top: calc(100% + .3em); transform: translateX(-50%); }
 .tooltip-right { left: calc(100% + .3em); bottom: 0; }
-/* 桌面端 hover 显示, 触摸设备上不会一直显示 (hover 在触摸后会消失) */
-.card-slot:hover > .tooltip, .card-slot:focus-within > .tooltip, .tag-slot:hover > .tooltip, .tag-slot:focus-within > .tooltip { visibility: visible; opacity: 1; }
-.card-slot.active > .tooltip { visibility: hidden; }
-/* 触摸设备优化: 使用 @media (hover: none) 检测触摸设备, 点击卡牌不显示 tooltip 避免遮挡 */
-@media (hover: none) {
-  .card-slot:hover > .tooltip, .tag-slot:hover > .tooltip { visibility: hidden; opacity: 0; }
+/* 鼠标: 悬停或键盘聚焦显示. 触控: 点按后的残留 :hover/:focus 不算, 只在按住 (.peek) 时显示. */
+@media (hover: hover) {
+  .card-slot:hover > .tooltip, .card-slot:focus-within > .tooltip, .tag-slot:hover > .tooltip, .tag-slot:focus-within > .tooltip { visibility: visible; opacity: 1; }
+  .card-slot.active > .tooltip { visibility: hidden; }
 }
+.card-slot.peek > .tooltip, .tag-slot.peek > .tooltip { visibility: visible; opacity: 1; }
+/* 按住时也不让 iOS 弹出放大镜与链接预览. */
+.card-slot, .tag-slot { -webkit-touch-callout: none; }
+/* 可拖动的牌: 交给指针事件处理, 不让浏览器把手指移动当作页面滚动. */
+.card-slot.movable { touch-action: none; }
+.card-slot.moving { z-index: 80; transition: none; }
+.card-slot.moving .card { transform: scale(1.06) rotate(-3deg); filter: drop-shadow(0 calc(var(--w) * .1) .2em rgba(0, 0, 0, .45)); }
+.card-slot.moving > .tooltip { visibility: hidden; }
 .tooltip-title { text-align: center; font-size: 1.2em; color: var(--l-black); padding: .1em .3em .2em; }
 .tooltip-body { background: #f2f4f4; border-radius: .4em; padding: .3em .5em; line-height: 1.3; }
 .tooltip-body p + p { margin-top: .25em; }
@@ -356,57 +362,37 @@ details .report { margin-top: 6px; }
 /* 手机横屏适配: 隐藏状态栏快捷键提示, 调整布局 */
 @media (max-width: 1100px) { .status-bar .keys { display: none; } }
 
-/* 手机竖屏适配: 堆叠布局, 调试栏移到下方或隐藏 */
-@media (max-width: 768px) and (orientation: portrait) {
-  .app.with-sidebar { 
-    grid-template-columns: minmax(0, 1fr); 
-    grid-template-rows: minmax(0, 1fr) auto 24px; 
-  }
-  .debug-panel { 
-    grid-row: 2; 
-    grid-column: 1; 
-    max-height: 30vh; 
-    border-left: none; 
-    border-top: 3px solid #142021; 
-  }
-  .sidebar-resizer { display: none; }
-  .stage { 
-    --u: clamp(20px, 4vw, 30px);
-    font-size: calc(var(--u) * .56);
-  }
-  .status-bar { font-size: 11px; padding: 0 6px; gap: 6px; }
-}
+/* 竖屏舞台 (useStageScale 按可用区域 高/宽 切换 .portrait): HUD 压成顶部横条, 棋盘在下. */
+.stage.portrait { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+.stage.portrait .hud { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: calc(var(--u) * .15); }
+.stage.portrait .hud-blind { grid-column: 1; grid-row: 1 / span 2; }
+.stage.portrait .hud-score { grid-column: 2; grid-row: 1; }
+.stage.portrait .hud-hand { grid-column: 2; grid-row: 2; }
+.stage.portrait .hud-grid { grid-column: 1 / -1; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.stage.portrait .hud-stat:has(.wide) { grid-column: auto; }
+.stage.portrait .hud-actions { grid-column: 1 / -1; margin-top: 0; }
+.stage.portrait .menu-buttons { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.stage.portrait .board-top { grid-template-columns: minmax(0, 1fr) calc(var(--u) * 5); }
+.stage.portrait .board-bottom { grid-template-columns: calc(var(--u) * 1.2) minmax(0, 1fr) calc(var(--u) * 2.4); }
+.stage.portrait .welcome-buttons { flex-wrap: wrap; justify-content: center; }
+.stage.portrait .logo { width: calc(var(--u) * 18); }
 
-/* 手机横屏适配: 优化舞台缩放 */
-@media (max-width: 926px) and (orientation: landscape) {
-  .stage { 
-    --u: clamp(18px, 3.5vh, 28px);
-    font-size: calc(var(--u) * .56);
-  }
-  .app.with-sidebar { 
-    grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr); 
-  }
-  .debug-panel { font-size: 14px; }
+/* 竖屏且开着调试栏: 调试栏改到舞台下方, 不再挤占宽度. */
+@media (orientation: portrait) and (max-width: 900px) {
+  .app.with-sidebar { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 35%) 24px; }
+  .app.with-sidebar .debug-panel { grid-row: 2; grid-column: 1; border-left: none; border-top: 3px solid #142021; }
+  .sidebar-resizer { display: none; }
+}
+/* 矮屏横屏手机: 调试栏收窄, 状态条字号减小. */
+@media (orientation: landscape) and (max-height: 500px) {
+  .app.with-sidebar { grid-template-columns: minmax(0, 1fr) min(var(--sidebar-w, 380px), 40vw); }
+  .sidebar-resizer { display: none; }
   .status-bar { font-size: 11px; }
 }
 
-/* 小屏幕通用优化 */
-@media (max-width: 640px) {
-  .welcome-sub { font-size: 1em; }
-  .welcome-buttons { flex-wrap: wrap; gap: calc(var(--u) * .25); }
-  .modal { --u: 28px; }
-  .menu-buttons { grid-template-columns: repeat(2, 1fr); }
-  .menu-buttons .btn:last-child { grid-column: 1 / -1; }
-}
-
-/* 触摸设备优化: 增大按钮点击区域 */
+/* 触控: 没有悬停, 不保留悬停抬起效果, 避免点按后牌一直翘着. */
 @media (hover: none) {
-  .btn { min-height: 44px; min-width: 44px; padding: .5em 1em; }
-  .btn.small { min-height: 36px; padding: .4em .7em; }
-  .card { touch-action: manipulation; }
-  /* 触摸设备上卡牌悬停效果改为点击后的视觉反馈 */
   .card-slot:hover .card:not(:disabled) { transform: none; }
-  .card-slot.selected .card { transform: translateY(calc(var(--w) * -.06)) rotate(-1deg); }
 }
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }

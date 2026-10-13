@@ -1,8 +1,10 @@
-import type { CSSProperties, DragEvent, MouseEvent, ReactNode, TouchEvent } from 'react';
+import type { CSSProperties, ReactNode, SyntheticEvent } from 'react';
+import { useCardDrag, type DragInfo } from './useCardDrag';
 import type { Item } from '../lib/types';
 import { lookup, soulOf, spriteCss } from '../assets/sprites';
 import { number } from '../lib/game';
 import { Tooltip } from './Tooltip';
+import { usePeek } from './usePeek';
 
 export type CardSize = 'xs' | 'sm' | 'md' | 'lg';
 
@@ -31,7 +33,18 @@ export function CardFace({ item, back }: { item: Item; back: string }) {
   </div>;
 }
 
-export interface DragInfo { area: string; index: number; onMove: (from: number, to: number) => void; enabled: boolean }
+export type { DragInfo };
+
+type Handlers = Record<string, ((e: never) => void) | undefined>;
+/** 合并两组事件处理器, 同名事件依次调用. 拖动与按住说明都听指针事件. */
+function merge(a: Handlers, b: Handlers): Handlers {
+  const out: Handlers = { ...a };
+  for (const [name, fn] of Object.entries(b)) {
+    const first = out[name];
+    out[name] = first && fn ? (e: never) => { first(e); if (!(e as SyntheticEvent).isPropagationStopped()) fn(e); } : fn ?? first;
+  }
+  return out;
+}
 
 export function Card({ item, back, size = 'md', selected = false, active = false, disabled = false, price, onClick, tip = 'top', drag, children, overlay, mark = '' }: {
   item: Item; back: string; size?: CardSize; selected?: boolean; active?: boolean; disabled?: boolean; price?: number;
@@ -42,32 +55,16 @@ export function Card({ item, back, size = 'md', selected = false, active = false
   mark?: string;
 }) {
   const label = item.hidden ? '背面朝上的牌' : `${item.name}${item.modifiers ?? ''}`;
-  const dragProps = drag?.enabled ? {
-    draggable: true,
-    onDragStart: (e: DragEvent) => { e.dataTransfer.setData('text/x-balatro', `${drag.area}:${drag.index}`); e.dataTransfer.effectAllowed = 'move'; },
-    onDragOver: (e: DragEvent) => { if (e.dataTransfer.types.includes('text/x-balatro')) e.preventDefault(); },
-    onDrop: (e: DragEvent) => {
-      const [area, from] = e.dataTransfer.getData('text/x-balatro').split(':');
-      if (area === drag.area) { e.preventDefault(); drag.onMove(Number(from), drag.index); }
-    },
-  } : {};
-  
-  // 触摸事件处理: 防止长按触发上下文菜单和文本选择
-  const touchProps = {
-    onTouchStart: (e: TouchEvent) => {
-      // 防止触摸事件冒泡导致意外行为
-      e.stopPropagation();
-    },
-    onContextMenu: (e: MouseEvent) => {
-      // 防止长按触发上下文菜单
-      e.preventDefault();
-    },
-  };
-  
-  return <div className={`card-slot size-${size} ${selected ? 'selected' : ''} ${active ? 'active' : ''} ${mark}`} {...dragProps}>
+  // 拖动排序 (鼠标与触控通用) + 触控按住显示说明框; 鼠标的说明框仍走 CSS 悬停.
+  const dragging = useCardDrag(drag);
+  const { peek, handlers } = usePeek();
+  const moving = dragging.offset != null;
+  const style = moving ? { translate: `${dragging.offset!.x}px ${dragging.offset!.y}px` } : undefined;
+  return <div className={`card-slot size-${size} ${selected ? 'selected' : ''} ${active ? 'active' : ''} ${peek && !moving ? 'peek' : ''} ${moving ? 'moving' : ''} ${drag?.enabled ? 'movable' : ''} ${mark}`}
+    style={style} {...dragging.attrs} {...merge(dragging.handlers as Handlers, handlers as Handlers)}>
     {price != null && <div className="price-tag">${number(price)}</div>}
     {overlay}
-    <button className="card" disabled={disabled} onClick={onClick} aria-pressed={selected || active} aria-label={label} {...touchProps}>
+    <button className="card" disabled={disabled} onClick={onClick} aria-pressed={selected || active} aria-label={label}>
       <CardFace item={item} back={back} />
     </button>
     {tip !== 'none' && !item.hidden && <Tooltip item={item} placement={tip} />}

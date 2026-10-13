@@ -1,4 +1,15 @@
 import type { Item } from '../lib/types';
+import { lookup, spriteCss } from '../assets/sprites';
+import { usePeek } from './usePeek';
+
+/** 标签图标 + 说明框. 鼠标悬停显示, 触控按住显示. */
+export function TagSlot({ tag, placement }: { tag: Item; placement: 'top' | 'right' }) {
+  const { peek, handlers } = usePeek();
+  return <div className={`tag-slot ${peek ? 'peek' : ''}`} {...handlers}>
+    <div className="tag-icon" style={spriteCss(lookup(tag.key)) ?? {}} role="img" aria-label={tag.name} tabIndex={0} />
+    <div className={`tooltip tooltip-${placement}`} role="tooltip"><div className="tooltip-title">{tag.name}</div><div className="tooltip-body"><p>{tag.effect}</p></div></div>
+  </div>;
+}
 
 /** 类别徽章名与颜色, 对照 globals.lua 的 G.C.SECONDARY_SET / RARITY. */
 const badges: Record<string, [string, string]> = {

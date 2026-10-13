@@ -3,6 +3,7 @@ import type { Action, Item, View } from '../lib/types';
 import { canSelect, moveAction, number, type Area } from '../lib/game';
 import { lookup, spriteCss } from '../assets/sprites';
 import { Card } from './Card';
+import { TagSlot } from './Tooltip';
 import { Phase } from './Phase';
 import { FloatBadge } from '../preview/ScorePreview';
 import { focusOf, type Scoring } from '../preview/usePreview';
@@ -59,10 +60,7 @@ export function Board({ view, busy, selected, toggle, act, scoring }: {
     </div>
     <div className="board-middle"><Phase view={view} busy={busy} locked={locked} selected={selected} act={action} scoring={scoring} /></div>
     <div className="board-bottom">
-      <div className="tags-column">{o.tags.map((t, i) => <div key={`tag-${i}`} className="tag-slot">
-        <div className="tag-icon" style={spriteCss(lookup(t.key)) ?? {}} role="img" aria-label={t.name} tabIndex={0} />
-        <div className="tooltip tooltip-right" role="tooltip"><div className="tooltip-title">{t.name}</div><div className="tooltip-body"><p>{t.effect}</p></div></div>
-      </div>)}</div>
+      <div className="tags-column">{o.tags.map((t, i) => <TagSlot key={`tag-${i}`} tag={t} placement="right" />)}</div>
       <div className="hand-area">
         <Zone className="hand" count={o.hand.length} capacity={s.hand_size}>
           {o.hand.map((card, index) => <Card key={`hand-${index}-${card.token ?? card.name}`} item={card} back={back} size="lg"
