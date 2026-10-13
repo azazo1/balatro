@@ -55,7 +55,8 @@ class ArchiveTest(unittest.TestCase):
                 self.assertEqual(first.read_bytes(), second.read_bytes())
 
     def test_missing_components_and_corrupt_wasm_are_refused_even_with_consistent_manifest(self):
-        components = ["bin/replay_check", "python", "web/wasm/engine_lab_bg.wasm", "web/assets/index.js"]
+        components = ["bin/" + package.binary_name(package.BINARIES[0], "linux"), "python",
+                      "web/wasm/engine_lab_bg.wasm", "web/assets/index.js"]
         for index, component in enumerate(components):
             with self.subTest(component=component):
                 area = Path(self.tmp.name, str(index))
