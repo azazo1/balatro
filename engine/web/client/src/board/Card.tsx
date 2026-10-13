@@ -1,4 +1,4 @@
-import type { CSSProperties, DragEvent, ReactNode } from 'react';
+import type { CSSProperties, DragEvent, MouseEvent, ReactNode, TouchEvent } from 'react';
 import type { Item } from '../lib/types';
 import { lookup, soulOf, spriteCss } from '../assets/sprites';
 import { number } from '../lib/game';
@@ -51,10 +51,23 @@ export function Card({ item, back, size = 'md', selected = false, active = false
       if (area === drag.area) { e.preventDefault(); drag.onMove(Number(from), drag.index); }
     },
   } : {};
+  
+  // 触摸事件处理: 防止长按触发上下文菜单和文本选择
+  const touchProps = {
+    onTouchStart: (e: TouchEvent) => {
+      // 防止触摸事件冒泡导致意外行为
+      e.stopPropagation();
+    },
+    onContextMenu: (e: MouseEvent) => {
+      // 防止长按触发上下文菜单
+      e.preventDefault();
+    },
+  };
+  
   return <div className={`card-slot size-${size} ${selected ? 'selected' : ''} ${active ? 'active' : ''} ${mark}`} {...dragProps}>
     {price != null && <div className="price-tag">${number(price)}</div>}
     {overlay}
-    <button className="card" disabled={disabled} onClick={onClick} aria-pressed={selected || active} aria-label={label}>
+    <button className="card" disabled={disabled} onClick={onClick} aria-pressed={selected || active} aria-label={label} {...touchProps}>
       <CardFace item={item} back={back} />
     </button>
     {tip !== 'none' && !item.hidden && <Tooltip item={item} placement={tip} />}
