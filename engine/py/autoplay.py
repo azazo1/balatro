@@ -37,8 +37,13 @@ ALL_PLANETS = ("水星", "金星", "地球", "火星", "木星", "土星", "天�
 TRANSFORM_KEYS = (
     "c_sigil", "c_ouija", "c_death", "c_sun", "c_cryptid", "c_aura",
     "c_deja_vu", "c_talisman", "c_devil", "c_world", "c_star", "c_moon",
+    "c_chariot", "c_strength", "c_magician",
 )
 PACK_RE = re.compile(r"^  \[(\d+)\] (.+?)(?: \(|:|$)")
+# 券的取舍来自攻略: 反物质 (小丑位) 与导演剪辑版 (重掷 Boss) 最重要, 其次是库存过剩与油漆刷.
+# 塔罗商人, 星球商人, 魔术打磨那类只改商店出货种类, 攻略明确说不要买.
+GOOD_VOUCHERS = ("反物质", "导演剪辑版", "库存过剩", "油漆刷", "水晶球", "重构", "占卜")
+BAD_VOUCHERS = ("塔罗商人", "星球商人", "魔术打磨", "魔法把戏", "星球牌商人", "塔罗牌商人")
 SHOP_RE = re.compile(r"^  (card|voucher|pack) \[(\d+)\] (.+?) \$([\d.]+)")
 TAG_RE = re.compile(r"跳过奖励: (.+)$")
 # 攻略里靠标签拿负片小丑与双倍标签, 这两类才值得放弃一次商店.
@@ -88,11 +93,23 @@ def load_names():
 # 攻略里的循环件: 出牌次数与复制能力最值钱 (次数就是分数与收入), 其次是倍率源.
 PRIORITY = {
     "j_burglar": 200.0, "j_blueprint": 150.0, "j_brainstorm": 150.0, "j_perkeo": 150.0,
-    "j_midas_mask": 120.0, "j_golden_ticket": 120.0, "j_diet_cola": 100.0,
-    "j_ring_master": 100.0, "j_smeared": 100.0, "j_idol": 90.0, "j_bloodstone": 90.0,
-    "j_photograph": 80.0, "j_mime": 80.0, "j_dusk": 70.0, "j_sock_and_buskin": 70.0,
-    "j_certificate": 60.0, "j_showman": 60.0, "j_golden_joker": 50.0, "j_satellite": 40.0,
+    "j_baron": 130.0, "j_midas_mask": 120.0, "j_golden_ticket": 120.0, "j_mime": 110.0,
+    "j_invisible": 110.0,
+    "j_diet_cola": 100.0, "j_ring_master": 100.0, "j_smeared": 100.0, "j_idol": 90.0,
+    "j_bloodstone": 90.0, "j_photograph": 80.0, "j_dusk": 70.0, "j_sock_and_buskin": 70.0,
+    "j_crafty": 60.0, "j_certificate": 60.0, "j_showman": 60.0, "j_steel_joker": 60.0,
+    "j_dna": 100.0, "j_seance": 90.0,
+    "j_golden_joker": 50.0, "j_satellite": 40.0,
 }
+# 同花流的核心件: 它们互相加成, 一件在手里时另一件更值钱.
+FLUSH_CORES = {"j_smeared", "j_bloodstone", "j_crafty", "j_idol", "j_photograph"}
+
+
+def synergy_bonus(game, key):
+    """协同加成: 路数是"一手同花", 所以同花类的件凑在一起才有威力."""
+    if key in FLUSH_CORES and set(game.jokers()) & FLUSH_CORES:
+        return 20.0
+    return 0.0
 
 
 def joker_value(key):
@@ -167,11 +184,13 @@ def rank_of(token):
 
 
 def target_rank(game, tokens):
-    """牌组同质化的目标点数: 手上出现最多的那个点数 (平手取大的).
+    """牌组同质化的目标点数.
 
-    同花五条 (5 张同点数同花色) 的基础分是 160 筹码 ×16 倍率, 比什么牌型都高, 而且不依赖
-    小丑; 想凑出来就得让牌组往同一张牌上坍缩.
+    手里有男爵就锁定 K: 钢 K 流的分数来自手牌里的钢铁 K (男爵给 K 额外倍率, 哑剧让手牌
+    反复触发), 这时目标点数不该再按"手上最多的那个"来定.
     """
+    if "j_baron" in game.jokers():
+        return "K"
     counts = {}
     for _, token in tokens:
         rank = rank_part(token)
@@ -192,6 +211,12 @@ def keep_indices(game, tokens):
         elif token[0] in suits:
             keep.add(index)
     return keep if keep else set(range(len(tokens)))
+
+
+def hand_size(game):
+    """这一回合的手牌上限 (灵质与占卜会扣掉 1, 用之前得看一眼)."""
+    found = re.search(r"手牌上限 (\d+) 张", game.summary())
+    return int(found.group(1)) if found else 8
 
 
 def consume_step(game):
@@ -227,14 +252,19 @@ def consume_step(game):
             if targets:
                 act(game, "use", consumable=slot, cards=targets)
                 return True
-        if key in ("c_aura", "c_deja_vu", "c_talisman", "c_devil"):
+        if key in ("c_aura", "c_deja_vu", "c_talisman", "c_devil", "c_chariot"):
+            # 强化优先给目标点数的牌 (手里有男爵时那就是 K), 其余按点数从大到小.
             ranked = sorted(
                 (i for i, (_, token) in enumerate(tokens) if token[0] in suits),
-                key=lambda index: -rank_of(tokens[index][1]),
+                key=lambda index: (rank_part(tokens[index][1]) != rank, -rank_of(tokens[index][1])),
             )
             if ranked:
                 act(game, "use", consumable=slot, cards=ranked[:1])
                 return True
+        if key == "c_ectoplasm" and hand_size(game) > 5:
+            # 灵质给一张随机小丑加负片 (负片不占卡位), 代价是手牌上限 -1, 所以留够余量再用.
+            act(game, "use", consumable=slot, cards=[])
+            return True
     return False
 
 
@@ -689,9 +719,16 @@ def buy_something(game, items, money, keep):
     # 再往后就得开始喂改造牌了, 牌组不往同一花色上坍缩, 同花流的天花板很快就到.
     only_jokers = os.environ.get("JOKER_ONLY") == "1" or game.ante() <= 2
     if not only_jokers:
-        for kind, index, name, cost in items:
-            if kind == "voucher" and cost <= money and try_act(game, "buy", voucher=index):
-                return True
+        for want in (True, False):
+            for kind, index, name, cost in items:
+                if kind != "voucher" or cost > money:
+                    continue
+                if any(bad in name for bad in BAD_VOUCHERS):
+                    continue
+                if want != any(good in name for good in GOOD_VOUCHERS):
+                    continue
+                if try_act(game, "buy", voucher=index):
+                    return True
         for kind, index, name, cost in items:
             if kind == "card" and cost <= money - keep and key_of(name) in TRANSFORM_KEYS:
                 if try_act(game, "buy", card=index):
@@ -715,7 +752,7 @@ def buy_something(game, items, money, keep):
         key = key_of(name)
         if CATEGORY.get(key) != "Joker":
             continue
-        value = joker_value(key)
+        value = joker_value(key) + synergy_bonus(game, key)
         if "租赁" in name or "易腐" in name:
             value -= 30.0
         (wanted if key in WANTED else others).append((value, cost, index))
