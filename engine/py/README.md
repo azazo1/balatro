@@ -58,6 +58,18 @@ for cards in candidates:
 | `won()` `over()` | 是否通关 / 是否已经结束 |
 | `Game.full_unlock_uda()` | 内置解锁档的 JSON 原文 |
 
+## 自动对局
+
+`autoplay.py` 是建在这套绑定上的自动玩家: 出牌走"牌型预筛 + 前几名真打"的搜索, 商店决策靠
+克隆分支向前模拟两个商店, 消耗牌负责把牌组往同一花色与同一张牌上推.
+
+```shell
+just engine-py
+CATALOG=docs/game/data/catalog.json python3 engine/py/autoplay.py 8 种子1 种子2 ...
+```
+
+强度用一批种子上的**平均**到达底注衡量, 而不是挑出最好的种子. 开关与开局参数见文件头.
+
 ## 注意
 
 - 这是**绑定**, 不是第二份实现: 规则一律走引擎, 所以引擎改了什么这里就跟着变.
