@@ -20,8 +20,8 @@ mod windows
 # 编译与测试原生库, 用法: just native test / just native build android arm64-v8a
 mod native
 
-# 引擎的对局, 回放, Web, 打包与回归, 用法: just engine play / just engine web
-mod engine
+# impls/ 下引擎, 调试台与绑定的对局, 回放, Web, 打包与回归, 用法: just impls play / just impls web
+mod impls
 
 # 根据当前平台生成发布产物, 等价于对应平台模块的 dist.
 # 需要指定平台时用 just macos dist / just android dist / just windows dist.
