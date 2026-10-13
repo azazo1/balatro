@@ -24,14 +24,11 @@ __pycache__/
 /mods/balatrobot/native/
 
 # engine 与它的 Python 绑定的编译目录
-/engine/target/
-/engine/py/target/
-/engine/web/target/
-/engine/web/client/public/wasm/
-/engine/web/wasm/pkg/
-/engine/web/client/node_modules/
-/engine/web/client/dist/
+target/
+node_modules/
+/impls/web/client/public/wasm/
+/impls/web/wasm/pkg/
 # 由 scripts/engine_web_assets.py 从 game/ 生成的原版贴图与字体
-/engine/web/client/public/game/
+/impls/web/client/public/game/
 
 .DS_Store
