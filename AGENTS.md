@@ -9,17 +9,6 @@
 
 同一份游戏会被重打包多次, 因此两者都要有: 只写上游版本则一个版本只能发布一次.
 
-发布打 tag, 说明写在 `docs/changelog/<版本>.md`, 并用作 annotated tag 的正文:
-
-```shell
-git tag -a "v1.0.1n-0.1.0" --cleanup=verbatim -F "docs/changelog/1.0.1n-0.1.0.md"
-git push origin main
-git push origin "v1.0.1n-0.1.0"
-```
-
-CI 对 tag 做三项检查, 任一不过都不创建 release: tag 格式, 上游版本与 `game/version.jkr`
-一致, tag 正文与说明文件逐字节一致.
-
 日常构建不带版本参数, 自动得到 `<上游版本>+<短哈希>`, 与发布版本区分.
 
 Android 的 `versionCode` 由两段版本折算, 保证单调递增, 否则无法覆盖安装.
@@ -69,7 +58,7 @@ Android 的 `versionCode` 由两段版本折算, 保证单调递增, 否则无�
 
 ## 开发
 
-- agent mod 的纯逻辑改动后运行 `just test-agent`, 原生库 `native/bbnet` 改动后运行 `just native test`.
+- `engine/` 是游戏规则的 rust 重实现.
 - 内置 agent 的设计与进度见 `docs/builtin-agent.md`, 其中 loop 与 bbnet, 录像, 回放, Android 各有分文档
   (`docs/agent-loop.md`, `docs/recording.md`, `docs/replay.md`, `docs/android.md`).
 - 回放有两种入口: 主菜单 选项 -> 回放 (游戏内, 不需要环境变量), 以及 `just macos replay <回放文件>`
