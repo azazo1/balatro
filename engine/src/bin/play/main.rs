@@ -51,6 +51,8 @@ step 的参数:
   --emit 文件                           把这局导出成游戏能回放的文件
 
 牌组可写 RED 或 b_red; 赌注可写 GOLD 或 8.
+
+--version 打印构建版本, 直接 cargo run 的日常构建显示 dev-build.
 ";
 
 fn main() {
@@ -58,6 +60,10 @@ fn main() {
     let (command, rest): (&str, &[String]) = match argv.first().map(String::as_str) {
         None | Some("-h") | Some("--help") | Some("help") => {
             emit!("{HELP}");
+            return;
+        }
+        Some("-V") | Some("--version") => {
+            say!("play {}", balatro_engine::VERSION);
             return;
         }
         Some("lookup") => ("lookup", &argv[1..]),

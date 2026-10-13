@@ -15,6 +15,14 @@
 //! - [`agent`]\: 给 agent 用的一层 —— 局面摘要, 动态值, 提示词 (不参与规则计算).
 //! - 其余模块 (计分引擎, 商店货架, 回合流程) 陆续加入.
 
+/// 发布构建的版本号, 由打包脚本 (`scripts/package_engine.py`) 通过 `PROJECT_BUILD_VERSION` 注入.
+///
+/// 直接 `cargo run` 的日常构建没有这个变量, 显示 `dev-build`, 与发布产物区分开.
+pub const VERSION: &str = match option_env!("PROJECT_BUILD_VERSION") {
+    Some(version) => version,
+    None => "dev-build",
+};
+
 pub mod agent;
 pub mod batch;
 pub mod cards;

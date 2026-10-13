@@ -41,6 +41,21 @@ cargo test --no-fail-fast
 cargo clippy --all-targets
 ```
 
+这两条也就是 CI 在 linux 上跑的检查 (`build.yml` 的 engine job): 基准数据与手册都随仓库走,
+不需要游戏或 LuaJIT, 所以普通的 push 与 PR 都会跑一遍. 带 `--include-ignored` 的那一档
+需要本机 LuaJIT 与 Lovely 补丁树, 仍然只在本机跑 (见下面的 `just engine-audit`).
+
+需要给别的机器一份现成的 `play` / `replay_check` 时:
+
+```shell
+just engine-dist                                  # 当前平台与架构, 归档到 dist/engine/
+python3 scripts/package_engine.py --universal     # macOS 的通用二进制
+```
+
+产物名形如 `balatro-engine-1.0.1o-0.1.1-macos-universal.tar.gz`, 里面是一层同名目录加两个
+二进制. `--version` 报出的版本就是打包时注入的那一个, 直接 `cargo run` 的日常构建显示
+`dev-build`. CI 对三个平台各出一份, 打 tag 发布时随 release 一起发.
+
 跑回放对拍 (引擎照着 `recordings/` 折出来的 fixture 逐步重放, 比每一步的 digest):
 
 ```shell

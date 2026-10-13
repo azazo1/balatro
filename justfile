@@ -145,6 +145,11 @@ engine-replay *args:
         *sys.argv[1:],
     ]).returncode)
 
+# 构建 engine 的两个命令行二进制并归档到 dist/engine/.
+# macOS 上要通用二进制时直接跑 scripts/package_engine.py --universal.
+engine-dist:
+    {{ python }} scripts/package_engine.py
+
 # 运行完整 engine 回归, 已有 Lua 源码裁判, 零警告检查和永久记录基准.
 engine-audit:
     #!{{ python_shebang }}

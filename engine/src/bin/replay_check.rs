@@ -49,6 +49,10 @@ fn main() {
                 println!("replay_check [--strict] <回放.json | fixture.jsonl> ...");
                 return;
             },
+            "-V" | "--version" => {
+                println!("replay_check {}", balatro_engine::VERSION);
+                return;
+            },
             _ => paths.push(argument),
         }
     }

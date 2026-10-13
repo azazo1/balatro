@@ -24,6 +24,8 @@ ANDROID_PACKAGE = "com.azazo1.balatro"
 MACOS_DIST = os.path.join(DIST_DIR, "macos")
 ANDROID_DIST = os.path.join(DIST_DIR, "android")
 WINDOWS_DIST = os.path.join(DIST_DIR, "windows")
+# engine 命令行二进制 (play / replay_check) 的产物目录.
+ENGINE_DIST = os.path.join(DIST_DIR, "engine")
 
 # 打包进带 mod 版本的 mod 默认从这里读取, 目录不入库.
 MODS_DIR = os.path.join(ROOT_DIR, "mods")

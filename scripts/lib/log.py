@@ -52,11 +52,12 @@ def die(message):
     raise SystemExit(1)
 
 
-def run(cmd, check=True, capture=False, quiet=False, cwd=None):
+def run(cmd, check=True, capture=False, quiet=False, cwd=None, env=None):
     """执行外部命令.
 
     capture 为真时返回捕获的输出文本, 否则返回 None. check 为真时非零退出码会抛错.
     quiet 为真时丢弃子进程的输出. cwd 指定工作目录 (有些工具按当前目录找配置文件).
+    env 覆盖子进程的环境变量, 不给时继承当前进程.
     """
     if not quiet:
         info("执行: %s%s" % (" ".join(cmd), (" (在 %s)" % cwd) if cwd else ""))
@@ -67,6 +68,7 @@ def run(cmd, check=True, capture=False, quiet=False, cwd=None):
             stderr=subprocess.STDOUT if (capture or quiet) else None,
             text=True,
             cwd=cwd,
+            env=env,
         )
     except FileNotFoundError:
         if check:
