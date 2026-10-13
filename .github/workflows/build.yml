@@ -193,6 +193,44 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # engine 的 Python 绑定. 它是独立 crate (engine/py), 按 abi3 打包, 一份 wheel 覆盖 3.8 以上,
+  # 所以这里不需要跟 Python 版本排组合.
+  python:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            wheel: linux-x86_64
+          - os: macos-15
+            wheel: macos-arm64
+          - os: windows-2025
+            wheel: windows-x86_64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.version.outputs.source_ref }}
+
+      # 绑定是自己一个 workspace, 缓存与 engine 那份分开.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: engine/py
+
+      - name: 构建 wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          working-directory: engine/py
+          args: --release --out dist
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: balatro-engine-py-${{ needs.version.outputs.build_version }}-${{ matrix.wheel }}
+          path: engine/py/dist/*.whl
+          if-no-files-found: error
+          retention-days: 14
+
   macos:
     needs: version
     # macos-15 是 arm64 的标准 runner; 同规格的 x64 版本写作 macos-15-intel.

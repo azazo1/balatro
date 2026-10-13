@@ -1,0 +1,14 @@
+[build-system]
+requires = ["maturin>=1.5,<2"]
+build-backend = "maturin"
+
+[project]
+name = "balatro-engine"
+description = "balatro-engine 的 Python 绑定: 直接在对局状态上做搜索与批量试验."
+requires-python = ">=3.8"
+license = { text = "MIT" }
+classifiers = ["Programming Language :: Rust", "Programming Language :: Python :: Implementation :: CPython"]
+
+[tool.maturin]
+# 与 Cargo.toml 里的同名 feature 对应, 让链接器不链 Python, 交给解释器提供符号.
+features = ["pyo3/extension-module"]

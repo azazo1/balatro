@@ -198,6 +198,28 @@ just play step --seed ALEEB --deck RED --stake GOLD --uda new --actions .tmp/age
 `docs_search` 对应, 数据源同为 `docs/game/data/catalog.json` 与 `docs/game/` 下的手册 (编译期内嵌,
 所以从任何工作目录调用都对). 手册里带 `[...]` 占位的那类效果不携带实时值, 那种要看"会变的值".
 
+## Python 绑定
+
+`engine/py` 是 engine 的 Python 绑定. 它是个独立 crate (`pyo3` 依赖只加在这里), 所以 engine
+自己"只要 std"这条性质没被破坏.
+
+```shell
+just engine-py                                # 出 wheel, 落在 engine/py/dist/
+cd engine/py && maturin develop --release     # 装进当前环境, 之后直接 import
+```
+
+```python
+import balatro_engine as be
+
+game = be.Game("QFG8ZBBC", "RED", 8)          # 种子 / 牌组 / 赌注
+game.apply('{"method": "select"}')
+branch = game.copy()                          # 克隆一份, 在分支上试打不影响原局
+```
+
+能克隆是关键: "把前几名候选都真打一遍" 从每步几次进程调用 (每次还要重放整段历史) 变成几毫秒
+的内存操作, 于是小范围暴力搜索才划算. 完整说明见 [py/README.md](py/README.md), 可运行的
+搜索示例见 `py/examples/brute_search.py`.
+
 ## 结构与覆盖
 
 ```

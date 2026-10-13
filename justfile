@@ -150,6 +150,11 @@ engine-replay *args:
 engine-dist:
     {{ python }} scripts/package_engine.py
 
+# 构建 engine 的 Python 绑定 (engine/py), wheel 落在 engine/py/dist/.
+# 要在当前环境里直接 import 时改用 `maturin develop --release`.
+engine-py:
+    maturin build --release --manifest-path engine/py/Cargo.toml --out engine/py/dist
+
 # 运行完整 engine 回归, 已有 Lua 源码裁判, 零警告检查和永久记录基准.
 engine-audit:
     #!{{ python_shebang }}

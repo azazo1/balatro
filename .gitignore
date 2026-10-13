@@ -23,4 +23,8 @@ __pycache__/
 /native/bbnet/target/
 /mods/balatrobot/native/
 
+# engine 与它的 Python 绑定的编译目录
+/engine/target/
+/engine/py/target/
+
 .DS_Store
