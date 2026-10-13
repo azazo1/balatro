@@ -112,6 +112,17 @@ pub fn phase_zh(phase: Phase) -> &'static str {
     }
 }
 
+/// 一张牌的中文名: 扑克牌报花色点数, 其余查手册, 都查不到时退回内部键名.
+///
+/// 与 `name_and_effect` 分开是因为用处不同: 历史行与动作回执只要名字 (报效果会撑爆一行),
+/// 而摘要里的牌要带效果文本.
+pub fn card_zh(key: &str) -> String {
+    if let Some(card) = CardInstance::from_key(key) {
+        return playing_card(&card);
+    }
+    knowledge::describe(key).map_or_else(|| key.to_owned(), |(name, _)| name.to_owned())
+}
+
 /// 一张牌的中文名与效果. 手册里查不到时退回内部键名 —— 至少不假装知道.
 fn name_and_effect(key: &str) -> (String, String) {
     match knowledge::describe(key) {

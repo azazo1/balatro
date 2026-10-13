@@ -9,9 +9,18 @@
 //! 2. 参数键必须两边一致 (`pack` 用单数 `card`, 而 `play` 用复数 `cards`), 同一条记录在两边
 //!    解释成不同的意思就是灾难. 集中一处才不会分叉.
 
+use crate::agent::summary::{card_zh, playing_card};
 use crate::data::json::Json;
 use crate::run::{ActionError, Phase, RunState};
 use crate::scoring::EvalEnv;
+
+/// 卖牌 / 用牌这类行的主语: 拿得到那件东西时报它的中文名, 拿不到时退回区域名.
+///
+/// 拿不到只可能是下标越界, 而那种情况动作本身就会失败, 这行文案用不上 —— 所以不必报错,
+/// 只要别在这里再抛一次异常把真正的错误盖掉.
+fn subject(region: &str, key: Option<&str>) -> String {
+    key.map_or_else(|| region.to_owned(), card_zh)
+}
 
 pub fn numbers_of(value: Option<&Json>) -> Vec<usize> {
     match value {
@@ -47,11 +56,18 @@ pub fn apply(step: &Json, run: &mut RunState, env: &EvalEnv) -> Result<String, A
             Ok("开局".to_owned())
         }
         "select" => run.select_blind().map(|()| "选了这个盲注".to_owned()),
-        "skip" => run.skip_blind().map(|tag| format!("跳过盲注, 拿到标签 {tag}")),
+        "skip" => run.skip_blind().map(|tag| format!("跳过盲注, 拿到标签 {}", card_zh(&tag))),
         "reroll_boss" => run.reroll_boss().map(|cost| format!("重掷 Boss, 花了 {cost}")),
-        "discard" => run
-            .discard(&cards)
-            .map(|()| format!("弃掉 {cards:?}")),
+        "discard" => {
+            // 报牌名而不是下标: 历史列表里 `弃掉 [0, 3]` 看不出弃掉的是哪几张.
+            let dropped: Vec<String> = cards
+                .iter()
+                .filter_map(|&index| run.hand.get(index))
+                .map(playing_card)
+                .collect();
+            run.discard(&cards)
+                .map(|()| format!("弃掉 {}", dropped.join(", ")))
+        }
         "play" => {
             let visibility = crate::agent::observation::ScoreVisibility::capture(run);
             // 打出去的牌要在 `play` 之前取下来: 打完它们就离开手牌了, 而明细里要把每一张
@@ -140,23 +156,39 @@ pub fn apply(step: &Json, run: &mut RunState, env: &EvalEnv) -> Result<String, A
             } else {
                 run.buy(&picked)
             };
-            outcome.map(|cost| format!("买下 {} (花了 {cost})", picked.key))
+            // 报中文名而不是内部键名 (`j_odd_todd`): 这一行会进 Web 调试台的历史列表.
+            outcome.map(|cost| format!("买下 {} (花了 {cost})", card_zh(&picked.key)))
         }
         "sell" => {
             if let Some(slot) = amount(params, "joker") {
-                run.sell_joker(slot as usize)
-                    .map(|gain| format!("卖掉小丑, 回收 {gain}"))
+                let slot = slot as usize;
+                let what = subject("小丑", run.jokers.get(slot).map(|joker| joker.key.as_str()));
+                run.sell_joker(slot)
+                    .map(|gain| format!("卖掉 {what}, 回收 {gain}"))
             } else {
                 let slot = amount(params, "consumable").unwrap_or(0.0) as usize;
+                let what = subject("消耗牌", run.consumables.get(slot).map(|card| card.key.as_str()));
                 run.sell_consumable(slot)
-                    .map(|gain| format!("卖掉消耗牌, 回收 {gain}"))
+                    .map(|gain| format!("卖掉 {what}, 回收 {gain}"))
             }
         }
         "use" => {
             let slot = amount(params, "consumable").unwrap_or(0.0) as usize;
             let targets = numbers_of(params.and_then(|p| p.get("cards")));
+            let what = subject("消耗牌", run.consumables.get(slot).map(|card| card.key.as_str()));
+            // 目标也报牌名: 塔罗改的是哪几张手牌, 光看下标看不出来.
+            let picked: Vec<String> = targets
+                .iter()
+                .filter_map(|&index| run.hand.get(index))
+                .map(playing_card)
+                .collect();
+            let tail = if picked.is_empty() {
+                String::new()
+            } else {
+                format!(", 目标 {}", picked.join(", "))
+            };
             run.use_consumable(slot, &targets)
-                .map(|()| format!("用掉第 {slot} 张消耗牌 (目标 {targets:?})"))
+                .map(|()| format!("用掉 {what}{tail}"))
         }
         "pack" => {
             if params.and_then(|p| p.get("skip")).and_then(Json::as_bool) == Some(true) {
@@ -167,7 +199,7 @@ pub fn apply(step: &Json, run: &mut RunState, env: &EvalEnv) -> Result<String, A
             // `bbcore` 的 `pack` 端点是"取出来并**立即使用**", 所以这里走同一条:
             // 塔罗改的是手牌, 而关包会把整手牌收回牌堆, 所以顺序反了那两张就改不到.
             run.take_and_use_from_pack(slot, &targets)
-                .map(|key| format!("从包里取走并使用 {key}"))
+                .map(|key| format!("从包里取走并使用 {}", card_zh(&key)))
         }
         _ => Err(ActionError::NotImplemented("这个动作")),
     }
