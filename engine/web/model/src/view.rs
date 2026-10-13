@@ -1,5 +1,5 @@
 //! 只读观察 DTO, 常规模式在模型层裁剪隐藏身份.
-use engine::{agent::{summary,observation,dynamics}, cards::CardInstance, data::knowledge, opening, run::{BlindKind,Phase,RunState,make_blind}, scoring::PokerHand};
+use engine::{agent::{summary,observation,dynamics}, cards::{CardInstance,Edition,Enhancement,Seal}, data::knowledge, opening, run::{BlindKind,Phase,RunState,make_blind}, scoring::PokerHand};
 use serde_json::{Value,json};
 use crate::{debug,session::{Event,Session,MAX_NODES}};
 
@@ -17,13 +17,31 @@ fn item(key: &str) -> Value {
         "effect":effect,"category":engine::data::catalog::Catalog::get().record(key).map(|p|p.category.as_str())})
 }
 
+/// 页面叠贴图用的结构化修饰, 与 `modifiers` 文本同源. 暗牌不调用它.
+struct Traits { enhancement: Option<Enhancement>, edition: Option<Edition>, seal: Option<Seal>, eternal: bool, perishable: bool, rental: bool, debuffed: bool }
+
+impl Traits {
+    fn apply(self, value: &mut Value) {
+        let edition = self.edition.map(|e| match e { Edition::Foil=>"foil",Edition::Holo=>"holo",Edition::Polychrome=>"polychrome",Edition::Negative=>"negative" });
+        let stickers: Vec<&str> = [(self.eternal,"eternal"),(self.perishable,"perishable"),(self.rental,"rental")]
+            .into_iter().filter(|(on,_)|*on).map(|(_,k)|k).collect();
+        value["enhancement"] = json!(self.enhancement.map(|e|format!("m_{}",e.key())));
+        value["edition"] = json!(edition);
+        value["seal"] = json!(self.seal.map(Seal::key));
+        value["stickers"] = json!(stickers);
+        value["debuffed"] = json!(self.debuffed);
+    }
+}
+
 fn playing(card: &CardInstance, index: usize, reveal: bool) -> Value {
     if card.face_down && !reveal { return json!({"index":index,"name":"背面朝上","hidden":true,"effect":""}); }
-    json!({"index":index,"name":summary::playing_card(card),"token":card.token(),
-        "hidden":false,"face_down":card.face_down,
+    let mut value = json!({"index":index,"name":summary::playing_card(card),"token":card.token(),
+        "key":card.card.key(),"hidden":false,"face_down":card.face_down,
         "suit":format!("{:?}",card.card.suit),"rank":format!("{:?}",card.card.rank),
         "effect":format!("计分筹码 {}",summary::number(card.to_hand_card().chip_bonus())),
-        "modifiers":summary::card_modifiers(card.enhancement,card.edition,card.seal,false,0,false,card.debuffed)})
+        "modifiers":summary::card_modifiers(card.enhancement,card.edition,card.seal,false,0,false,card.debuffed)});
+    Traits { enhancement:card.enhancement,edition:card.edition,seal:card.seal,eternal:false,perishable:false,rental:false,debuffed:card.debuffed }.apply(&mut value);
+    value
 }
 
 fn shop_cards(cards: &[engine::run::ShopCard]) -> Vec<Value> {
@@ -33,6 +51,7 @@ fn shop_cards(cards: &[engine::run::ShopCard]) -> Vec<Value> {
         value["cost"] = json!(card.cost);
         value["modifiers"] = json!(summary::card_modifiers(card.enhancement,card.edition,None,card.eternal,if card.perishable {5} else {0},card.rental,false));
         value["current"] = json!(card.todo.map(summary::hand_zh));
+        Traits { enhancement:card.enhancement,edition:card.edition,seal:None,eternal:card.eternal,perishable:card.perishable,rental:card.rental,debuffed:false }.apply(&mut value);
         value
     }).collect()
 }
@@ -57,12 +76,14 @@ pub fn render(session: &Session) -> Value {
         value["eternal"] = json!(card.eternal);
         value["current"] = json!(summary::joker_current(card));
         value["modifiers"] = json!(summary::card_modifiers(None,card.edition,None,card.eternal,card.perish_tally,card.rental,card.debuffed));
+        Traits { enhancement:None,edition:card.edition,seal:None,eternal:card.eternal,perishable:card.perishable,rental:card.rental,debuffed:card.debuffed }.apply(&mut value);
         value
     }).collect();
     let consumables: Vec<Value> = run.consumables.iter().enumerate().map(|(index,card)| {
         let mut value = item(&card.key);
         value["index"] = json!(index);
         value["modifiers"] = json!(summary::card_modifiers(None,card.edition,None,false,0,false,false));
+        Traits { enhancement:None,edition:card.edition,seal:None,eternal:false,perishable:false,rental:false,debuffed:false }.apply(&mut value);
         value
     }).collect();
     let blinds: Vec<Value> = [BlindKind::Small,BlindKind::Big,BlindKind::Boss].into_iter().enumerate().filter_map(|(i,kind)| {
@@ -90,6 +111,7 @@ pub fn render(session: &Session) -> Value {
                 value["index"] = json!(index);
                 value["modifiers"] = json!(summary::card_modifiers(card.enhancement,card.edition,card.seal,card.eternal,if card.perishable {5} else {0},card.rental,false));
                 value["current"] = json!(card.todo.map(summary::hand_zh));
+                Traits { enhancement:card.enhancement,edition:card.edition,seal:card.seal,eternal:card.eternal,perishable:card.perishable,rental:card.rental,debuffed:false }.apply(&mut value);
                 value
             }).collect::<Vec<_>>()})
     });
@@ -117,7 +139,7 @@ pub fn render(session: &Session) -> Value {
     let vouchers: Vec<_> = voucher_keys.into_iter().map(|k| item(k)).collect();
     json!({"version":engine::VERSION,"opening":session.opening,"revision":session.revision,"current":session.current,
         "debug":session.debug,"edited":node.edited,"max_nodes":MAX_NODES,"history":history,
-        "observation":{"phase":format!("{:?}",run.phase),"phase_name":summary::phase_zh(run.phase),"won":run.won,"win_overlay":run.win_overlay,
+        "observation":{"deck_back":session.opening.deck,"phase":format!("{:?}",run.phase),"phase_name":summary::phase_zh(run.phase),"won":run.won,"win_overlay":run.win_overlay,
             "stats":current_stats,"hand":hand,"jokers":jokers,"consumables":consumables,"blinds":blinds,
             "shop":shop,"pack":pack,"levels":levels,"note":node.note,"last_hand":node.report,
             "dynamics":dynamics::render(run),"summary":summary::render(run,&summary::Extras {last_hand:node.report.as_deref(),note:None}),
@@ -144,6 +166,7 @@ mod tests {
         assert_eq!(card["hidden"],true);
         assert!(card.get("token").is_none());
         assert!(card.get("suit").is_none());
+        for field in ["key","enhancement","edition","seal","stickers"] { assert!(card.get(field).is_none(),"暗牌泄露 {field}"); }
         assert!(normal["observation"]["debug"].is_null());
         s.set_debug(0,true).unwrap();
         let revealed = render(&s);

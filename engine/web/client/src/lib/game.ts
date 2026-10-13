@@ -18,12 +18,26 @@ export function toggleSelection(selected: number[], index: number): number[] {
 export function selectionAction(method: 'play' | 'discard', selected: number[]): Action {
   return { method, params: { cards: [...selected] } };
 }
-export function reorderAction(area: 'hand' | 'jokers' | 'consumables', length: number, index: number, direction: -1 | 1): Action | null {
-  const other = index + direction;
-  if (other < 0 || other >= length) return null;
+export type Area = 'hand' | 'jokers' | 'consumables';
+/** 把第 from 张移到第 to 位, 生成完整置换: `order[k]` 是新位置 k 来自原来的第几张 (见 flow.rs rearrange_hand). */
+export function moveAction(area: Area, length: number, from: number, to: number): Action | null {
+  if (from === to || from < 0 || to < 0 || from >= length || to >= length) return null;
   const order = Array.from({ length }, (_, i) => i);
-  [order[index], order[other]] = [order[other], order[index]];
+  order.splice(to, 0, ...order.splice(from, 1));
   return { method: 'rearrange', params: { [area]: order } };
+}
+/** 计分报告首行 `牌型 [LvN] = 总分` 与 `基础 AxB` 行, 供 HUD 显示. */
+export interface HandSummary { hand: string; level: number; total: string; chips: string; mult: string }
+export function parseReport(report: string | null | undefined): HandSummary | null {
+  if (!report) return null;
+  const lines = report.split('\n');
+  const head = /^(.+?)(?: Lv(\d+))? = (.+)$/.exec(lines[0] ?? '');
+  if (!head) return null;
+  const base = lines.map(l => /^基础 (.+)x(.+)$/.exec(l)).find(Boolean);
+  // 最后一个数值步骤的 AxB 是最终的筹码与倍率.
+  const steps = lines.map(l => /\| ([^|]+)x([^|x]+)$/.exec(l)).filter((m): m is RegExpExecArray => m != null);
+  const last = steps.at(-1) ?? base;
+  return { hand: head[1], level: Number(head[2] ?? 1), total: head[3], chips: last?.[1].trim() ?? '0', mult: last?.[2].trim() ?? '0' };
 }
 export function number(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return '-';

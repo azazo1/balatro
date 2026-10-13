@@ -4,12 +4,14 @@ export interface Item {
   index?: number; key?: string; name: string; effect: string; category?: string | null;
   hidden?: boolean; token?: string; suit?: string; rank?: string; face_down?: boolean;
   modifiers?: string; current?: string | null; cost?: number; eternal?: boolean;
+  enhancement?: string | null; edition?: 'foil' | 'holo' | 'polychrome' | 'negative' | null;
+  seal?: 'red' | 'blue' | 'gold' | 'purple' | null; stickers?: string[]; debuffed?: boolean;
 }
 export interface Blind extends Item { kind: string; status: string; target?: number; reward?: number; tag?: Item | null }
 export interface HistoryNode { id: number; parent: number | null; kind: string; label: string; phase: string; ante: number; edited: boolean }
 export interface Level { name: string; level: number; chips: number; mult: number; played: number; played_this_round: number }
 export interface Observation {
-  phase: string; phase_name: string; won: boolean; win_overlay: boolean;
+  deck_back: string; phase: string; phase_name: string; won: boolean; win_overlay: boolean;
   stats: Record<string, number>; hand: Item[]; jokers: Item[]; consumables: Item[]; blinds: Blind[];
   shop: { cards: Item[]; vouchers: Item[]; packs: Item[]; reroll_cost: number } | null;
   pack: { name: string; choices_left: number; cards: Item[] } | null;

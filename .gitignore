@@ -31,5 +31,7 @@ __pycache__/
 /engine/web/wasm/pkg/
 /engine/web/client/node_modules/
 /engine/web/client/dist/
+# 由 scripts/engine_web_assets.py 从 game/ 生成的原版贴图与字体
+/engine/web/client/public/game/
 
 .DS_Store

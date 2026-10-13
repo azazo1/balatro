@@ -41,6 +41,11 @@ def ensure_tools():
     return str(binary)
 
 
+def sync_game_assets():
+    """把原版图集, 字体与贴图清单同步到 client/public/game."""
+    log.run([sys.executable, str(ROOT / "scripts" / "engine_web_assets.py")], cwd=str(ROOT))
+
+
 def build_assets(version=None):
     started = time.monotonic()
     version = version or versionlib.build_version()
@@ -55,9 +60,10 @@ def build_assets(version=None):
              "-p", "balatro-engine-wasm", "--target", "wasm32-unknown-unknown"], env=env)
     log.run([bindgen, "--target", "web", "--out-dir", str(CLIENT / "public" / "wasm"), "--out-name", "engine_lab",
              str(TARGET / "wasm32-unknown-unknown" / "release" / "balatro_engine_wasm.wasm")])
+    sync_game_assets()
     log.run(["bun", "run", "build"], cwd=str(CLIENT), env=env)
     log.run(["bun", "run", str(ROOT / "scripts" / "engine_wasm_smoke.ts")] + ([version] if version else []), cwd=str(ROOT))
-    for relative in ["index.html", "wasm/engine_lab.js", "wasm/engine_lab_bg.wasm"]:
+    for relative in ["index.html", "wasm/engine_lab.js", "wasm/engine_lab_bg.wasm", "game/sprites.json"]:
         if not (CLIENT / "dist" / relative).is_file():
             log.die("前端构建缺少 " + relative)
     log.info("Web/WASM 构建完成, %.1f 秒" % (time.monotonic() - started))
