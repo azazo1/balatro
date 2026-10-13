@@ -2,7 +2,7 @@
 
 ## 基准与范围
 
-基准是当前安装的 Steamodded 和内置 mod 生成的 Lovely 补丁树, 不是只读上游资源的推断. 范围包含对局状态, 盲注, 标签, 经济结算, 所有权事件与拒绝动作原子性. 生产实现集中在 [flow.rs](<../../engine/src/run/flow.rs>), 累计状态在 [state.rs](<../../engine/src/run/state.rs>), 标签结算字段在 [blind.rs](<../../engine/src/run/blind.rs>). [snapshot.rs](<../../engine/src/run/snapshot.rs>) 深拷贝完整状态, 不需要额外手写新增字段.
+基准是当前安装的 Steamodded 和内置 mod 生成的 Lovely 补丁树, 不是只读上游资源的推断. 范围包含对局状态, 盲注, 标签, 经济结算, 所有权事件与拒绝动作原子性. 生产实现集中在 [flow.rs](<../../impls/engine/core/src/run/flow.rs>), 累计状态在 [state.rs](<../../impls/engine/core/src/run/state.rs>), 标签结算字段在 [blind.rs](<../../impls/engine/core/src/run/blind.rs>). [snapshot.rs](<../../impls/engine/core/src/run/snapshot.rs>) 深拷贝完整状态, 不需要额外手写新增字段.
 
 主要证据入口:
 
@@ -73,12 +73,12 @@
 
 本域已收集的终验退出码均为 0, 最后的多券专项编译没有 warning:
 
-- [audit-flow.rs](<../../engine/tests/audit-flow.rs>): 20 个测试通过. 包含 Throwback 首手, D6 递增与重复标签保留, Double + Voucher 三券链, 压紧索引与拒绝动作原子性, Standard 包逆出生顺序选取保身份, 货架 Joker 移动与 Ankh 新生身份分离, Heart / Madness / Bell 在合法重排后选择同一出生对象.
-- [audit-extra-flow.rs](<../../engine/tests/audit-extra-flow.rs>): 12 个 before, Hook, 多来源创建, 盲注停用和动态削弱测试通过.
-- [audit-passives.rs](<../../engine/tests/audit-passives.rs>): 8 个被动过渡与稳定补牌测试通过.
-- [audit-consumables.rs](<../../engine/tests/audit-consumables.rs>): 18 个测试通过, 包含合法重排后的 Joker 随机对象选择和 Perkeo 元数据, 出生身份与克隆新身份. 1 个真实 LuaJIT oracle 在默认环境未配置时忽略. 有效上下文下执行全部 52 张消耗牌的测试通过.
+- [audit-flow.rs](<../../impls/engine/core/tests/audit-flow.rs>): 20 个测试通过. 包含 Throwback 首手, D6 递增与重复标签保留, Double + Voucher 三券链, 压紧索引与拒绝动作原子性, Standard 包逆出生顺序选取保身份, 货架 Joker 移动与 Ankh 新生身份分离, Heart / Madness / Bell 在合法重排后选择同一出生对象.
+- [audit-extra-flow.rs](<../../impls/engine/core/tests/audit-extra-flow.rs>): 12 个 before, Hook, 多来源创建, 盲注停用和动态削弱测试通过.
+- [audit-passives.rs](<../../impls/engine/core/tests/audit-passives.rs>): 8 个被动过渡与稳定补牌测试通过.
+- [audit-consumables.rs](<../../impls/engine/core/tests/audit-consumables.rs>): 18 个测试通过, 包含合法重排后的 Joker 随机对象选择和 Perkeo 元数据, 出生身份与克隆新身份. 1 个真实 LuaJIT oracle 在默认环境未配置时忽略. 有效上下文下执行全部 52 张消耗牌的测试通过.
 
-最终同一冻结实现的专项命令为 `cargo test --manifest-path engine/Cargo.toml --offline --test audit-flow --test audit-consumables --test audit-extra-flow --test audit-passives`, 共 58 passed, 1 ignored, 退出码 0. 编译没有 warning. 不将本域专项结果包装为一次全仓库验收.
+最终同一冻结实现的专项命令为 `cargo test --manifest-path impls/engine/Cargo.toml --offline --test audit-flow --test audit-consumables --test audit-extra-flow --test audit-passives`, 共 58 passed, 1 ignored, 退出码 0. 编译没有 warning. 不将本域专项结果包装为一次全仓库验收.
 
 主审计随后在同一冻结实现完成全 targets 验收: 461 passed, 0 failed, 0 ignored, 包含显式启用的外部 Lua oracle; `clippy --all-targets -- -D warnings` 退出码 0. 永久 6 个基准全部通过. 原始 7 份录像的严格比较仍为 5/7, 另两份各有一个确认的事件时序摘要差异, 不能把诊断通过写成原始严格通过. 两份仅标注单个未稳定摘要的诊断基准尾部也全部通过, 包内出生身份导致的后续发牌差异不再出现. 完整计数和证据范围见 [统一验收报告](<engine-audit.md>).
 

@@ -41,16 +41,16 @@ Android 的 `versionCode` 由两段版本折算, 保证单调递增, 否则无�
 
 ### 在引擎里对局
 
-不启动游戏, 改用 `just engine play` 让 agent 在引擎里逐步打完一局 (不需要图形环境), 详细用法见
-`engine/README.md` 的 "让 agent 玩" 一节:
+不启动游戏, 改用 `just impls play` 让 agent 在引擎里逐步打完一局 (不需要图形环境), 详细用法见
+`impls/engine/README.md` 的 "让 agent 玩" 一节:
 
-1. `just engine play step --deck <牌组> --stake <赌注> --actions <动作文件>` 打印当前局面,
+1. `just impls play step --deck <牌组> --stake <赌注> --actions <动作文件>` 打印当前局面,
    含牌的中文名与效果, 盲注目标与跳过奖励, 以及会变的值 (每回合认的花色点数, 小丑成长值,
    摸牌堆分布). 不写 `--seed` 就随机生成一个; 开局参数只在开新局时给一次, 之后记在动作文件里.
 2. 每步用 `--do '<动作 JSON>'`; 动作先执行, 成功了才写进动作文件, 所以被拒的动作不会污染历史.
 3. `--emit <回放文件>` 把这局导出成游戏能回放的文件 (每步带引擎预测的摘要), 再交给
    `just macos replay <回放文件> tight` 逐步对拍 —— 游戏是裁判, 退出码 0 才算全过.
-4. 规则与卡牌拿不准时用 `just engine play lookup` / `docs` / `search`, 提示词 (`just engine play prompt`) 里
+4. 规则与卡牌拿不准时用 `just impls play lookup` / `docs` / `search`, 提示词 (`just impls play prompt`) 里
    有规则要点.
 
 - 会变的值 (认的花色点数, 成长值, 待办目标) 一律现查, 不要沿用上一回合的印象 —— 引擎与真游戏
@@ -58,7 +58,8 @@ Android 的 `versionCode` 由两段版本折算, 保证单调递增, 否则无�
 
 ## 开发
 
-- `engine/` 是游戏规则的 rust 重实现.
+- `impls/` 是自己实现的那几块: `impls/engine` (core 规则库与 balatro 命令行), `impls/web` (调试台:
+  lab 模型, HTTP 服务, WASM 绑定与前端), `impls/py` (Python 绑定).
 - 内置 agent 的设计与进度见 `docs/builtin-agent.md`, 其中 loop 与 bbnet, 录像, 回放, Android 各有分文档
   (`docs/agent-loop.md`, `docs/recording.md`, `docs/replay.md`, `docs/android.md`).
 - 回放有两种入口: 主菜单 选项 -> 回放 (游戏内, 不需要环境变量), 以及 `just macos replay <回放文件>`

@@ -6,8 +6,8 @@
 
 ## 构建与安装
 
-发行构建统一使用 `just engine dist`, wheel 在综合归档的 `python/` 内, 与 CLI 和 Web 一起发布.
-开发绑定时可在当前项目虚拟环境内使用 `maturin develop --release --manifest-path engine/py/Cargo.toml`.
+发行构建统一使用 `just impls dist`, wheel 在综合归档的 `python/` 内, 与 CLI 和 Web 一起发布.
+开发绑定时可在当前项目虚拟环境内使用 `maturin develop --release --manifest-path impls/py/Cargo.toml`.
 不再单独输出或发布一组 Python 发行产物.
 
 按 abi3 编译, 一份 wheel 覆盖 Python 3.8 及以上.
@@ -36,7 +36,7 @@ for cards in candidates:
         best = branch
 ```
 
-动作与命令行完全相同 (见 [engine/README.md](../README.md) 的"让 agent 玩"一节), 报错消息也
+动作与命令行完全相同 (见 [impls/engine/README.md](../engine/README.md) 的"让 agent 玩"一节), 报错消息也
 相同 —— 报错里写着这一步该怎么办, 所以搜索撞到非法动作时不必查文档.
 
 ## API
@@ -58,5 +58,5 @@ for cards in candidates:
 ## 注意
 
 - 这是**绑定**, 不是第二份实现: 规则一律走引擎, 所以引擎改了什么这里就跟着变.
-- `engine/Cargo.toml` 的依赖仍然是空的 —— 绑定放在这个独立 crate 里, 用 `path` 依赖引擎,
+- `impls/engine/core/Cargo.toml` 的依赖仍然是空的 —— 绑定放在这个独立 crate 里, 用 `path` 依赖引擎,
   所以引擎自己"只要 std"这条性质没有被破坏.

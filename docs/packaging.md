@@ -25,11 +25,11 @@ Android 的存储权限细节与内置 agent 在手机上的操作流程见 [and
 | `.github/workflows/` | 构建发布与 Pages 部署 |
 | `.tmp/`, `.references/` | 临时文件与本地参考仓库, 不纳入版本控制 |
 | `engine/` | Rust 规则引擎, 不依赖 LÖVE 与图形环境 |
-| `engine/src/` | 引擎实现, 纯 std, 没有任何第三方依赖 |
-| `engine/tests/` | 与游戏逐步对拍的测试, 审计与基准 |
+| `impls/engine/core/src/` | 引擎实现, 纯 std, 没有任何第三方依赖 |
+| `impls/engine/core/tests/` | 与游戏逐步对拍的测试, 审计与基准 |
 | `engine/data/` | 引擎用的基准数据 |
-| `engine/web/` | Web 对局调试台: 历史模型, HTTP 服务, WASM 包装与 React 前端 |
-| `engine/py/` | 引擎的 Python 绑定 |
+| `impls/web/` | Web 对局调试台: 历史模型, HTTP 服务, WASM 包装与 React 前端 |
+| `impls/py/` | 引擎的 Python 绑定 |
 | `native/bbnet/` | 内置 agent 的流式网络库, 用 Rust 编写 |
 | `docs/` | agent 接口与解说, 录像回放, 打包与 mod 等文档 |
 | `docs/game/` | 面向 agent 的游戏规则与卡牌手册 |

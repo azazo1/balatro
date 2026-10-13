@@ -33,11 +33,11 @@
 | Gift Card / Perkeo | 每张小丑及消耗牌累加 sell extra; Perkeo/Blueprint 完整复制能力 | 消耗牌无字段, 多张 Gift 只一次, Perkeo 只拷贝 key/edition | Consumable extra_value 新增, flow 协作 |
 | 销毁/创建生命周期 | 主动销毁和新建牌通知对应小丑 | 遗漏 Canio/Glass/Hologram 成长 | flow/joker 协作, 关键互作回归 |
 
-独占实现入口为 [消耗牌可用性](<../../engine/src/run/consumable.rs>), [优惠券效果](<../../engine/src/run/voucher.rs>), [卡牌实例复制](<../../engine/src/cards/instance.rs>) 和 [扑克牌排序名义值](<../../engine/src/cards/playing.rs>). 跨模块行为由 flow/scoring/joker/pool 协作者接入.
+独占实现入口为 [消耗牌可用性](<../../impls/engine/core/src/run/consumable.rs>), [优惠券效果](<../../impls/engine/core/src/run/voucher.rs>), [卡牌实例复制](<../../impls/engine/core/src/cards/instance.rs>) 和 [扑克牌排序名义值](<../../impls/engine/core/src/cards/playing.rs>). 跨模块行为由 flow/scoring/joker/pool 协作者接入.
 
 ## 52 张消耗牌逐组清单
 
-每一行列出的原型都进行了 S 检查, 并纳入 R 的有效上下文执行测试. 功能族的关键断言另由 [审计回归](<../../engine/tests/audit-consumables.rs>) 和 [既有 Tarot 测试](<../../engine/tests/tarot.rs>) 覆盖.
+每一行列出的原型都进行了 S 检查, 并纳入 R 的有效上下文执行测试. 功能族的关键断言另由 [审计回归](<../../impls/engine/core/tests/audit-consumables.rs>) 和 [既有 Tarot 测试](<../../impls/engine/core/tests/tarot.rs>) 覆盖.
 
 | 功能族 | 原型键 | 核查内容 |
 | --- | --- | --- |
@@ -75,7 +75,7 @@
 | v_directors_cut, v_retcon | Boss 重掷 10, 一次/无限, 事务错误校验 |
 | v_paint_brush, v_palette | hand size 各 +1, SelectingHand 需要立刻补抽 |
 
-16 对共 32 张全部进行了 S 分类. 即时数值关键路径由 [优惠券测试](<../../engine/tests/voucher.rs>) 和 [审计回归](<../../engine/tests/audit-consumables.rs>) 覆盖, 生成/算分/flow 路径分别由对应协作者覆盖. 不声称 32 张都已独立执行真实游戏 oracle. 货架保留断言使用当前多优惠券集合, 不依赖已撤销的临时来源字段.
+16 对共 32 张全部进行了 S 分类. 即时数值关键路径由 [优惠券测试](<../../impls/engine/core/tests/voucher.rs>) 和 [审计回归](<../../impls/engine/core/tests/audit-consumables.rs>) 覆盖, 生成/算分/flow 路径分别由对应协作者覆盖. 不声称 32 张都已独立执行真实游戏 oracle. 货架保留断言使用当前多优惠券集合, 不依赖已撤销的临时来源字段.
 
 ## 15 副牌组逐项清单
 
@@ -97,7 +97,7 @@
 | b_plasma | target x2, Chips/Mult 平均后相乘, 浮点不提前 floor |
 | b_erratic | Erratic 哈希池重抽 52, 重复允许, 按字符身份排序后编号 |
 
-15 张配置逐项与 patched Back:apply_to_run 和 runtime 所有权核对. [既有牌组测试](<../../engine/tests/decks.rs>) 覆盖全部配置; Anaglyph/Plasma 的回合结算由 flow/scoring 回归覆盖. 未确认本范围存在额外 deck 差异, 不据此保证每副牌组的所有交互都已获得 G 验证.
+15 张配置逐项与 patched Back:apply_to_run 和 runtime 所有权核对. [既有牌组测试](<../../impls/engine/core/tests/decks.rs>) 覆盖全部配置; Anaglyph/Plasma 的回合结算由 flow/scoring 回归覆盖. 未确认本范围存在额外 deck 差异, 不据此保证每副牌组的所有交互都已获得 G 验证.
 
 ## 卡牌修饰与身份
 
@@ -111,7 +111,7 @@
 
 ## 独立 Lua 复制排序与最终随机选择 oracle
 
-[可复用 Lua oracle](<../../engine/tests/lua/audit_copy.lua>) 从补丁树读取并执行真实 Card:set_base, Card:get_nominal, copy_card, 外部 GUI/构造/解锁依赖通过 stub 隔离. 不打开游戏, 无玩家存档读写. 默认忽略的 Rust 测试显式运行时动态比对实际输出, 同时断言复制 ability.played_this_ante. 设置 `BALATRO_PATCHED_TREE` 可换补丁树目录, 不会安装 LuaJIT.
+[可复用 Lua oracle](<../../impls/engine/core/tests/lua/audit_copy.lua>) 从补丁树读取并执行真实 Card:set_base, Card:get_nominal, copy_card, 外部 GUI/构造/解锁依赖通过 stub 隔离. 不打开游戏, 无玩家存档读写. 默认忽略的 Rust 测试显式运行时动态比对实际输出, 同时断言复制 ability.played_this_ante. 设置 `BALATRO_PATCHED_TREE` 可换补丁树目录, 不会安装 LuaJIT.
 
 样例为来源最初 Diamonds_A 改成 Hearts_A, 目标 Clubs_2. source/target/新 duplicate 的 original 名义值分别为 0.01/0.02/0.0. 使用 sort_id 29/17/31 作 unique 替身:
 
@@ -138,7 +138,7 @@ Rank 的最终顺序为 `2,3,4,5,6,7,8,9,T,J,Q,K,A`. 仅执行 obj_list 后就�
 
 S6CFTC2V 的 Grim 独立复核执行实际入口 use, random_destroy, create_playing_card 和全部延迟回调. GUI Card 构造/通知函数以 stub 隔离, 构成 L 层而非新 G 游戏对拍. 在该记录前 91 步没有 summon/spe_card 使用的条件下, 选中 C_7 销毁, 按创建先后生成 S_A Gold 和 C_A Steel, 与 Rust 身份探针一致. Rust 第 94/95 步手牌与保存的真实游戏摘要逐项匹配.
 
-临时 [Grim oracle](<../../.tmp/engine-audit/grim-oracle.lua>) 与 [只读追踪器](<../../.tmp/engine-audit/grim-trace/main.rs>) 保留可复核输入. 其中 sort_id 59/60 为引擎相对身份参照, 不声称复刻 GUI 全局对象 ID. 不根据无摘要步骤编造当时全部真实牌组内容. 临时产物不是永久测试依赖, 复制/排序/完整 picker 的永久 oracle 位于 [Lua 测试](<../../engine/tests/lua/audit_copy.lua>).
+临时 [Grim oracle](<../../.tmp/engine-audit/grim-oracle.lua>) 与 [只读追踪器](<../../.tmp/engine-audit/grim-trace/main.rs>) 保留可复核输入. 其中 sort_id 59/60 为引擎相对身份参照, 不声称复刻 GUI 全局对象 ID. 不根据无摘要步骤编造当时全部真实牌组内容. 临时产物不是永久测试依赖, 复制/排序/完整 picker 的永久 oracle 位于 [Lua 测试](<../../impls/engine/core/tests/lua/audit_copy.lua>).
 
 ## 创建身份的追加核查
 
@@ -146,19 +146,19 @@ S6CFTC2V 的 Grim 独立复核执行实际入口 use, random_destroy, create_pla
 
 [Card:init](<../../.tmp/engine-audit/modded-tree/card.lua#L5-L25>) 在构造时分配 sort_id. [标准包选择回调](<../../.tmp/engine-audit/modded-tree/functions/button_callbacks.lua#L2265-L2275>) 转移同一对象入牌堆, 只分配 playing_card, 不重新创建 Card 或改变 sort_id. [实际 pseudoshuffle](<../../.tmp/engine-audit/modded-tree/functions/misc_functions.lua#L206-L211>) 洗牌前按 sort_id 排列. 所以 C_A 的出生身份应早于 D_K, 即使玩家逆序选取. 把 sort_id 延迟到取牌时分配会反转它们, 属于创建/转移身份缺失, 不是应硬拟合的洗牌规则. 相对先后已获得 S 证据, GUI 绝对对象 ID 不在此结论之内. 修复及新增回归由生成/flow 协作者统一接入.
 
-同一身份规则还影响正常 API 重排后的消耗牌随机选择. [Ankh](<../../.tmp/engine-audit/modded-tree/card.lua#L1751>), [Wheel/Ectoplasm/Hex](<../../.tmp/engine-audit/modded-tree/card.lua#L1785-L1795>) 和 [Perkeo](<../../.tmp/engine-audit/modded-tree/card.lua#L2788-L2799>) 的实际入口把 Card 对象池交给终端 picker, 后者按 sort_id 排序. 当前 UI 数组位置或只含 usize 的候选索引不能替代出生身份. 消耗牌结构补充 sort_id, 构造 fixture 的默认 0 由中心创建入口补号; 已存在对象转移保留出生身份, Perkeo 复制完整能力但必须获得新身份. Joker 候选索引按对应出生身份排序, 不改变区域的 UI 顺序. [新增关键回归](<../../engine/tests/audit-consumables.rs>) 分组检查 Ankh/Wheel/Ectoplasm/Hex 逆序重排后的选择对象与旧身份保持, 以及不同 key/edition/extra_value 的 Perkeo 源对象重排和副本新身份. [实际 Lua picker](<../../engine/tests/lua/audit_copy.lua>) 另直接断言同一对象池正序/逆序的终端选择相同. 不据相同 key 的单一测试推断重排后随机选择完全一致.
+同一身份规则还影响正常 API 重排后的消耗牌随机选择. [Ankh](<../../.tmp/engine-audit/modded-tree/card.lua#L1751>), [Wheel/Ectoplasm/Hex](<../../.tmp/engine-audit/modded-tree/card.lua#L1785-L1795>) 和 [Perkeo](<../../.tmp/engine-audit/modded-tree/card.lua#L2788-L2799>) 的实际入口把 Card 对象池交给终端 picker, 后者按 sort_id 排序. 当前 UI 数组位置或只含 usize 的候选索引不能替代出生身份. 消耗牌结构补充 sort_id, 构造 fixture 的默认 0 由中心创建入口补号; 已存在对象转移保留出生身份, Perkeo 复制完整能力但必须获得新身份. Joker 候选索引按对应出生身份排序, 不改变区域的 UI 顺序. [新增关键回归](<../../impls/engine/core/tests/audit-consumables.rs>) 分组检查 Ankh/Wheel/Ectoplasm/Hex 逆序重排后的选择对象与旧身份保持, 以及不同 key/edition/extra_value 的 Perkeo 源对象重排和副本新身份. [实际 Lua picker](<../../impls/engine/core/tests/lua/audit_copy.lua>) 另直接断言同一对象池正序/逆序的终端选择相同. 不据相同 key 的单一测试推断重排后随机选择完全一致.
 
 ## 回归结果
 
-[审计回归](<../../engine/tests/audit-consumables.rs>) 包含 18 条默认测试和 1 条可选 Lua 测试. 显式 `--include-ignored` 执行结果为 19/19 通过, 0 失败, 0 ignored. 所有 52 张有效执行, 原子拒绝, 来源容量/退款, 持有 Negative 期间冻结容量, Gift 累加/卖价, Perkeo + Blueprint 完整复制能力, 主动销毁 Canio/Glass, 创建 Hologram, 随机销毁按 sort_id 排池, 以及真实复制/排序/最终随机池均已通过. 这些回归覆盖关键规则, 不等于所有组合都得到真实游戏重放验证.
+[审计回归](<../../impls/engine/core/tests/audit-consumables.rs>) 包含 18 条默认测试和 1 条可选 Lua 测试. 显式 `--include-ignored` 执行结果为 19/19 通过, 0 失败, 0 ignored. 所有 52 张有效执行, 原子拒绝, 来源容量/退款, 持有 Negative 期间冻结容量, Gift 累加/卖价, Perkeo + Blueprint 完整复制能力, 主动销毁 Canio/Glass, 创建 Hologram, 随机销毁按 sort_id 排池, 以及真实复制/排序/最终随机池均已通过. 这些回归覆盖关键规则, 不等于所有组合都得到真实游戏重放验证.
 
 | 验证组 | 结果 | 层级 |
 | --- | --- | --- |
-| [消耗牌审计](<../../engine/tests/audit-consumables.rs>) 含可选 Lua oracle | 19/19 通过 | R/L |
-| [既有牌组测试](<../../engine/tests/decks.rs>) | 8/8 通过 | R |
-| [既有优惠券测试](<../../engine/tests/voucher.rs>) | 5/5 通过 | R |
-| [既有 Tarot 测试](<../../engine/tests/tarot.rs>) | 35/35 通过 | R |
-| [真实函数 Lua 比对](<../../engine/tests/lua/audit_copy.lua>) 单独显式执行 | 1/1 通过, 不安装软件 | L |
+| [消耗牌审计](<../../impls/engine/core/tests/audit-consumables.rs>) 含可选 Lua oracle | 19/19 通过 | R/L |
+| [既有牌组测试](<../../impls/engine/core/tests/decks.rs>) | 8/8 通过 | R |
+| [既有优惠券测试](<../../impls/engine/core/tests/voucher.rs>) | 5/5 通过 | R |
+| [既有 Tarot 测试](<../../impls/engine/core/tests/tarot.rs>) | 35/35 通过 | R |
+| [真实函数 Lua 比对](<../../impls/engine/core/tests/lua/audit_copy.lua>) 单独显式执行 | 1/1 通过, 不安装软件 | L |
 
 既有 Tarot 测试的空手 Hex 成功和黄金牌金额落在结算栏断言已由主会话按实际源码修正. 浮点常量使用最短同 IEEE 表示, 保留与实际 Lua 输出的 1e-12 比对精度, 不以全文件 allow 压制精度提示. 上表记录本子任务已实际完成的验证, 包括创建身份追加核查后的 2 组合法重排回归. 标准包逆序选择与全游戏出生身份的底层接口修复仍需主会话整体验收, 不能把本组 19 项通过当作全部来源和生命周期已获得 G 验证.
 

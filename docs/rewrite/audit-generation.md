@@ -19,7 +19,7 @@
 
 | 问题 | 源码证据与修复 | 回归 |
 | --- | --- | --- |
-| 永恒与易腐忽略原型兼容性 | [原版 Card](<../../game/card.lua>) 与 [补丁后 Card](<../../.tmp/engine-audit/modded-tree/card.lua>) 的 setter 要求 compat. [Catalog](<../../engine/src/data/catalog.rs>) 解析 compat, [商店与小丑包](<../../engine/src/run/shop.rs>) 保留原骰, 不兼容时不贴 sticker. | 80 个种子, 每种 20 张商店小丑与 4 张包小丑, 检查 1920 张. 修前 j_gros_michel 错误永恒, 今日两局的首个 sticker 分歧属于同类. |
+| 永恒与易腐忽略原型兼容性 | [原版 Card](<../../game/card.lua>) 与 [补丁后 Card](<../../.tmp/engine-audit/modded-tree/card.lua>) 的 setter 要求 compat. [Catalog](<../../impls/engine/core/src/data/catalog.rs>) 解析 compat, [商店与小丑包](<../../impls/engine/core/src/run/shop.rs>) 保留原骰, 不兼容时不贴 sticker. | 80 个种子, 每种 20 张商店小丑与 4 张包小丑, 检查 1920 张. 修前 j_gros_michel 错误永恒, 今日两局的首个 sticker 分歧属于同类. |
 | 稀有度池漏 banned, debuffed Showman 放行, 空池省略默认抽取 | [补丁 get_current_pool](<../../.tmp/engine-audit/modded-tree/functions/common_events.lua>) 保留 UNAVAILABLE 并检查 banned. [SMODS.find_card](<../../mods/Steamodded/src/utils.lua>) 默认排除 debuffed. 商店与 Creation 的 Showman 判据统一, 小丑空池改为 j_joker 后仍抽取. | 30 个种子只允许 j_joker, 全部 common 已用且 Showman debuffed. 修前抽出被禁用的 j_smiley. |
 | Tag pool 不检查 min_ante 与 discovered 前置 | 补丁 get_current_pool 的 Tag 分支检查 min_ante 和 required center.discovered, 不用 Joker 解锁判据. Catalog 保存 string requires 与 min_ante. | 底注 1/2, 无发现进度/已发现 Blueprint, 检查池长与 gated 标签入池. |
 | TODO List 删除旧牌型后才抽取 | [原版 Card:set_ability](<../../game/card.lua>) 在完整可见池上反复抽到非旧牌型. 改为原池 rejection sampling, 每次拒绝仍推进 key. | 30 个种子同时检查牌型和下一次 to_do 递推. 修前 Pair, 源码规则期望 Straight. |
@@ -34,13 +34,13 @@
 | Enhanced 池漏 banned | 补丁 get_current_pool 同样对 Enhanced 应用 banned, 保留位置, 空池仍使用默认原型抽取. 商店与标准包共用辅助. | 50 个种子只允许 m_bonus, 检查包内和 Illusion 商店强化. |
 | Hallucination 合并为一次并使用 debuffed 实例 odds | [补丁 Card.calculate_joker](<../../.tmp/engine-audit/modded-tree/card.lua>) 对每个有效实例与兼容 Blueprint 触发, 先 buffer 预留后事件造 Tarot, 无 soulable. 使用统一 effect source helper, 所有 halu 骰之后才创建. | 20 个种子, debuffed odds100, 两张有效 Hallucination 和 Blueprint, 检查容量及 halu key 调用数. |
 | 全部 Booster banned 时 panic | [SMODS.get_pack](<../../mods/Steamodded/src/overrides.lua>) 无命中时回退 p_buffoon_normal_1, engine 同样回退. | 全部 Booster banned 不崩溃并返回相同兜底. |
-| Voucher Tag 使用普通底注池键 | 补丁 get_next_voucher_key 的 from_tag 分支固定使用 Voucher_fromtag, 不拼 ante. [候选池 API](<../../engine/src/run/pool.rs>) 提供 next_voucher_key_from_tag, flow 标签入口接入. | 两底注各 30 个种子, 比较标签 key 与之后递推. 修前 VTAG0 为 v_crystal_ball, 正确为 v_hieroglyph. |
+| Voucher Tag 使用普通底注池键 | 补丁 get_next_voucher_key 的 from_tag 分支固定使用 Voucher_fromtag, 不拼 ante. [候选池 API](<../../impls/engine/core/src/run/pool.rs>) 提供 next_voucher_key_from_tag, flow 标签入口接入. | 两底注各 30 个种子, 比较标签 key 与之后递推. 修前 VTAG0 为 v_crystal_ball, 正确为 v_hieroglyph. |
 | pseudoseed('seed') 被当成 keyed 递推 | [游戏 misc_functions](<../../game/functions/misc_functions.lua>) 的 seed 特例直接消耗 global math.random. | 与 clone 的 global stream 比较两次状态. |
 | Astronomer 仅采购时覆盖, 价签仍收费 | 补丁 Card:set_cost_value 令 Planet/Celestial Booster 购买价为 0. 实际生成时标价, 不只在 buy 时覆盖. | 40 个种子, 强制 Planet 商店卡与实际 Celestial 包价签为 0. |
 
 ### 多张 Voucher Tag 的结构修复
 
-[商店](<../../engine/src/run/shop.rs>) 使用统一 `Shop.vouchers: Vec<ShopCard>`, 不再用两个 Option 表示主券和单张标签券. 主券仍在售时位于首位, 之后保留全部标签券的事件顺序. `restock` 用 `std::mem::take` 消费 `extra_voucher_keys`, 下一商店不重生已经展示的标签券. 折扣重算遍历整个向量.
+[商店](<../../impls/engine/core/src/run/shop.rs>) 使用统一 `Shop.vouchers: Vec<ShopCard>`, 不再用两个 Option 表示主券和单张标签券. 主券仍在售时位于首位, 之后保留全部标签券的事件顺序. `restock` 用 `std::mem::take` 消费 `extra_voucher_keys`, 下一商店不重生已经展示的标签券. 折扣重算遍历整个向量.
 
 [补丁 Tag](<../../.tmp/engine-audit/modded-tree/tag.lua#L323-L337>) 每个 callback 先抽 key, 创建 Card, 再 emplace. 后续标签应看见已生成的券. 候选池同时排除 pending 中已生成券和当前实际货架券. flow 的 `buy_voucher_index(index)` 按真实索引删除并压紧, 不用同 key 对象值相等来定位. 补丁后的 redeem 对任意券清除主券再生成标记, 因此没有按标签来源错误区分这一状态. 多券采购, adapter 索引和 snapshot 的完整验收由中央集成测试汇总.
 
@@ -48,15 +48,15 @@
 
 [补丁 Card:init](<../../.tmp/engine-audit/modded-tree/card.lua#L23-L25>) 在实体创建时递增 G.sort_id, 不等到玩家选择或买下才分配. 原模型在取走包牌时才发号, 选择顺序与出生顺序相反时会改变之后 pseudoshuffle 的预排序. 今日 9AF1BGS8 的后续诊断发现同包两张 Glass 先取第 4 张再取第 2 张, engine 的出生身份倒置, 后一轮两张牌的发牌位置交换. 这是来源身份错误, 不应倒转标准包生成或随机抽取顺序来拟合.
 
-[ShopCard 和 PackCard](<../../engine/src/run/shop.rs>) 保存 `sort_id: u32`. 商店 Joker, 标签 Joker, 扑克牌, 消耗牌, Booster, Voucher 和所有包内实体, 都在实际生成时调用统一 next_sort_id. 未选包牌也消费出生号, 下一张不能重用它. Hallucination 实际创建的消耗牌同样分配. 仅返回原型 key 的纯选择 API 不发实体号, 避免调用方真正构建对象时重复分配.
+[ShopCard 和 PackCard](<../../impls/engine/core/src/run/shop.rs>) 保存 `sort_id: u32`. 商店 Joker, 标签 Joker, 扑克牌, 消耗牌, Booster, Voucher 和所有包内实体, 都在实际生成时调用统一 next_sort_id. 未选包牌也消费出生号, 下一张不能重用它. Hallucination 实际创建的消耗牌同样分配. 仅返回原型 key 的纯选择 API 不发实体号, 避免调用方真正构建对象时重复分配.
 
 移动到持有区域保留源身份, 新复制对象获得新号. `plain` 默认 0 只用于外部未赋号 fixture, 转移的 0 回退由 flow 处理, 不是生产实体出生规则. 新回归先证实连续生成两个商店 Joker 均为 0 的失败, 修后检查所有五类包的全部实体出生顺序及货架所有对象的连续唯一号. 生成域 25/25 含全部 RNG oracle 通过, 因此身份修复没有改变已验证的抽取顺序.
 
-最终冻结实现的身份集成验收见 [中央审计报告](<engine-audit.md#L65-L67>) 与 [身份审计测试](<../../engine/tests/audit-identity.rs>). [9AF 诊断基准](<../../engine/tests/data/diagnostic-20261005-9af1bgs8.jsonl>) 保留第 40 步原摘要及未验证标注, 其余 91 个摘要和 2 个拒绝动作完整到最后通过, 包括第 62 步 Standard 蜡封和第 82 步身份相关发牌. 这不是仅验证错误前缀或预言后续应通过. 结论不扩展为原始七局全部严格通过: 两个 recorder 非稳定时点仍在原始严格检查中报错, MSH 的摘要不足也不算完整对局验证.
+最终冻结实现的身份集成验收见 [中央审计报告](<engine-audit.md#L65-L67>) 与 [身份审计测试](<../../impls/engine/core/tests/audit-identity.rs>). [9AF 诊断基准](<../../impls/engine/core/tests/data/diagnostic-20261005-9af1bgs8.jsonl>) 保留第 40 步原摘要及未验证标注, 其余 91 个摘要和 2 个拒绝动作完整到最后通过, 包括第 62 步 Standard 蜡封和第 82 步身份相关发牌. 这不是仅验证错误前缀或预言后续应通过. 结论不扩展为原始七局全部严格通过: 两个 recorder 非稳定时点仍在原始严格检查中报错, MSH 的摘要不足也不算完整对局验证.
 
 ## 实际 Lua 运行时和 oracle
 
-[生成域回归](<../../engine/tests/audit-generation.rs>) 包含 21 个 portable 回归与 4 个显式外部 oracle. 外部 oracle 执行源码函数而不是复制 Rust 公式, 但各自环境的范围不同:
+[生成域回归](<../../impls/engine/core/tests/audit-generation.rs>) 包含 21 个 portable 回归与 4 个显式外部 oracle. 外部 oracle 执行源码函数而不是复制 Rust 公式, 但各自环境的范围不同:
 
 - Edition 使用实际 poll_edition 和 get_weight, 四个已审计的原版候选置于受控池. 这是概率函数 oracle, 不是全注册链 oracle.
 - Seal 在运行时读取 [完整补丁 game](<../../.tmp/engine-audit/modded-tree/game.lua>) 和 [补丁后 common_events](<../../.tmp/engine-audit/modded-tree/functions/common_events.lua>), 不回退到原版初始化. 执行初始表, 原 order 排序, GameObject 接管/注册, Seal.inject, insert_pool, add_to_pool, find_card/showman, 最后 get_current_pool/poll_seal. Atlas, sprite, UI 与无关发现状态保存使用空操作 stub; 原版蜡封无自定义 in_pool, 场景中无 Showman 和第三方对象.
@@ -113,7 +113,7 @@
 
 ### 其余边界
 
-- 首个 Buffoon _1/_2 与 voucher 预抽时机仍有裸 global random 债务. [restock 的说明](<../../engine/src/run/shop.rs>) 保留. 没有为一份录像拟合 materialize/视觉事件的随机消费数. Keyed RNG 正确不代表所有裸 math.random 的时机都正确.
+- 首个 Buffoon _1/_2 与 voucher 预抽时机仍有裸 global random 债务. [restock 的说明](<../../impls/engine/core/src/run/shop.rs>) 保留. 没有为一份录像拟合 materialize/视觉事件的随机消费数. Keyed RNG 正确不代表所有裸 math.random 的时机都正确.
 - 版本标签通过异步事件生效, raw digest 可能在 callback 前记录. 今日 9AF1BGS8 的 cash_out 摘要无 Polychrome, 紧接 buy 后持有卡带 Polychrome 且免费, 属已证实的 recorder 时间边界. 不为较早摘要关闭正确标签逻辑, 严格 raw checker 的结论由中央报告保留.
 - 任意第三方 mod 的 custom in_pool/get_weight, 自定义 soulables/rarities/Seal, object_weights 可选路径, challenge 的 all_eternal/booster_ante_scaling 等, 不是当前原版静态 Catalog 能完整表达的范围. 当前 mods 未发现 object_weights=true 启用点, 不把可扩展 SMODS API 与原版数据条件通过混为一谈.
 - 安装版与仓库 Steamodded weights.create_blind_pool 存在额外 table.sort 的基准差异, 属 Boss 选择域, 已交相应域处理, 此处不越界修改.

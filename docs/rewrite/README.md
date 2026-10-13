@@ -22,7 +22,7 @@
 
 | 层 | 基准来源 |
 | --- | --- |
-| 随机数 | 本机 LuaJIT 直接生成序列, 见 `engine/tests/lua/dump_rng.lua` |
+| 随机数 | 本机 LuaJIT 直接生成序列, 见 `impls/engine/core/tests/lua/dump_rng.lua` |
 | 开局发牌 | `recordings/` 下各局的 `.replay.json` 里每一步的 digest |
 | 牌型判定 | `docs/game/rules/poker-hands.md` 的规则与基础值表 |
 | 计分 | `bbdump` 导出的每步完整状态 (含 `round.chips` 与 `round.last_hand`) |
@@ -53,16 +53,16 @@ BBDUMP=1 BBDUMP_DIR="$PWD/recordings/dumps" just macos run-agent
 
 ```shell
 # 1. agent 逐步对局: 每次调用把动作文件从头重放一遍, 打印局面与可选动作
-just engine play step --seed AGENT2 --deck RED --stake GOLD --actions .tmp/agent/AGENT2.actions.jsonl
+just impls play step --seed AGENT2 --deck RED --stake GOLD --actions .tmp/agent/AGENT2.actions.jsonl
 # 2. 过程中 agent 自己看局面决定下一步 (动作先执行, 成功了才落盘)
-just engine play step --seed AGENT2 ... --do '{"method":"play","params":{"cards":[1,2,3]}}'
+just impls play step --seed AGENT2 ... --do '{"method":"play","params":{"cards":[1,2,3]}}'
 # 3. 导出成游戏能回放的文件, 每步带引擎预测的摘要
-just engine play step --seed AGENT2 ... --emit .tmp/agent/AGENT2.replay.json
+just impls play step --seed AGENT2 ... --emit .tmp/agent/AGENT2.replay.json
 # 4. 游戏重放并逐步比对. 退出码 0 = 全过, 1 = 跑偏 (会指出哪一步哪一项)
 just macos replay .tmp/agent/AGENT2.replay.json tight
 ```
 
-`just engine play` 每次调用都把动作文件**从头重放**再打印局面, 所以一步就是一次独立命令: 不需要常驻进程,
+`just impls play` 每次调用都把动作文件**从头重放**再打印局面, 所以一步就是一次独立命令: 不需要常驻进程,
 中途断开也不怕. 动作先执行成功了才写进文件, 被拒绝的动作不污染历史.
 
 游戏侧要跑到能用的速度, 有两处得先设好 —— **只设一处没用**:
@@ -81,7 +81,7 @@ just macos replay .tmp/agent/AGENT2.replay.json tight
 - **摘要里商店三项的出现时机**. 游戏的 `G.UIDEF.shop()` 建出 `G.shop_jokers` / `shop_vouchers` /
   `shop_booster` 之后再没有把它们置回 nil, 所以 `shop` / `vouchers` / `packs` 三项在**首次进商店
   之前整段不出现**, 之后一直出现 (不逛商店时是空的). 引擎原来不管阶段总是写空值, 于是回放第一步
-  就被判不一致. 之所以长期没发现, 是因为 `engine/tests/dump_replay.rs` 只做**单向**比较
+  就被判不一致. 之所以长期没发现, 是因为 `impls/engine/core/tests/dump_replay.rs` 只做**单向**比较
   ("记录里有的项都要对上, 引擎多出来的项不管"), 而游戏自己的 `format.diff` 是双向的.
 - **非扑克牌卡也带 `~强化位`**. `bbcore` 原来只判 `ability.effect ~= "Base"`, 于是塔罗, 行星,
   幻灵, 小丑都把原型的 `effect` 名当成强化名填了进去 (`c_sun~suit conversion`, `j_duo~x1.5 mult`).
@@ -101,7 +101,7 @@ just macos replay .tmp/agent/AGENT2.replay.json tight
 
 遗留: 首包那个免费小丑包的编号 (`p_buffoon_normal_1` vs `_2`) 引擎还算不准 (它由一次裸的全局
 `math.random(1,2)` 决定, 取决于上一次 `pseudoseed` 之后空转了几颗). 现在靠"比对时抹掉图案编号"
-放过 —— 尾号只决定贴图, 不影响玩法. **这是容忍不是修好**, `engine/tests/dump_replay.rs` 的
+放过 —— 尾号只决定贴图, 不影响玩法. **这是容忍不是修好**, `impls/engine/core/tests/dump_replay.rs` 的
 `normalize` 里另有一份同样的容忍.
 
 ## 可复现性的两处前提
@@ -509,7 +509,7 @@ just macos replay .tmp/agent/AGENT2.replay.json tight
 - **做起了"整局对拍"**: 用 `bbdump` 导出的那一局 (PLASMA / PURPLE / 种子 `7GU9BJP9`, 40 步,
   从开局打到第三个底注, 中间经过商店买卖 / 重抽 / 开包 / 用消耗牌) 逐步喂给引擎,
   每一步都比阶段 / 钱 / 底注 / 手牌 / 小丑 / 消耗牌 / 本回合的筹码与次数.
-  基准收在 `engine/tests/data/plasma-purple-6j8x.dump.jsonl`, 对拍器是 `tests/dump_replay.rs`.
+  基准收在 `impls/engine/core/tests/data/plasma-purple-6j8x.dump.jsonl`, 对拍器是 `tests/dump_replay.rs`.
   与手写的 `replay.rs` 相比, 它是**数据驱动**的整局, 覆盖面大得多, 而且会直接告诉你
   "从第几步开始偏" —— 这比事后猜哪里错了省事得多.
   它一路找出三个真问题, 每修一个能走到的步数就往后跳一截:
@@ -534,7 +534,7 @@ just macos replay .tmp/agent/AGENT2.replay.json tight
   哪天红了就是真的回归. 与 `replay.rs` 的关系是: 那个验的是**发牌序列** (手写尖角),
   这个验的是**整局流程** (数据驱动, 覆盖面大得多).
 - 对拍面扩大到 **ALEEB 那一局** (目标里点名的种子): 从录像里把 41 个动作抽成
-  `engine/tests/data/aleeb-gold-plasma.run.jsonl` (金赌注 / 等离子牌组, 两个底注).
+  `impls/engine/core/tests/data/aleeb-gold-plasma.run.jsonl` (金赌注 / 等离子牌组, 两个底注).
   对拍器也改成了通用的: **记录里有什么字段就比什么** —— dump 那份记得全 (钱 / 手牌 / 小丑都记),
   录像这份只记阶段 / 底注 / 回合, 于是同一个对拍器跑两份疏密不同的基准.
   顺带补上两处:
@@ -774,7 +774,7 @@ just macos replay .tmp/agent/AGENT2.replay.json tight
   **录像起始快照里的存档进度表 (`snapshot.uda`) 一直没被载入**. 那份档是全解锁的
   (`uda` 357 条, `j_duo` 标记为 `u`), 而引擎原来退回原型自己的初始值 —— 于是 3 级池里
   **13 张"默认锁着"的都被剔掉**, 池子里凭空多出一批占位格子, 抽出来的东西整体偏.
-  12 份 ALEEB 录像的 `uda` 完全一致, 已抽成 `engine/tests/data/aleeb-uda.json` 共用.
+  12 份 ALEEB 录像的 `uda` 完全一致, 已抽成 `impls/engine/core/tests/data/aleeb-uda.json` 共用.
   修完长跑从第 52 步走到第 56 步.
 - 后面的复核**推翻了上面这条推论** (先记下来, 因为这种"自己推翻自己"的过程本身有用):
   把两份记录里所有 SHOP / BOOSTER_OPENED 步骤的牌堆与手牌都打出来之后, 事实是**一致**的:
@@ -1683,7 +1683,7 @@ Jolly Joker | +8 倍率 | 30x10
   表现成"下一回合发出来的牌几乎全不对". 这类"两个调用长得很像、语义相反"的地方, 光看调用点是
   看不出来的, 必须翻到被调函数的**前两行**去看它怎么处理那个参数.
 
-- 这一轮还补了一个**脚下那一层**的模块: `engine/src/lua/table_sort.rs`, 即 Lua 5.1 / LuaJIT 的
+- 这一轮还补了一个**脚下那一层**的模块: `impls/engine/core/src/lua/table_sort.rs`, 即 Lua 5.1 / LuaJIT 的
   `auxsort`. 缘由是手牌排序: 游戏的 `CardArea:sort('desc')` 用的是 Lua 的 `table.sort`, 而它
   **不稳定** —— 两张同点数的牌谁在前由快排的交换过程决定, 换成 Rust 的稳定排序就会给出不同的
   顺序, 而手牌顺序本身是状态 (出牌与弃牌用的都是下标). 这一处原来是 `sort_by` 直接顶上的.
@@ -1766,7 +1766,7 @@ Jolly Joker | +8 倍率 | 30x10
   选了等离子牌组却按普通牌背算, 表现成"分数差一截". 计分那一层仍然收 `BackEffect`
   (它在计分中途拿不到整个局面), 但从运行状态出发的调用方应当用它.
 
-- 测试都在 `engine/tests/decks.rs`: 数值那一张表**逐项从 `catalog.json` 现读**再和基准局比差值,
+- 测试都在 `impls/engine/core/tests/decks.rs`: 数值那一张表**逐项从 `catalog.json` 现读**再和基准局比差值,
   所以以后加牌组或者改数值时测试跟着走, 而不是把预期值抄一遍. 两条内容是逐张看的
   (无面牌组的张数要看"删的是不是人头牌", 棋盘牌组要看"哪种花色剩下多少张"), 错乱牌组则要看
   **五个种子里至少出现一次重复牌面** —— 没有这一条, "其实根本没重掷"也能过张数与人头牌的断言.
@@ -1808,7 +1808,7 @@ Jolly Joker | +8 倍率 | 30x10
   `chips >= blind.chips` 恒不成立, **那一底永远打不过**. 三个赌注档、小盲 / 大盲 / Boss 全都一样
   (倍率乘 `nan` 还是 `nan`).
   这个数是**用真 LuaJIT 逐位对拍过的**: 差一点就去"修"它了, 而修它就是引入偏离 ——
-  引擎的职责是复刻, 不是替游戏收拾. 所以专门留了一份数据 ([dump_blind_amount.lua](engine/tests/lua/dump_blind_amount.lua),
+  引擎的职责是复刻, 不是替游戏收拾. 所以专门留了一份数据 ([dump_blind_amount.lua](impls/engine/core/tests/lua/dump_blind_amount.lua),
   按十六进制浮点打印, 含成片的 `nan`), 谁想"顺手给个上限"都会在那里失败.
 
 - 引擎遇上 `nan` 目标时的收场方式也验了: **干净地判负, 不崩, 也不"穿过"终点线**.
@@ -1826,7 +1826,7 @@ Jolly Joker | +8 倍率 | 30x10
 - 另修一处引擎**内部自己就不一致**的地方: 小丑池与消耗牌池都写了"用过的不再出现, 但持有
   表演者时例外", 唯独**券池漏了那个例外**. `used_jokers` 那张表是在 `Card:set_ability` 里
   按**名字**写的, 与牌是哪一类无关 —— 商店摆出来的券一样会被记进去, 所以"上一底见过、没买"
-  的券在持有表演者时是可以再出现的. 修在 [pool.rs](engine/src/run/pool.rs).
+  的券在持有表演者时是可以再出现的. 修在 [pool.rs](impls/engine/core/src/run/pool.rs).
 
 - 覆盖面上还顺手做了一轮**没有数值背书**的风险排查: 四十个种子一路推到最深底注
   (**251 底**, 40/40 通关, 零错误). 探针把目标分数压成 1, 所以它验的是流程与控制流
@@ -1886,7 +1886,7 @@ Jolly Joker | +8 倍率 | 30x10
   (引擎只能照着录像重放, 覆盖哪条路径全看录像里恰好有什么); 现在可以让**引擎先走并写下预测**,
   再由游戏照着重放. 闭环的三个零件本来就在仓库里, 只是没接上:
 
-  - 引擎生成回放文件 (`engine/examples/gen_replay.rs`);
+  - 引擎生成回放文件 (`impls/engine/core/examples/gen_replay.rs`);
   - `just macos replay <文件>` 把任意动作序列喂进真游戏 (`mods/bbreplay`);
   - 播放器**逐步核对**每一步的 digest, **退出码就是结论**: `0` 全程一致, `1` 在第 N 步跑偏
     (日志里打印差在哪一项). 所以不需要"跑完再人工比对".

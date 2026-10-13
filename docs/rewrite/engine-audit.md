@@ -21,18 +21,18 @@
 
 | 领域 | 关键差异 | 行为回归 |
 | --- | --- | --- |
-| 计分调度 | 复制覆盖 individual/held/repetition/other_joker, before 时机, 卡牌和小丑版本顺序, Baseball 逐格响应 | [计分审计测试](<../../engine/tests/audit-scoring.rs>) |
-| 持有与重触发 | Mime 和红封重触发完整持有效果, 无首遍效果不额外推进随机数 | [小丑审计测试](<../../engine/tests/audit-jokers.rs>) |
-| 即时成长 | Wee 同手成长, Hiker 每次触发永久筹码, Lucky Cat 不因复制重复成长 | [计分入口](<../../engine/src/scoring/engine.rs>) |
-| 身份与修饰 | 同牌面克隆不共享首牌身份, 复制牌首次排序花色为 0, ability 历史标记完整复制 | [卡牌审计测试](<../../engine/tests/audit-consumables.rs>) |
-| 全局计数与经济 | Cloud 9 整副牌统计, Handy/Garbage 累计量, Investment 在 Boss 结算, Swashbuckler 正确卖价总和 | [流程审计测试](<../../engine/tests/audit-flow.rs>) |
-| 商店与池子 | Coupon 只标当前货架, 标签逐份消费, 永恒兼容性, soul 双门, edition 权重和 bans, forced-card 用过标记 | [生成审计测试](<../../engine/tests/audit-generation.rs>) |
-| 消耗牌与事务 | 先验证可用性再消费, 买并使用先扣费, 不借临时持有槽, Wraith/Hermit/Fool/Immolate/Sigil/Summon | [消耗牌审计测试](<../../engine/tests/audit-consumables.rs>) |
-| 生命周期 | gain/loss, 创建与销毁反馈, Gold/Blue Seal/Mime 回合末, 多实例和复制钩子 | [流程扩展测试](<../../engine/tests/audit-extra-flow.rs>) |
-| 端点协议 | 缺少或多重购买目标拒绝, 任意券索引与压紧, 重排阶段门, 未知动作不静默成功 | [动作审计测试](<../../engine/tests/audit-actions.rs>) |
-| 多券货架 | Double Tag 与 Voucher Tag 产生的全部券保留, 仅展示一次, 购买实际压紧下标 | [流程审计测试](<../../engine/tests/audit-flow.rs>) |
-| 出生与转移身份 | 候选牌生成时分配身份, 购买和选取保留身份, 复制获得新身份 | [身份审计测试](<../../engine/tests/audit-identity.rs>) |
-| 对象随机选择 | Ankh/Wheel/Ectoplasm/Hex/Perkeo/Invisible/Madness/Heart/Bell 按对象身份排序, 不按重排后的界面位置抽取 | [消耗牌审计测试](<../../engine/tests/audit-consumables.rs>) |
+| 计分调度 | 复制覆盖 individual/held/repetition/other_joker, before 时机, 卡牌和小丑版本顺序, Baseball 逐格响应 | [计分审计测试](<../../impls/engine/core/tests/audit-scoring.rs>) |
+| 持有与重触发 | Mime 和红封重触发完整持有效果, 无首遍效果不额外推进随机数 | [小丑审计测试](<../../impls/engine/core/tests/audit-jokers.rs>) |
+| 即时成长 | Wee 同手成长, Hiker 每次触发永久筹码, Lucky Cat 不因复制重复成长 | [计分入口](<../../impls/engine/core/src/scoring/engine.rs>) |
+| 身份与修饰 | 同牌面克隆不共享首牌身份, 复制牌首次排序花色为 0, ability 历史标记完整复制 | [卡牌审计测试](<../../impls/engine/core/tests/audit-consumables.rs>) |
+| 全局计数与经济 | Cloud 9 整副牌统计, Handy/Garbage 累计量, Investment 在 Boss 结算, Swashbuckler 正确卖价总和 | [流程审计测试](<../../impls/engine/core/tests/audit-flow.rs>) |
+| 商店与池子 | Coupon 只标当前货架, 标签逐份消费, 永恒兼容性, soul 双门, edition 权重和 bans, forced-card 用过标记 | [生成审计测试](<../../impls/engine/core/tests/audit-generation.rs>) |
+| 消耗牌与事务 | 先验证可用性再消费, 买并使用先扣费, 不借临时持有槽, Wraith/Hermit/Fool/Immolate/Sigil/Summon | [消耗牌审计测试](<../../impls/engine/core/tests/audit-consumables.rs>) |
+| 生命周期 | gain/loss, 创建与销毁反馈, Gold/Blue Seal/Mime 回合末, 多实例和复制钩子 | [流程扩展测试](<../../impls/engine/core/tests/audit-extra-flow.rs>) |
+| 端点协议 | 缺少或多重购买目标拒绝, 任意券索引与压紧, 重排阶段门, 未知动作不静默成功 | [动作审计测试](<../../impls/engine/core/tests/audit-actions.rs>) |
+| 多券货架 | Double Tag 与 Voucher Tag 产生的全部券保留, 仅展示一次, 购买实际压紧下标 | [流程审计测试](<../../impls/engine/core/tests/audit-flow.rs>) |
+| 出生与转移身份 | 候选牌生成时分配身份, 购买和选取保留身份, 复制获得新身份 | [身份审计测试](<../../impls/engine/core/tests/audit-identity.rs>) |
+| 对象随机选择 | Ankh/Wheel/Ectoplasm/Hex/Perkeo/Invisible/Madness/Heart/Bell 按对象身份排序, 不按重排后的界面位置抽取 | [消耗牌审计测试](<../../impls/engine/core/tests/audit-consumables.rs>) |
 
 完整源码覆盖矩阵分别见 [计分](<audit-scoring.md>), [150 张小丑](<audit-jokers.md>),
 [流程与盲注](<audit-flow.md>), [生成与随机池](<audit-generation.md>)和[消耗牌与牌组](<audit-consumables.md>).
@@ -66,18 +66,18 @@ get_current_pool 和 poll_seal. 终端池为 Red,Blue,Gold,Purple, 606 张结果
 两张新牌被错误交换出生身份, 后续洗牌在第 82 步才暴露位置差异.
 候选牌现在在创建时分配身份, 选取只是转移对象; 当时出牌没有 Glass, 不修改碎裂随机顺序来拟合结果.
 
-可复用裁判入口在 [Lua 测试目录](<../../engine/tests/lua/audit_copy.lua>) 与
-[牌型裁判](<../../engine/tests/lua/audit_poker.lua>), 需要已有解释器和补丁树,
+可复用裁判入口在 [Lua 测试目录](<../../impls/engine/core/tests/lua/audit_copy.lua>) 与
+[牌型裁判](<../../impls/engine/core/tests/lua/audit_poker.lua>), 需要已有解释器和补丁树,
 不自动安装软件. 常规离线构建不依赖这些解释器.
 
 ## 离线对拍
 
 ```shell
-just engine replay <回放文件.replay.json> [更多回放文件]
-just engine replay --strict <fixture.jsonl>
+just impls replay <回放文件.replay.json> [更多回放文件]
+just impls replay --strict <fixture.jsonl>
 ```
 
-[回放校验模块](<../../engine/src/replay/mod.rs>) 复用正式动作适配器,
+[回放校验模块](<../../impls/engine/core/src/replay/mod.rs>) 复用正式动作适配器,
 仅对真实手动拖动保留与端点阶段门不同的本地操作规则.
 比较器不忽略金钱, 强化, 贴纸或不同大小的卡包.
 原始 digest 不含逐手评分数值和完整内部状态, 因此逐步一致不能独自证明评分数值完全相同;
@@ -90,10 +90,10 @@ just engine replay --strict <fixture.jsonl>
 
 四份完整原始记录已保存为脱敏回归基准:
 
-- [Cloud 9 记录](<../../engine/tests/data/rec-20261005-23z315qp.jsonl>): 55 个摘要, 1 个拒绝动作.
-- [Swashbuckler 记录](<../../engine/tests/data/rec-20261005-t5tf8s49.jsonl>): 18 个摘要, 1 个拒绝动作.
-- [Grim 与销毁记录](<../../engine/tests/data/rec-20261005-s6cftc2v.jsonl>): 101 个摘要, 3 个拒绝动作.
-- [Hermit 与购买记录](<../../engine/tests/data/rec-20261005-vv8pfes1.jsonl>): 118 个摘要, 3 个拒绝动作.
+- [Cloud 9 记录](<../../impls/engine/core/tests/data/rec-20261005-23z315qp.jsonl>): 55 个摘要, 1 个拒绝动作.
+- [Swashbuckler 记录](<../../impls/engine/core/tests/data/rec-20261005-t5tf8s49.jsonl>): 18 个摘要, 1 个拒绝动作.
+- [Grim 与销毁记录](<../../impls/engine/core/tests/data/rec-20261005-s6cftc2v.jsonl>): 101 个摘要, 3 个拒绝动作.
+- [Hermit 与购买记录](<../../impls/engine/core/tests/data/rec-20261005-vv8pfes1.jsonl>): 118 个摘要, 3 个拒绝动作.
 
 原始记录还包含两个已确认的非稳定时点:
 
@@ -106,18 +106,18 @@ just engine replay --strict <fixture.jsonl>
 严格原始记录校验仍报告这两处差异, 退出码为 1. 不全局忽略 money 或 edition.
 另外保存逐点标注的诊断副本, 原摘要保留在 unstable_digest, source_index 和原因完整保留:
 
-- [9AF 诊断副本](<../../engine/tests/data/diagnostic-20261005-9af1bgs8.jsonl>): 91 个摘要, 2 个拒绝动作, 仅第 40 步未验证.
-- [A48 诊断副本](<../../engine/tests/data/diagnostic-20261005-a48x6zym.jsonl>): 74 个摘要, 4 个拒绝动作, 仅第 31 步未验证.
+- [9AF 诊断副本](<../../impls/engine/core/tests/data/diagnostic-20261005-9af1bgs8.jsonl>): 91 个摘要, 2 个拒绝动作, 仅第 40 步未验证.
+- [A48 诊断副本](<../../impls/engine/core/tests/data/diagnostic-20261005-a48x6zym.jsonl>): 74 个摘要, 4 个拒绝动作, 仅第 31 步未验证.
 
 两份副本的全部后续动作已经通过, 不是只检查报错之前的前缀.
-[回放策略回归](<../../engine/tests/audit-replay.rs>)同时断言原摘要恢复后仍在原检查点报错,
+[回放策略回归](<../../impls/engine/core/tests/audit-replay.rs>)同时断言原摘要恢复后仍在原检查点报错,
 防止诊断标注变成全局忽略规则. strict 检查摘要额外字段, 并不把缺少摘要变成已经验证.
 `MSH9AC7V` 只有 1 个可比较摘要, 随后成功出牌缺摘要, 不能称为完整对局验证.
 
 ## 最终验收
 
 ```shell
-just engine audit
+just impls audit
 ```
 
 需要已有 Lua/LuaJIT 和完整 Lovely 补丁树. 该入口不自动安装解释器, 不启动图形游戏,

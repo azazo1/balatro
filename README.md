@@ -12,27 +12,27 @@
 <https://azazo1.github.io/balatro/> 是在线调试台, 打开就能玩, 不用装任何东西. 除了正常的手牌和
 小丑牌, 还能看到盲注信息, 回合分数和完整的对局历史.
 
-规则用 Rust 引擎计算, 贴图来自原版, 但没有动画. 本地运行用 `just engine web`, 详见
-[Web 调试台](<engine/web/README.md>).
+规则用 Rust 引擎计算, 贴图来自原版, 但没有动画. 本地运行用 `just impls web`, 详见
+[Web 调试台](<impls/web/README.md>).
 
 ## 项目亮点
 
 **Rust 规则引擎**: 把游戏规则用 Rust 重写了一遍, 不依赖图形, 能存快照, 回滚, 可以批量跑很多局.
-验收标准是和真游戏逐步对拍, 而不是 "读源码读出来的行为", 详见 [引擎说明](<engine/README.md>).
+验收标准是和真游戏逐步对拍, 而不是 "读源码读出来的行为", 详见 [引擎说明](<impls/engine/README.md>).
 
 ```shell
-just engine play step --deck RED --stake GOLD --actions .tmp/run.actions.jsonl
-just engine audit       # 完整回归测试
-just engine dist        # 打包引擎发行版 (CLI + Python + Web)
+just impls play step --deck RED --stake GOLD --actions .tmp/run.actions.jsonl
+just impls audit       # 完整回归测试
+just impls dist        # 打包引擎发行版 (CLI + Python + Web)
 ```
 
 **Web 对局调试台**: React + TypeScript 做的调试界面, 在浏览器里用 WASM 跑真实引擎, 也能切本地
 HTTP 计算. 能配置种子, 牌组, 赌注, 在历史里回溯, 查看真实牌堆和随机状态.
 
 ```shell
-just engine web         # 启动调试台
-just engine web-dev     # 前端热更新模式
-just engine test-web    # 跑测试
+just impls web         # 启动调试台
+just impls web-dev     # 前端热更新模式
+just impls test-web    # 跑测试
 ```
 
 **AI 自动玩**: 带 mod 的版本内置了 HTTP 接口, 可以让 AI 在游戏里自动打牌, 还能在游戏内显示决策
@@ -103,7 +103,7 @@ ad-hoc 签名并已清除隔离属性, 首次打开无需放行. 换图标用 `j
 | 路径 | 说明 |
 | --- | --- |
 | `game/` | 从发行包中提取的游戏资源, 构建输入 |
-| `engine/` | Rust 规则引擎, 含 Web 调试台, HTTP 服务与 Python 绑定 |
+| `impls/` | 自研实现: `engine/` 规则引擎与命令行, `web/` 调试台, `py/` Python 绑定 |
 | `mods/` | 打包进带 mod 版本的 mod |
 | `native/bbnet/` | 内置 agent 的流式网络库, 用 Rust 编写 |
 | `docs/` | agent 接口与解说, 录像回放, 规则手册等文档 |

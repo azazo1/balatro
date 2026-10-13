@@ -9,19 +9,19 @@ React + TypeScript 页面, 支持本地 WASM 和本地 HTTP 两种计算模式.
 在仓库根目录:
 
 ```shell
-just engine web
-just engine web --mode wasm
-just engine web-dev
-just engine web-build
-just engine test-web
-just engine dist
+just impls web
+just impls web --mode wasm
+just impls web-dev
+just impls web-build
+just impls test-web
+just impls dist
 ```
 
-- `just engine web` 默认在 <http://127.0.0.1:12347> 提供双模式页面.
+- `just impls web` 默认在 <http://127.0.0.1:12347> 提供双模式页面.
 - `--mode wasm` 只提供静态 Web 页面, 不启动 Rust HTTP 计算服务.
 - 开发页面在 <http://127.0.0.1:5173>, API 通过 Vite 代理到本地服务.
 - 可用 `--port` 改计算服务端口, `--frontend-port` 改开发页面端口.
-- CLI 与 Web 的回归不需要启动真游戏. `just engine test-web` 还会实际执行构建后的 WASM.
+- CLI 与 Web 的回归不需要启动真游戏. `just impls test-web` 还会实际执行构建后的 WASM.
 
 需要已有 Rust, wasm32-unknown-unknown 编译目标, Bun 和 uv. 综合归档另需 maturin.
 绑定生成器严格跟随 Rust 锁文件版本, 缺少时只作为项目工具安装在 `.tmp/engine-web-tools`.
@@ -40,7 +40,7 @@ just engine dist
 
 快捷键: `Z`/`Backspace` 上一步, `X` 下一步, `Enter` 出牌, `Shift+Enter` 弃牌, `Esc` 清空选择, `D` 开关调试栏.
 
-贴图, 字体与贴图清单在构建时由 `scripts/engine_web_assets.py` 从 `game/` 生成到 `client/public/game/` (不入库),
+贴图, 字体与贴图清单在构建时由 `scripts/web_assets.py` 从 `game/` 生成到 `client/public/game/` (不入库),
 坐标取自 `game/game.lua` 各原型表的 `pos`. 缺贴图的物品退回文字卡.
 
 按钮先做阶段限制, 最终合法性仍由引擎判断. 被拒绝的动作不会推进历史或随机状态.
@@ -65,7 +65,7 @@ HTTP 使用 revision 防止旧页面提交过期目标, 冲突时拉取最新局
 HTTP 服务重启后可从自动存档重建. 新局和载入会替换当前会话, 请先下载需要保留的路线.
 离开页面前建议下载会话文件, 自动存档不替代备份. 保存失败会在底部给出提示.
 
-正常路径可导出 `.actions.jsonl`, 交给 `just engine play step --actions <文件>` 继续或检查.
+正常路径可导出 `.actions.jsonl`, 交给 `just impls play step --actions <文件>` 继续或检查.
 修改过状态的路径只能用完整会话文件, 不能伪装成普通动作记录.
 本页面不生成假的 LÖVE `.replay.json` 模板.
 

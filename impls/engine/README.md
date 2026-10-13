@@ -43,13 +43,13 @@ cargo clippy --all-targets
 
 这两条也就是 CI 在 linux 上跑的检查 (`build.yml` 的 engine job): 基准数据与手册都随仓库走,
 不需要游戏或 LuaJIT, 所以普通的 push 与 PR 都会跑一遍. 带 `--include-ignored` 的那一档
-需要本机 LuaJIT 与 Lovely 补丁树, 仍然只在本机跑 (见下面的 `just engine audit`).
+需要本机 LuaJIT 与 Lovely 补丁树, 仍然只在本机跑 (见下面的 `just impls audit`).
 
 需要给别的机器一份完整的 engine 工具时:
 
 ```shell
-just engine dist                 # 当前平台与架构, 归档到 dist/engine/
-just engine dist --universal     # macOS 通用二进制与 universal2 wheel
+just impls dist                 # 当前平台与架构, 归档到 dist/engine/
+just impls dist --universal     # macOS 通用二进制与 universal2 wheel
 ```
 
 每个平台一个综合归档, 包含 `bin/` 的 CLI 与 HTTP 服务, `python/` 的 wheel,
@@ -60,11 +60,11 @@ Linux 包使用构建主机的 glibc 基线, 不冒充 manylinux. 直接开发�
 ## Web 对局调试台
 
 ```shell
-just engine web                     # 构建并启动, 打开 http://127.0.0.1:12347
-just engine web --mode wasm         # 只启动静态页面, 不运行 HTTP 计算服务
-just engine web-dev                 # Vite 与 Rust 开发服务, 页面在 5173
-just engine web-build               # 只构建静态 Web/WASM
-just engine test-web                # 历史模型, HTTP, 前端与 WASM 运行测试
+just impls web                     # 构建并启动, 打开 http://127.0.0.1:12347
+just impls web --mode wasm         # 只启动静态页面, 不运行 HTTP 计算服务
+just impls web-dev                 # Vite 与 Rust 开发服务, 页面在 5173
+just impls web-build               # 只构建静态 Web/WASM
+just impls test-web                # 历史模型, HTTP, 前端与 WASM 运行测试
 ```
 
 默认 WASM 在浏览器本地 Worker 中运行真实 Rust 引擎, 也可切换到本地 HTTP 计算.
@@ -83,15 +83,15 @@ cargo test --test dump_replay -- --nocapture
 不启动游戏即可检查原始回放或带解锁快照的 fixture:
 
 ```shell
-just engine replay <回放文件.replay.json> [更多回放文件]
-just engine replay --strict <fixture.jsonl>
+just impls replay <回放文件.replay.json> [更多回放文件]
+just impls replay --strict <fixture.jsonl>
 ```
 
 入口复用正式动作适配器, 保留原局 `snapshot.uda`, 区分游戏拒绝与缺少摘要的动作,
 并报告每局首次分歧. 只容忍游戏回放器已有的卡包图案编号和旧效果名称差异,
 不会忽略金钱, 贴纸或强化差异. 缺少摘要不代表该动作后的状态已经验证.
 源码审计, 实际 Lua 函数裁判与完整对拍的证明范围见 [行为审计](<../docs/rewrite/engine-audit.md>).
-已有 Lua/LuaJIT 和 Lovely 补丁树时, `just engine audit` 可运行包括外部裁判的完整测试,
+已有 Lua/LuaJIT 和 Lovely 补丁树时, `just impls audit` 可运行包括外部裁判的完整测试,
 零警告 clippy 和六份永久记录基准. 两份诊断基准各保留一个明确未验证时点,
 不能把它们与未改动原始记录的完全通过混为一谈.
 
@@ -108,24 +108,24 @@ just macos replay-check-decks <种子> <赌注> [步数]    # 十五副牌组各
 
 ## 让 agent 玩
 
-`just engine play` 是给 agent 用的对局与查询入口. 它**不需要游戏**, 也不需要图形环境:
+`just impls play` 是给 agent 用的对局与查询入口. 它**不需要游戏**, 也不需要图形环境:
 agent 在引擎里走完一局, 再由游戏照着重放核对 (上面那条反向校验的路线).
 
 ```shell
 # 开一局: 牌组与赌注必给, 种子不给就随机生成一个
-just engine play step --deck RED --stake GOLD --actions .tmp/agent/RUN.actions.jsonl
-just engine play step --seed ALEEB --deck RED --stake GOLD --actions .tmp/agent/RUN.actions.jsonl
+just impls play step --deck RED --stake GOLD --actions .tmp/agent/RUN.actions.jsonl
+just impls play step --seed ALEEB --deck RED --stake GOLD --actions .tmp/agent/RUN.actions.jsonl
 
 # 之后不用再给开局参数 (它们记在动作文件的第一行)
-just engine play step --actions .tmp/agent/RUN.actions.jsonl \
+just impls play step --actions .tmp/agent/RUN.actions.jsonl \
     --do '{"method":"play","params":{"cards":[1,2,3]}}'
-just engine play step --actions .tmp/agent/RUN.actions.jsonl --emit .tmp/agent/RUN.replay.json  # 交给 just macos replay 逐步对拍
+just impls play step --actions .tmp/agent/RUN.actions.jsonl --emit .tmp/agent/RUN.replay.json  # 交给 just macos replay 逐步对拍
 
-just engine play prompt                     # 系统提示词
-just engine play lookup j_odd_todd 奇数托德  # 查卡牌的中文名与效果
-just engine play docs                       # 手册目录
-just engine play docs rules/economy.md      # 读某一节
-just engine play search 利息                # 全局搜子串
+just impls play prompt                     # 系统提示词
+just impls play lookup j_odd_todd 奇数托德  # 查卡牌的中文名与效果
+just impls play docs                       # 手册目录
+just impls play docs rules/economy.md      # 读某一节
+just impls play search 利息                # 全局搜子串
 ```
 
 每一步是一次**独立命令**: 每次调用把动作文件从头重放一遍再打印局面. 引擎是确定性的, 所以
@@ -138,8 +138,8 @@ just engine play search 利息                # 全局搜子串
 - `new`: 新存档, 一切按原型的初始值 —— 要复现"从头开始"的场面时用.
 
 ```shell
-just engine play step --seed ALEEB --deck RED --stake GOLD --actions .tmp/agent/RUN.actions.jsonl
-just engine play step --seed ALEEB --deck RED --stake GOLD --uda new --actions .tmp/agent/RUN.actions.jsonl
+just impls play step --seed ALEEB --deck RED --stake GOLD --actions .tmp/agent/RUN.actions.jsonl
+just impls play step --seed ALEEB --deck RED --stake GOLD --uda new --actions .tmp/agent/RUN.actions.jsonl
 ```
 
 档是开局参数的一部分, 开完就记进动作文件, 之后每步不必再给. 想用**自己那份存档**就把
@@ -217,12 +217,12 @@ just engine play step --seed ALEEB --deck RED --stake GOLD --uda new --actions .
 
 ## Python 绑定
 
-`engine/py` 是 engine 的 Python 绑定. 它是个独立 crate (`pyo3` 依赖只加在这里), 所以 engine
+`impls/py` 是 engine 的 Python 绑定. 它是个独立 crate (`pyo3` 依赖只加在这里), 所以 engine
 自己"只要 std"这条性质没被破坏.
 
 ```shell
-just engine dist                                  # 综合归档内包含 Python wheel
-maturin develop --release --manifest-path engine/py/Cargo.toml  # 开发时装进当前项目环境
+just impls dist                                  # 综合归档内包含 Python wheel
+maturin develop --release --manifest-path impls/py/Cargo.toml  # 开发时装进当前项目环境
 ```
 
 ```python

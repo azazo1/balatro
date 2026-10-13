@@ -2,7 +2,7 @@
 
 ## 范围与证据层级
 
-从 [游戏原型定义](<../../game/game.lua#L368-L526>) 枚举 order=1..150, 恰好 150 张, 没有以文档列举替代源码枚举. 同时检查 [小丑本体](<../../engine/src/jokers/mod.rs>) 的具名分支, 以及 [流程](<../../engine/src/run/flow.rs>), [计分](<../../engine/src/scoring/engine.rs>), [生成](<../../engine/src/run/shop.rs>) 和池子对原型的引用.
+从 [游戏原型定义](<../../game/game.lua#L368-L526>) 枚举 order=1..150, 恰好 150 张, 没有以文档列举替代源码枚举. 同时检查 [小丑本体](<../../impls/engine/core/src/jokers/mod.rs>) 的具名分支, 以及 [流程](<../../impls/engine/core/src/run/flow.rs>), [计分](<../../impls/engine/core/src/scoring/engine.rs>), [生成](<../../impls/engine/core/src/run/shop.rs>) 和池子对原型的引用.
 
 - 84 张有本体具名分支, 包括构造特殊值, before, individual, held, repetition, after, other_joker, discard, end_of_round 和 joker_main.
 - 16 张走 config 通用分支: Joker, 10 张 t_mult/t_chips 条件小丑, 5 张牌型 Xmult 小丑. 检查配置值, 包含关系和 main 分支优先级.
@@ -38,7 +38,7 @@
 
 ## 跨域规则与验证边界
 
-以下规则有独立源码证据, 接入位置分别是 [流程](<../../engine/src/run/flow.rs>), [计分](<../../engine/src/scoring/engine.rs>) 和 [生成](<../../engine/src/run/shop.rs>). 本报告的局部 96 项结果不等于对所有这些领域独立执行了全套验收, 完成状态以中央全套测试和对拍报告为准.
+以下规则有独立源码证据, 接入位置分别是 [流程](<../../impls/engine/core/src/run/flow.rs>), [计分](<../../impls/engine/core/src/scoring/engine.rs>) 和 [生成](<../../impls/engine/core/src/run/shop.rs>). 本报告的局部 96 项结果不等于对所有这些领域独立执行了全套验收, 完成状态以中央全套测试和对拍报告为准.
 
 - 大摇大摆 main 的 mult 等于其他小丑卖价总和, 不是 1+总和, 多张大摇大摆也必须按对象排除自己而非全部同 key. [实际动态更新](<../../.tmp/engine-audit/modded-tree/card.lua#L4609-L4616>).
 - To Do List 命中不换任务, 回合末才换, 同手收益在 before 对 main 的 Bull 可见. [命中](<../../.tmp/engine-audit/modded-tree/card.lua#L3891-L3899>) 和 [回合末](<../../.tmp/engine-audit/modded-tree/card.lua#L3368-L3377>).
@@ -238,13 +238,13 @@
 
 Negative 槽位计数, debuff 边缘幂等守卫, 当前 Turtle Bean 撤销量和 Smeared/Pareidolia 重新计算已有实现与规则一致. Chicot 初次传入已削弱对象的生命周期顺序证据不足, 不作为确认缺陷或修复项.
 
-[audit-passives 测试](<../../engine/tests/audit-passives.rs>) 的 8 个案例通过公开进出场和 Boss 回调切换状态, 不直接修改 joker.debuffed 后要求自动回调. 覆盖多 Chaos 不复制被动, 用尽后离场/恢复, Heart 重复过渡, Astronomer 多成员和 debuff 后刷新价格, Drunkard/Merry Andy 弃牌下界与完整默认值, Negative 容量, 以及最终稳定手牌上限补牌. 本组实际结果 8/8.
+[audit-passives 测试](<../../impls/engine/core/tests/audit-passives.rs>) 的 8 个案例通过公开进出场和 Boss 回调切换状态, 不直接修改 joker.debuffed 后要求自动回调. 覆盖多 Chaos 不复制被动, 用尽后离场/恢复, Heart 重复过渡, Astronomer 多成员和 debuff 后刷新价格, Drunkard/Merry Andy 弃牌下界与完整默认值, Negative 容量, 以及最终稳定手牌上限补牌. 本组实际结果 8/8.
 
 ## 回归与执行记录
 
-[audit-jokers 专项测试](<../../engine/tests/audit-jokers.rs>) 覆盖石头 rank/face, wild/smeared, 花盆, 黑板/眼观双路, 同点致胜之拳, 城堡逐张成长, 绿小丑下界与 debuff, 巴士未计分 face, 小不点本手/retrigger, 钢铁全牌线性倍率, Mime 完整手牌效果, debuff 回合末, 醋栗销毁, 积分卡恢复周期, 通灵包含判定, Rocket/Campfire 的 Boss 时机及 Matador 当前配置与 triggered 标志.
+[audit-jokers 专项测试](<../../impls/engine/core/tests/audit-jokers.rs>) 覆盖石头 rank/face, wild/smeared, 花盆, 黑板/眼观双路, 同点致胜之拳, 城堡逐张成长, 绿小丑下界与 debuff, 巴士未计分 face, 小不点本手/retrigger, 钢铁全牌线性倍率, Mime 完整手牌效果, debuff 回合末, 醋栗销毁, 积分卡恢复周期, 通灵包含判定, Rocket/Campfire 的 Boss 时机及 Matador 当前配置与 triggered 标志.
 
-[原小丑测试](<../../engine/tests/jokers.rs>) 有 5 个经实际源码确认的错误基准:
+[原小丑测试](<../../impls/engine/core/tests/jokers.rs>) 有 5 个经实际源码确认的错误基准:
 
 - 钢铁必须显式提供全牌 deck_steels=1.
 - 小不点计分使用本手已有成长, 不是下一手才享有.
@@ -261,9 +261,9 @@ Negative 槽位计数, debuff 边缘幂等守卫, 当前 Turtle Bean 撤销量�
 | Marble 时序基准校正 | 15/15 | 8/8 | 72/72 | 0 |
 | Matador 跨域字段接入 | 16/16 | 8/8 | 72/72 | 0 |
 
-最后一行合计 96/96, 实际执行的命令为 `cargo test --manifest-path engine/Cargo.toml --test audit-passives --test audit-jokers --test jokers`. 该组合验证限于上述测试目标, originVec 模型迁移之后的中央全套验收另行报告. 没有以修改被审计源配置追求通过, 没有删除失败案例, 也没有全文件格式化.
+最后一行合计 96/96, 实际执行的命令为 `cargo test --manifest-path impls/engine/Cargo.toml --test audit-passives --test audit-jokers --test jokers`. 该组合验证限于上述测试目标, originVec 模型迁移之后的中央全套验收另行报告. 没有以修改被审计源配置追求通过, 没有删除失败案例, 也没有全文件格式化.
 
-独立身份转移回归 [audit-identity](<../../engine/tests/audit-identity.rs>) 在出生字段接入后执行 `cargo test --manifest-path engine/Cargo.toml --test audit-identity`, 1/1, exit 0. 货架由真实 Shop::restock 生成 3 张小丑, 逆序购买第 2 格再第 0 格仍保留原对象的非零出生 ID, 剩余货架对象的 ID 不变. 下一个琥珀橡果按真实出生顺序恢复基线, 三次 aajk 洗牌与独立 RNG 的完整 ID 队列相等. 没有伪造初始 UID 或依赖全局绝对号, 该测试保护对象移动不被误当作新建, 不把复制的新身份规则或完整录像尾段当作已经独立验证.
+独立身份转移回归 [audit-identity](<../../impls/engine/core/tests/audit-identity.rs>) 在出生字段接入后执行 `cargo test --manifest-path impls/engine/Cargo.toml --test audit-identity`, 1/1, exit 0. 货架由真实 Shop::restock 生成 3 张小丑, 逆序购买第 2 格再第 0 格仍保留原对象的非零出生 ID, 剩余货架对象的 ID 不变. 下一个琥珀橡果按真实出生顺序恢复基线, 三次 aajk 洗牌与独立 RNG 的完整 ID 队列相等. 没有伪造初始 UID 或依赖全局绝对号, 该测试保护对象移动不被误当作新建, 不把复制的新身份规则或完整录像尾段当作已经独立验证.
 
 L 层级验证使用独立 LuaJIT 执行从补丁树提取的实际 calculate_joker 函数, exit 0, 共 5 项: Wee 同手成长, Flower Pot 三花色+wild, Raised Fist 最右最低/debuff 不改选, Cavendish end_of_round 命中销毁, Steel Joker 3 张钢铁的线性 x1.6. 最小宿主仅模拟 G 区域对象, UI/事件, card predicate 和 SMODS.scale_card/概率入口, 没有将 Joker 效果分支重新实现一份作裁判. 概率入口强制命中以测试销毁分支, 不能将该验证当作概率分布证明.
 

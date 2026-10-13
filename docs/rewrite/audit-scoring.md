@@ -31,8 +31,8 @@
 | 等级下界 | 使用原版筹码和倍率下界 | SMODS 直接加增量, 0 级 High Card 为 -5 chips/0 mult |
 | Matador/Bull | 单一现金奖励, 槽位现金快照过旧 | boss_triggered 驱动每个主效果来源, Bull 读取本格之前已经到账的收入 |
 
-实现见 [计分主流程](<../../engine/src/scoring/engine.rs>),
-[牌型判定](<../../engine/src/scoring/poker_hand.rs>)和[等级表](<../../engine/src/scoring/hand_levels.rs>).
+实现见 [计分主流程](<../../impls/engine/core/src/scoring/engine.rs>),
+[牌型判定](<../../impls/engine/core/src/scoring/poker_hand.rs>)和[等级表](<../../impls/engine/core/src/scoring/hand_levels.rs>).
 
 ## 生命周期矩阵
 
@@ -59,12 +59,12 @@
 
 ## 验证
 
-[计分回归](<../../engine/tests/audit-scoring.rs>)包含 22 个常规测试,
-[实际 Lua 裁判](<../../engine/tests/lua/audit_poker.lua>)直接提取真实函数, 比较 10 个输入的 33 个牌型子组.
+[计分回归](<../../impls/engine/core/tests/audit-scoring.rs>)包含 22 个常规测试,
+[实际 Lua 裁判](<../../impls/engine/core/tests/lua/audit_poker.lua>)直接提取真实函数, 比较 10 个输入的 33 个牌型子组.
 Lua 和 LuaJIT 都执行过该裁判. Rust 可选裁判需要已有解释器和 Lovely 补丁树,
 不自动安装软件, 不把 Rust 算法翻译成 Lua 来自证.
 
-[运行层补充回归](<../../engine/tests/audit-extra-flow.rs>)包含 12 个关键交互:
+[运行层补充回归](<../../impls/engine/core/tests/audit-extra-flow.rs>)包含 12 个关键交互:
 Hook 移牌, 全 front 池单次抽取, 多实例和复制生成, Certificate,
 Water/Needle/Manacle 停用恢复, Heart 被动能力恢复及过期 Perishable,
 Wild/Stone/Smeared/Pareidolia/rank 重判削弱, DNA/Erosion 与 Vampire/Stone/Driver License 的同手统计.
