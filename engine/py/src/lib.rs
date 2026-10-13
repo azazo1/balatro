@@ -148,6 +148,30 @@ impl Game {
         self.state.consumables.iter().map(|card| card.key.clone()).collect()
     }
 
+    /// 预览商店序列: 同一个种子下, 底注 `ante` 的商店连续刷新 `rolls` 次, 每次摆出的
+    /// (小丑, 券, 补充包) 各是什么.
+    ///
+    /// 商店的每一格是按键独立的伪随机 (`pseudorandom("cdt{底注}")` 与 `"rarity{底注}sho"`),
+    /// 所以**每个底注的序列与其他底注、与你怎么出牌都无关** —— 于是可以开局就把整条路线查出来.
+    /// 这正是攻略里那个种子查询工具做的事.
+    fn preview_shop(&self, ante: i64, rolls: usize) -> Vec<(Vec<String>, Vec<String>, Vec<String>)> {
+        let mut probe = self.state.clone();
+        probe.ante = ante;
+        let mut shop = engine::run::Shop::restock(&mut probe);
+        let mut out = Vec::new();
+        for step in 0..rolls.max(1) {
+            if step > 0 {
+                shop.reroll_jokers(&mut probe);
+            }
+            out.push((
+                shop.jokers.iter().map(|card| card.key.clone()).collect(),
+                shop.vouchers.iter().map(|card| card.key.clone()).collect(),
+                shop.packs.iter().map(|card| card.key.clone()).collect(),
+            ));
+        }
+        out
+    }
+
     /// 内置全解锁档的原文.
     #[staticmethod]
     fn full_unlock_uda() -> &'static str {

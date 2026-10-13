@@ -17,7 +17,7 @@ pub use digest::{digest, diff, state_name};
 pub use flow::{ActionError, Phase};
 pub use pool::{tag_pool, voucher_pick_index, voucher_pool};
 pub use shop::{
-    ShopCard, ShopRates, consumable_count, create_card, create_card_for_shop, get_pack,
+    Shop, ShopCard, ShopRates, consumable_count, create_card, create_card_for_shop, get_pack,
     nested_number, open_pack, pack_kind_of, pick_or_resample, poll_edition,
     poll_edition_guaranteed, shop_cost,
 };

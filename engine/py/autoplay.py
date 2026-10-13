@@ -1,12 +1,19 @@
-"""在引擎的 Python 绑定上自动对局, 目标是在**任意种子**下尽量打高.
+"""在引擎的 Python 绑定上自动对局, 用的是**上帝视角** —— 它会查这个种子的商店序列.
 
-它替 agent 做掉确定性计算, 把判断留给搜索:
+商店每一格是按键独立的伪随机, 所以每个底注的序列与出牌无关, 开局就能算出来 (攻略作者用
+外部种子查询工具干的就是这件事). 于是"第几次刷新会出窃贼/蓝图/反物质"是已知条件, 刷新不再
+是试错, 而是按序列往前走.
+
+只用游戏内可见信息的玩法不走这里, 走 `just play` 的逐步对局或那份命令行驱动的 hybrid 脚本;
+两边共用同一个引擎与绑定, 互相不干扰 (查序列只操作克隆, 不改真实对局).
+
+其余判断:
 - 出牌: 先用牌型估算预筛候选, 再对前几名落到引擎里真打, 往前看几手取整回合总分最高
 - 弃牌: 只留目标点数与主花色的牌 (追同花), 值不值得换交给上面那层搜索
 - 商店: 每个买得起的动作都在克隆出来的分支上推进两个商店, 按"最紧一关的余量"挑
 - 消耗牌: 行星牌升级牌型, 太阳与符印并花色, 死神与神秘生物把杂牌换成目标牌
 
-强度用一批种子上的**平均**到达底注衡量, 不挑种子 —— 换种子只该看到波动, 不该换出一套水平.
+强度用一批种子上的**平均**到达底注衡量, 不挑种子.
 
 用法:
     just engine-py                                  # 先装好绑定
@@ -646,6 +653,27 @@ def rental_slots(game):
     return slots
 
 
+def oracle_ahead(game, rolls=6):
+    """往前看几次刷新, 返回第一件够格的关键件: (第几次, 是什么, 大概要花多少钱).
+
+    这是"上帝视角"版本的基本能力 —— 商店序列开局就能算出来, 所以刷新不用试错, 直接看第几次
+    出什么、要花多少钱, 够本才刷. (只用游戏内可见信息的玩法走 just play 或 hybrid.py.)
+    """
+    plan = game.preview_shop(game.ante(), rolls)
+    spent = 0.0
+    for step, (jokers, _vouchers, _packs) in enumerate(plan):
+        spent += 5.0 + step
+        for key in jokers:
+            if PRIORITY.get(key, 0.0) >= 100.0:
+                return step, key, spent
+    return None
+
+
+def gift_rank(key):
+    """这件东西值不值得专门为它花钱刷新."""
+    return PRIORITY.get(key, 0.0)
+
+
 def sell_worst(game):
     """卡位满时卖掉最没用的小丑: 先卖每回合扣钱的, 再卖评分最低的.
 
@@ -704,6 +732,13 @@ def greedy_shop(game):
         keep = 0.0 if game.ante() <= 2 else (5.0 if game.ante() < 5 else 10.0)
         if buy_something(game, shelf(game), money, keep):
             continue
+        # 上帝视角: 刷新不是试错, 而是按已知的序列往前走 —— 只为准出关键件的那几次掏钱.
+        ahead = oracle_ahead(game, 6)
+        if ahead:
+            step, key, cost = ahead
+            if money - cost >= keep and gift_rank(key) >= 100.0:
+                act(game, "reroll")
+                continue
         if money >= float(os.environ.get("REFRESH_AT", "25")):
             act(game, "reroll")
             continue
