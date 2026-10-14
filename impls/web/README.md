@@ -22,6 +22,7 @@ just impls dist
 - 开发页面在 <http://127.0.0.1:5173>, API 通过 Vite 代理到本地服务.
 - 可用 `--port` 改计算服务端口, `--frontend-port` 改开发页面端口.
 - CLI 与 Web 的回归不需要启动真游戏. `just impls test-web` 还会实际执行构建后的 WASM.
+- 构建默认带上浏览器版原版游戏, 开始页出现 "原版游戏" 入口. 加 `--no-game` 跳过, 入口随之隐藏.
 
 需要已有 Rust, wasm32-unknown-unknown 编译目标, Bun 和 uv. 综合归档另需 maturin.
 绑定生成器严格跟随 Rust 锁文件版本, 缺少时只作为项目工具安装在 `.tmp/engine-web-tools`.
@@ -74,7 +75,15 @@ HTTP 服务重启后可从自动存档重建. 新局和载入会替换当前会�
 综合发行包只有一个平台归档, 包含 `bin/`, `python/`, `web/` 与内部 SHA256 manifest.
 启动其中的 HTTP 服务即可自动找到静态产物. 纯 WASM 部署只需托管 `web/`.
 仓库的调试台由 `.github/workflows/pages.yml` 在 main 更新时发布到
-<https://azazo1.github.io/balatro/>, 该站点只含 WASM 模式.
+<https://azazo1.github.io/balatro/>, 该站点只含 WASM 模式, 并带浏览器版原版游戏 (`/play/`).
+综合归档不含浏览器版游戏.
+
+浏览器版游戏由 `scripts/web_game.py` 生成到 `client/public/play/`: 按 lovely 规则打好 mod 补丁,
+再用 love.js 11.4 (compat 版, 不需要 COOP/COEP 头) 打包. 兼容层在 `game/lua/`, 补齐 Lua 5.1 与 LuaJIT 的差异
+(`bit`, `jit`, `load`, TW223 随机数), 用协程模拟 `love.thread`, 并把 ffi 版 nativefs 换成 love.filesystem.
+构建时还会把 `goto` 改写成 `repeat ... until true`, 并修正 WebGL1 不接受的着色器写法.
+有 Lua 5.1 的 `luac` 时会做语法检查, 用 `LUAC51` 环境变量指定路径.
+存档在浏览器 IndexedDB 里, 没有真线程, 帧间隔会比桌面版长. 随机数与桌面版的一致性尚未核对.
 必须通过 HTTP/HTTPS 打开, 不支持 `file://`. WASM 在 Worker 内运行, 不把大块计算放在 UI 线程.
 
 HTTP 服务只绑定 127.0.0.1, 检查 Host 与 Origin, 不启用宽松 CORS, 不暴露本机文件路径接口.

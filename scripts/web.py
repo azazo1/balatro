@@ -12,6 +12,7 @@ import time
 import tomllib
 
 from lib import layout, log, version as versionlib
+import web_game
 
 ROOT = Path(layout.ROOT_DIR)
 WEB = ROOT / "impls" / "web"
@@ -46,7 +47,8 @@ def sync_game_assets():
     log.run([sys.executable, str(ROOT / "scripts" / "web_assets.py")], cwd=str(ROOT))
 
 
-def build_assets(version=None):
+def build_assets(version=None, game=True):
+    """game 为真时同时构建浏览器版游戏, 进入 dist/play/; 否则清掉旧的, 页面上的入口随之隐藏."""
     started = time.monotonic()
     version = version or versionlib.build_version()
     env = dict(os.environ, CARGO_TARGET_DIR=str(TARGET), PROJECT_BUILD_VERSION=version)
@@ -61,6 +63,10 @@ def build_assets(version=None):
     log.run([bindgen, "--target", "web", "--out-dir", str(CLIENT / "public" / "wasm"), "--out-name", "engine_lab",
              str(TARGET / "wasm32-unknown-unknown" / "release" / "balatro_web_wasm.wasm")])
     sync_game_assets()
+    if game:
+        web_game.build()
+    elif web_game.OUT.exists():
+        shutil.rmtree(web_game.OUT)
     log.run(["bun", "run", "build"], cwd=str(CLIENT), env=env)
     log.run(["bun", "run", str(ROOT / "scripts" / "engine_wasm_smoke.ts")] + ([version] if version else []), cwd=str(ROOT))
     for relative in ["index.html", "wasm/engine_lab.js", "wasm/engine_lab_bg.wasm", "game/sprites.json"]:
@@ -113,6 +119,7 @@ def main():
     parser.add_argument("--port", type=int, default=12347)
     parser.add_argument("--frontend-port", type=int, default=5173)
     parser.add_argument("--mode", choices=["http", "wasm"], default="http")
+    parser.add_argument("--no-game", action="store_true", help="不构建浏览器版游戏 (/play/), 构建更快")
     args = parser.parse_args()
     if not 1 <= args.port <= 65535 or not 1 <= args.frontend_port <= 65535:
         parser.error("端口须为 1..65535")
@@ -125,13 +132,13 @@ def main():
         log.run(["cargo", "clippy", "--locked", "--manifest-path", str(WEB / "Cargo.toml"), "--workspace", "--all-targets", "--", "-D", "warnings"])
         log.run(["bun", "install", "--frozen-lockfile"], cwd=str(CLIENT))
         log.run(["bun", "run", "test"], cwd=str(CLIENT))
-        build_assets()
+        build_assets(game=not args.no_game)
         return 0
     version = versionlib.build_version()
     def stop(_signal, _frame):
         raise KeyboardInterrupt
     signal.signal(signal.SIGTERM, stop)
-    assets = build_assets(version)
+    assets = build_assets(version, game=not args.no_game)
     env = dict(os.environ, PROJECT_BUILD_VERSION=version)
     if args.command == "build":
         return 0

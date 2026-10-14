@@ -1,0 +1,31 @@
+{
+  "lockfileVersion": 1,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "balatro-lovejs-tools",
+      "dependencies": {
+        "love.js": "11.4.1",
+      },
+    },
+  },
+  "packages": {
+    "commander": ["commander@2.20.3", "", {}, "sha512-GpVkmM8vF2vQUkj2LvZmD35JxeJOLCwJ9cUkugyk2nuhbv3+mJvpLYYt+0+USMxE+oj+ey/lJEnhZw75x/OMcQ=="],
+
+    "fs-extra": ["fs-extra@3.0.1", "", { "dependencies": { "graceful-fs": "^4.1.2", "jsonfile": "^3.0.0", "universalify": "^0.1.0" } }, "sha512-V3Z3WZWVUYd8hoCL5xfXJCaHWYzmtwW5XWYSlLgERi8PWd8bx1kUHUk8L1BT57e49oKnDDD180mjfrHc1yA9rg=="],
+
+    "graceful-fs": ["graceful-fs@4.2.11", "", {}, "sha512-RbJ5/jmFcNNCcDV5o9eTnBLJ/HszWV0P73bc+Ff4nS/rJj+YaS6IGyiOL0VoBYX+l1Wrl3k63h/KrH+nhJ0XvQ=="],
+
+    "jsonfile": ["jsonfile@3.0.1", "", { "optionalDependencies": { "graceful-fs": "^4.1.6" } }, "sha512-oBko6ZHlubVB5mRFkur5vgYR1UyqX+S6Y/oCfLhqNdcc2fYFlDpIoNc7AfKS1KOGcnNAkvsr0grLck9ANM815w=="],
+
+    "klaw-sync": ["klaw-sync@2.1.0", "", { "optionalDependencies": { "graceful-fs": "^4.1.11" } }, "sha512-lIxVCUMQIF7hfygFfdZgv4Z+e1smLroaYNQMUcf1TcJ5oqxj9m8qk19iIuMVl+tXQPr3CSE4V+4XjGEqmsth0Q=="],
+
+    "love.js": ["love.js@11.4.1", "", { "dependencies": { "commander": "^2.9.0", "fs-extra": "^3.0.1", "klaw-sync": "^2.1.0", "mustache": "^2.3.0", "uuid": "^3.0.1" }, "bin": { "love.js": "index.js" } }, "sha512-NLMD2GpIHOCsflgulr18p4+Crizfixgo5ZMbJmDrqVuR7jdketbUDL7X+LCR2o2uMkVU8ZwXnRwT86S7A75yhA=="],
+
+    "mustache": ["mustache@2.3.2", "", { "bin": { "mustache": "./bin/mustache" } }, "sha512-KpMNwdQsYz3O/SBS1qJ/o3sqUJ5wSb8gb0pul8CO0S56b9Y2ALm8zCfsjPXsqGFfoNBkDwZuZIAjhsZI03gYVQ=="],
+
+    "universalify": ["universalify@0.1.2", "", {}, "sha512-rBJeI5CXAlmy1pV+617WB9J63U6XcazHHF2f2dbJix4XzpUF0RS3Zbj0FGIOCAva5P/d/GBOYaACQ1w+0azUkg=="],
+
+    "uuid": ["uuid@3.4.0", "", { "bin": { "uuid": "./bin/uuid" } }, "sha512-HjSDRw6gZE5JMggctHBcjVak08+KEVhSIiDzFnT9S9aegmp85S/bReBVTb4QTFaRNptJ9kuYaNhnbNEOkbKb/A=="],
+  }
+}

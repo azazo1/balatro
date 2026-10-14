@@ -51,9 +51,11 @@ web *args:
 web-dev *args:
     {{ python }} scripts/web.py dev {{ args }}
 
+# just impls web-build [--no-game]
+# 默认带上浏览器版原版游戏 (/play/), --no-game 跳过.
 # 仅构建纯静态 Web/WASM 页面, 无需启动 HTTP 计算服务.
-web-build:
-    {{ python }} scripts/web.py build
+web-build *args:
+    {{ python }} scripts/web.py build {{ args }}
 
 # 运行历史模型, HTTP, 前端关键测试与双模式构建检查.
 test-web:

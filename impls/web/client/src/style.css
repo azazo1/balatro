@@ -29,6 +29,7 @@ h1, h2, h3, p, pre { margin: 0; }
   line-height: 1.1; white-space: nowrap; transition: transform .06s, filter .1s;
 }
 .btn:hover:not(:disabled) { filter: brightness(1.12); }
+a.btn { display: inline-block; text-decoration: none; }
 .btn:active:not(:disabled) { transform: translateY(.16em); box-shadow: 0 .04em 0 color-mix(in srgb, var(--c) 55%, #000); }
 .btn:disabled { --c: #6b6b6b; cursor: not-allowed; opacity: .6; }
 .btn.blue { --c: var(--blue); } .btn.red { --c: var(--red); } .btn.orange { --c: var(--orange); }

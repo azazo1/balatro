@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Balatro Modded</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #1e2b2d; overflow: hidden; }
+    #canvas { display: block; width: 100vw; height: 100vh; visibility: hidden; outline: none; }
+    #status { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+              color: #fff; font: 20px sans-serif; text-align: center; white-space: pre-line; }
+  </style>
+</head>
+<body>
+  <canvas id="canvas" tabindex="0" oncontextmenu="event.preventDefault()"></canvas>
+  <div id="status" role="status" aria-live="polite">加载中...</div>
+  <script>
+    var statusEl = document.getElementById("status");
+    var canvas = document.getElementById("canvas");
+    function fitCanvas() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+    window.addEventListener("keydown", function (e) {
+      if ([32, 37, 38, 39, 40].indexOf(e.keyCode) > -1) e.preventDefault();
+    });
+    window.addEventListener("click", function () { canvas.focus(); });
+    // love.js 出错时会 alert, 模态框会卡住整个页面; 换成在页面上显示, 并保留最近的日志便于排查.
+    window.__gameLogs = [];
+    function keepLog(level, args) {
+      var line = level + " " + Array.prototype.map.call(args, String).join(" ");
+      window.__gameLogs.push(line);
+      if (window.__gameLogs.length > 500) window.__gameLogs.shift();
+      return line;
+    }
+    window.alert = function (msg) {
+      keepLog("[alert]", [msg]);
+      statusEl.style.display = "flex";
+      statusEl.textContent = msg + "\n\n" + window.__gameLogs.slice(-15).join("\n");
+    };
+    var Module = {
+      arguments: ["./"],
+      INITIAL_MEMORY: __MEMORY__,
+      print: function () { keepLog("[log]", arguments); console.log.apply(console, arguments); },
+      printErr: function () { keepLog("[err]", arguments); console.error.apply(console, arguments); },
+      canvas: canvas,
+      setStatus: function (text) {
+        if (text) {
+          statusEl.textContent = text;
+        } else if (Module.remainingDependencies === 0) {
+          statusEl.style.display = "none";
+          canvas.style.visibility = "visible";
+          canvas.focus();
+        }
+      },
+      totalDependencies: 0,
+      remainingDependencies: 0,
+      monitorRunDependencies: function (left) {
+        this.remainingDependencies = left;
+        this.totalDependencies = Math.max(this.totalDependencies, left);
+        Module.setStatus(left ? "准备中... (" + (this.totalDependencies - left) + "/" + this.totalDependencies + ")" : "");
+      }
+    };
+    canvas.addEventListener("webglcontextlost", function (e) {
+      statusEl.style.display = "flex";
+      statusEl.textContent = "WebGL 上下文丢失, 请刷新页面";
+      e.preventDefault();
+    });
+    window.onerror = function (msg) {
+      statusEl.style.display = "flex";
+      statusEl.textContent = "出错了, 详见浏览器控制台\n" + msg;
+    };
+    fitCanvas();
+    Module.setStatus("下载中...");
+    function applicationLoad() { Love(Module); }
+  </script>
+  <script src="game.js"></script>
+  <script async src="love.js" onload="applicationLoad()"></script>
+</body>
+</html>

@@ -30,5 +30,7 @@ node_modules/
 /impls/web/wasm/pkg/
 # 由 scripts/engine_web_assets.py 从 game/ 生成的原版贴图与字体
 /impls/web/client/public/game/
+# 由 scripts/web_game.py 生成的浏览器版游戏
+/impls/web/client/public/play/
 
 .DS_Store

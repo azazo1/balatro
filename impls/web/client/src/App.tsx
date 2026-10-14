@@ -39,6 +39,11 @@ export function App() {
   const scoring = usePlayback(usePreview(backend, busy ? null : view, selected));
 
   useEffect(() => { void loadSprites().then(() => setSpritesReady(true)); }, []);
+  // 浏览器版游戏是可选产物 (构建时 --no-game 不生成), 存在时才显示入口.
+  const [hasGame, setHasGame] = useState(false);
+  useEffect(() => {
+    void fetch('./play/index.html', { method: 'HEAD' }).then(r => setHasGame(r.ok)).catch(() => setHasGame(false));
+  }, []);
   useEffect(() => { localStorage.setItem('engine-lab-sidebar', sidebar ? 'on' : 'off'); }, [sidebar]);
   // 错误弹条几秒后自动消失.
   useEffect(() => { if (!error) return; const t = setTimeout(() => setError(''), 6000); return () => clearTimeout(t); }, [error]);
@@ -209,6 +214,7 @@ export function App() {
           <div className="welcome-buttons">
             <button className="btn blue big" disabled={busy || !info} onClick={() => setNewGame(true)}>开始</button>
             <button className="btn orange big" disabled={busy} onClick={() => fileInput.current?.click()}>载入</button>
+            {hasGame && <a className="btn green big" href="./play/" title="在浏览器里运行带 mod 的原版游戏 (LÖVE, 约 100 MB)">原版游戏</a>}
             <button className="btn grey big" disabled={busy} onClick={() => void backupAutosave()}>备份存档</button>
             {/* 开始页也要能切后端: HTTP 连不上时 (例如静态 Pages) 只能从这里切回 WASM. */}
             <button className="btn grey big" disabled={busy} onClick={() => void switchMode(mode === 'wasm' ? 'http' : 'wasm')}

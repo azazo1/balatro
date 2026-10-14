@@ -62,7 +62,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for f in index.html wasm/engine_lab.js wasm/engine_lab_bg.wasm game/sprites.json; do
+          for f in index.html wasm/engine_lab.js wasm/engine_lab_bg.wasm game/sprites.json play/index.html play/love.wasm play/game.data; do
             test -f "impls/web/client/dist/$f" || { echo "::error::缺少 $f"; exit 1; }
           done
           du -sh impls/web/client/dist

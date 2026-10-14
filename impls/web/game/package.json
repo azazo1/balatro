@@ -1,0 +1,7 @@
+{
+  "name": "balatro-web-game",
+  "private": true,
+  "dependencies": {
+    "love.js": "11.4.1"
+  }
+}

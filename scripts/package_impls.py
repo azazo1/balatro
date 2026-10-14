@@ -263,7 +263,8 @@ def main():
     version = versionlib.build_version()
     ensure_triples(triples + ["wasm32-unknown-unknown"])
     log.info("统一构建 %s / %s / %s" % (version, platform, arch))
-    assets = web.build_assets(version)
+    # 浏览器版游戏约 100 MB 且含完整游戏资源, 综合归档只放调试台.
+    assets = web.build_assets(version, game=False)
     build(triples, version)
     bundle = bundle_name(version, platform, arch)
     out_dir = Path(layout.ensure_dir(layout.ENGINE_DIST)).resolve()
