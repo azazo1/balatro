@@ -23,6 +23,8 @@ export function App() {
   const [status, setStatus] = useState('正在加载引擎');
   const [selected, setSelected] = useState<number[]>([]);
   const [newGame, setNewGame] = useState(false);
+  // 游戏内可以回开始页 (原版游戏入口在那儿); 回主页不丢当前对局, 回来点 "继续" 即可.
+  const [home, setHome] = useState(false);
   const [pendingFile, setPendingFile] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [sidebar, setSidebar] = useState(localStorage.getItem('engine-lab-sidebar') !== 'off');
@@ -49,7 +51,7 @@ export function App() {
   useEffect(() => { if (!error) return; const t = setTimeout(() => setError(''), 6000); return () => clearTimeout(t); }, [error]);
 
   function accept(next: View) {
-    current.current = next; setView(next); setSelected([]); setDirty(true);
+    current.current = next; setView(next); setSelected([]); setDirty(true); setHome(false);
   }
   async function autosave(instance: Backend, activeMode: Mode) {
     try { await writeAutosave(activeMode, await instance.save()); setStatus('全部分支已自动保存在此浏览器'); }
@@ -164,11 +166,12 @@ export function App() {
   }
   function start(opening: Opening) { void run(b => b.create(opening), '正在创建对局').then(ok => { if (ok) setNewGame(false); }); }
 
-  // 快捷键: 焦点在输入控件里时不生效, 打开对话框时也不生效.
+  // 快捷键: 焦点在输入控件里时不生效, 打开对话框时也不生效, 回主页时不生效.
   const onKey = useCallback((e: KeyboardEvent) => {
     const target = e.target as HTMLElement | null;
     if (target && (target.closest('input, textarea, select, [contenteditable=true]') || target.closest('[role=dialog]'))) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (home) return;
     const v = current.current;
     const key = e.key.toLowerCase();
     if (key === 'd') { e.preventDefault(); setSidebar(s => !s); return; }
@@ -182,7 +185,7 @@ export function App() {
       e.preventDefault(); act({ method: e.shiftKey ? 'discard' : 'play', params: { cards: [...selected] } });
     } else if (key === 'escape') setSelected([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected]);
+  }, [selected, home]);
   useEffect(() => { window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey); }, [onKey]);
 
   const toggle = (i: number) => setSelected(old => old.includes(i) || old.length < 5 ? toggleSelection(old, i) : old);
@@ -192,6 +195,7 @@ export function App() {
       {view && <><span className="seed" title="种子">{view.opening.seed}</span><span>{deckName} · 赌注 {view.opening.stake}</span>{view.edited && <span className="pill warn">调试路径</span>}</>}
     </div>
     <div className="menu-buttons">
+      <button className="btn grey small" disabled={busy} onClick={() => { setSelected([]); setHome(true); }} title="回开始页, 当前对局保留">主页</button>
       <button className="btn orange small" disabled={busy || !info} onClick={() => setNewGame(true)}>新局</button>
       <button className="btn orange small" disabled={busy} onClick={() => fileInput.current?.click()}>载入</button>
       <button className="btn orange small" disabled={busy || !view} onClick={() => void exportFile()} title="下载全部分支会话文件">保存</button>
@@ -201,17 +205,18 @@ export function App() {
     </div>
   </>;
 
-  return <div className={`app ${sidebar && view ? 'with-sidebar' : ''}`} data-sprites={spritesReady ? 'ready' : 'loading'}
+  return <div className={`app ${sidebar && view && !home ? 'with-sidebar' : ''}`} data-sprites={spritesReady ? 'ready' : 'loading'}
     style={{ '--sidebar-w': `${sidebarWidth}px` } as CSSProperties}>
     <div className="stage-wrap">
       <div className="stage" ref={stage}>
-        {view ? <>
+        {view && !home ? <>
           <Hud view={view} actions={menu} scoring={scoring} />
           <Board view={view} busy={busy} selected={selected} toggle={toggle} act={act} scoring={scoring} />
         </> : <div className="welcome">
           <div className="logo" style={spriteCss(lookup('logo')) ?? {}} role="img" aria-label="Balatro" />
           <p className="welcome-sub">引擎对局调试台 · 每一步都可回溯与分支</p>
           <div className="welcome-buttons">
+            {view && <button className="btn blue big" onClick={() => setHome(false)}>继续当前对局</button>}
             <button className="btn blue big" disabled={busy || !info} onClick={() => setNewGame(true)}>开始</button>
             <button className="btn orange big" disabled={busy} onClick={() => fileInput.current?.click()}>载入</button>
             {hasGame && <a className="btn green big" href="./play/" title="在浏览器里运行带 mod 的原版游戏 (LÖVE, 约 100 MB)">原版游戏</a>}
@@ -226,13 +231,13 @@ export function App() {
         {error && <div className="alert" role="alert"><span>{error}</span><button onClick={() => setError('')} aria-label="关闭错误提示">×</button></div>}
       </div>
     </div>
-    {sidebar && view && <DebugPanel view={view} busy={busy} jump={jump} debug={debug} edit={edit} />}
-    {sidebar && view && <SidebarResizer width={sidebarWidth} setWidth={setSidebarWidth} />}
+    {sidebar && view && !home && <DebugPanel view={view} busy={busy} jump={jump} debug={debug} edit={edit} />}
+    {sidebar && view && !home && <SidebarResizer width={sidebarWidth} setWidth={setSidebarWidth} />}
     <footer className="status-bar"><span className={`dot ${error ? 'failed' : ''}`} />{status}
       <span className="keys">Z 上一步 · X 下一步 · Enter 出牌 · Shift+Enter 弃牌 · D 调试栏</span>
       <span>{mode === 'wasm' ? '浏览器本地引擎' : '本地 Rust 服务'} · {info?.version ?? '加载中'}</span></footer>
     <input ref={fileInput} type="file" accept=".json,application/json" hidden onChange={e => { void chooseFile(e.target.files?.[0]); e.target.value = ''; }} />
-    {newGame && <NewGame info={info} initial={view?.opening} busy={busy} replacing={!!view} onStart={start} onClose={view ? () => setNewGame(false) : undefined} />}
+    {newGame && <NewGame info={info} initial={view?.opening} busy={busy} replacing={!!view} onStart={start} onClose={() => setNewGame(false)} />}
     {pendingFile != null && <div className="modal-backdrop"><section className="modal panel-box" role="dialog" aria-modal="true" aria-labelledby="load-title">
       <h2 id="load-title" className="modal-title">载入会话</h2>
       <p>验证全部节点后替换当前会话. 文件无效时保留原局.</p>
