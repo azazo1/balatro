@@ -14,6 +14,9 @@ import { useStageScale } from './ui/useStageScale';
 import { SidebarResizer, useSidebarWidth } from './ui/SidebarResizer';
 import { usePlayback, usePreview } from './preview/usePreview';
 
+// 浏览器版游戏点退出后带 ?home=1 回到这儿: 会话照常恢复, 但停在开始页而不是直接进棋盘.
+const WANT_HOME = new URLSearchParams(window.location.search).has('home');
+
 export function App() {
   const [mode, setMode] = useState<Mode>(localStorage.getItem('engine-lab-mode') === 'http' ? 'http' : 'wasm');
   const [info, setInfo] = useState<Info | null>(null);
@@ -24,7 +27,8 @@ export function App() {
   const [selected, setSelected] = useState<number[]>([]);
   const [newGame, setNewGame] = useState(false);
   // 游戏内可以回开始页 (原版游戏入口在那儿); 回主页不丢当前对局, 回来点 "继续" 即可.
-  const [home, setHome] = useState(false);
+  // 这个状态跟着地址栏的 ?home=1 走, 所以在开始页刷新还留在开始页.
+  const [home, setHome] = useState(WANT_HOME);
   const [pendingFile, setPendingFile] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [sidebar, setSidebar] = useState(localStorage.getItem('engine-lab-sidebar') !== 'off');
@@ -50,8 +54,15 @@ export function App() {
   // 错误弹条几秒后自动消失.
   useEffect(() => { if (!error) return; const t = setTimeout(() => setError(''), 6000); return () => clearTimeout(t); }, [error]);
 
-  function accept(next: View) {
-    current.current = next; setView(next); setSelected([]); setDirty(true); setHome(false);
+  // 开始页与棋盘之间来回时同步地址栏: 刷新, 前进后退, 从游戏退回来都落在同一个地方.
+  function showHome(next: boolean) {
+    setHome(next);
+    history.replaceState(null, '', next ? `${window.location.pathname}?home=1` : window.location.pathname);
+  }
+  // keepHome 用于"恢复已有对局": 从游戏退回来时对局要恢复, 但视线仍留在开始页.
+  function accept(next: View, keepHome = false) {
+    current.current = next; setView(next); setSelected([]); setDirty(true);
+    if (!keepHome) showHome(false);
   }
   async function autosave(instance: Backend, activeMode: Mode) {
     try { await writeAutosave(activeMode, await instance.save()); setStatus('全部分支已自动保存在此浏览器'); }
@@ -88,7 +99,8 @@ export function App() {
         }
         if (!alive) return;
         if (restored) {
-          accept(restored); await autosave(instance, mode);
+          // 恢复对局不动视线: 从游戏退回来时留在开始页, 切后端时也保持原来的页面.
+          accept(restored, true); await autosave(instance, mode);
           const notice = restored.notice;
           if (notice?.dropped) setError(`${notice.message}. 原存档已备份, 可用 备份存档 下载`);
           else if (notice) setStatus(notice.message);
@@ -195,7 +207,7 @@ export function App() {
       {view && <><span className="seed" title="种子">{view.opening.seed}</span><span>{deckName} · 赌注 {view.opening.stake}</span>{view.edited && <span className="pill warn">调试路径</span>}</>}
     </div>
     <div className="menu-buttons">
-      <button className="btn grey small" disabled={busy} onClick={() => { setSelected([]); setHome(true); }} title="回开始页, 当前对局保留">主页</button>
+      <button className="btn grey small" disabled={busy} onClick={() => { setSelected([]); showHome(true); }} title="回开始页, 当前对局保留">主页</button>
       <button className="btn orange small" disabled={busy || !info} onClick={() => setNewGame(true)}>新局</button>
       <button className="btn orange small" disabled={busy} onClick={() => fileInput.current?.click()}>载入</button>
       <button className="btn orange small" disabled={busy || !view} onClick={() => void exportFile()} title="下载全部分支会话文件">保存</button>
@@ -216,7 +228,7 @@ export function App() {
           <div className="logo" style={spriteCss(lookup('logo')) ?? {}} role="img" aria-label="Balatro" />
           <p className="welcome-sub">引擎对局调试台 · 每一步都可回溯与分支</p>
           <div className="welcome-buttons">
-            {view && <button className="btn blue big" onClick={() => setHome(false)}>继续当前对局</button>}
+            {view && <button className="btn blue big" onClick={() => showHome(false)}>继续当前对局</button>}
             <button className="btn blue big" disabled={busy || !info} onClick={() => setNewGame(true)}>开始</button>
             <button className="btn orange big" disabled={busy} onClick={() => fileInput.current?.click()}>载入</button>
             {hasGame && <a className="btn green big" href="./play/" title="在浏览器里运行带 mod 的原版游戏 (LÖVE, 约 100 MB)">原版游戏</a>}

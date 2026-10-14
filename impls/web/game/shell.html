@@ -25,6 +25,34 @@
       if ([32, 37, 38, 39, 40].indexOf(e.keyCode) > -1) e.preventDefault();
     });
     window.addEventListener("click", function () { canvas.focus(); });
+    // F11 切全屏: 浏览器不支持 (例如 iOS Safari) 时不管, 交给浏览器自己.
+    // 游戏自己的全屏入口是设置里的屏幕模式, 那条路由兼容层直接放行, 见 lua/boot.lua.
+    (function () {
+      var root = document.documentElement;
+      var request = root.requestFullscreen || root.webkitRequestFullscreen;
+      var exit = document.exitFullscreen || document.webkitExitFullscreen;
+      if (!request || !(document.fullscreenEnabled || document.webkitFullscreenEnabled)) return;
+      function current() { return document.fullscreenElement || document.webkitFullscreenElement || null; }
+      window.addEventListener("keydown", function (e) {
+        if (e.key !== "F11" && e.keyCode !== 122) return;
+        e.preventDefault();
+        if (current()) { if (exit) exit.call(document); return; }
+        var started = request.call(root);
+        if (started && started.catch) started.catch(function (error) { keepLog("[全屏]", ["进入全屏失败: " + error]); });
+      });
+    })();
+    // 游戏里点退出时会把窗口标题换成记号 (见 lua/boot.lua), 盯到就回调试台.
+    // 页面读不到游戏的文件系统, 标题是少有的两条路都通的通道.
+    // 带 ?home=1 是让调试台落在开始页: 否则它会自动恢复上次的对局, 直接进棋盘.
+    // 回放对拍时不跳: 那种场合页面是被脚本打开的, 退出只当结束.
+    (function () {
+      if (new URLSearchParams(window.location.search).get("replay")) return;
+      setInterval(function () {
+        if (document.title !== "balatro-web-quit") return;
+        keepLog("[退出]", ["游戏已退出, 回调试台"]);
+        window.location.href = "../?home=1";
+      }, 250);
+    })();
     // love.js 出错时会 alert, 模态框会卡住整个页面; 换成在页面上显示, 并保留最近的日志便于排查.
     window.__gameLogs = [];
     function keepLog(level, args) {

@@ -195,5 +195,49 @@ do
     end
 end
 
+-- 不跟着设置自动全屏: 每次开局 Game:init_game_object 都会调 apply_window_changes(true),
+-- 里面按设置里的屏幕模式 (默认 Borderless) 请求全屏, 而这一次又常搭着"点了开始"的用户手势成功,
+-- 表现成"一点就被全屏". 所以把 _initial 那一次的全屏标志去掉; 用户在设置里主动改屏幕模式
+-- (第一参数不是 true) 时放行, 手机上也就能从设置里进全屏. 桌面另有页面上的 F11, 见 shell.html.
+-- (这段必须在 main.lua 之后跑: conf.lua 阶段 love.window 还没建出来.)
+do
+    local update_mode, get_fullscreen = love.window.updateMode, love.window.getFullscreen
+    local told = false
+    love.window.updateMode = function(width, height, flags)
+        local auto = false
+        if type(flags) == "table" and flags.fullscreen and type(debug) == "table" and debug.getlocal then
+            -- 上一层就是 apply_window_changes; 只有它的第一个参数 _initial 为 true 才是开局自动应用.
+            -- getlocal 先回变量名再回值; 这里也不能包 pcall, 那会多出一层栈, 层数便对不上.
+            local _, value = debug.getlocal(2, 1)
+            auto = value == true
+        end
+        if auto then
+            local copy = {}
+            for key, value in pairs(flags) do copy[key] = value end
+            copy.fullscreen = false
+            copy.fullscreentype = nil
+            flags = copy
+            if not told then
+                told = true
+                log("开局不自动全屏, 想全屏请按 F11, 或在设置里把屏幕模式改成全屏")
+            end
+        end
+        return update_mode(width, height, flags)
+    end
+    -- 直接调 setFullscreen 的路径也压掉, 返回值就说当前的真实状态.
+    love.window.setFullscreen = function() return get_fullscreen() end
+end
+
+-- 游戏里点退出 (love.event.quit) 时把窗口标题换成记号, 页面盯着标题, 见到就回调试台.
+-- 走标题是因为页面读不到游戏的文件系统: love.js 只导出了 FS_create* 这类写入接口, 没有读的.
+do
+    local quit = love.event.quit
+    local marker = "balatro-web-quit"
+    love.event.quit = function(...)
+        pcall(love.window.setTitle, marker)
+        return quit(...)
+    end
+end
+
 log("线程替身已加载, 系统 %s", love.system and love.system.getOS() or "?")
 
