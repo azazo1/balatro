@@ -61,6 +61,42 @@
         Module.setStatus(left ? "准备中... (" + (this.totalDependencies - left) + "/" + this.totalDependencies + ")" : "");
       }
     };
+    // ?replay=<地址> 时按命令行回放那一套起局: 回放文件放进虚拟文件系统, 环境变量写给 Lua 侧
+    // (os.getenv 由 web_compat/lang.lua 换掉). 地址相对于本页, 可带 ?pacing=tight|original|fast.
+    (function () {
+      var query = new URLSearchParams(window.location.search);
+      var replay = query.get("replay");
+      if (!replay) return;
+      var env = {
+        BALATROBOT_ENABLE: "1",
+        BALATRO_SAVE_IDENTITY: "Balatro-Replay",
+        BALATROBOT_REPLAY: "/replay.json",
+        BALATROBOT_REPLAY_PACING: query.get("pacing") || "fast"
+      };
+      var lines = ["return {"];
+      for (var key in env) lines.push('  ["' + key + '"]="' + env[key] + '",');
+      lines.push("}");
+      function writeFile(path, data) {
+        if (Module.FS && Module.FS.writeFile) { Module.FS.writeFile(path, data); return; }
+        Module.FS_createDataFile("/", path.slice(1), data, true, true);
+      }
+      Module.preRun = Module.preRun || [];
+      Module.preRun.push(function () {
+        writeFile("/web_env.lua", lines.join("\n"));
+        Module.addRunDependency("replay");
+        fetch(replay).then(function (response) {
+          if (!response.ok) throw new Error(response.status + " " + response.statusText);
+          return response.arrayBuffer();
+        }).then(function (buffer) {
+          writeFile(env.BALATROBOT_REPLAY, new Uint8Array(buffer));
+          keepLog("[replay]", ["已载入 " + replay + " -> " + env.BALATROBOT_REPLAY]);
+          Module.removeRunDependency("replay");
+        }).catch(function (error) {
+          keepLog("[replay]", ["载入失败: " + error]);
+          Module.removeRunDependency("replay");
+        });
+      });
+    })();
     canvas.addEventListener("webglcontextlost", function (e) {
       statusEl.style.display = "flex";
       statusEl.textContent = "WebGL 上下文丢失, 请刷新页面";

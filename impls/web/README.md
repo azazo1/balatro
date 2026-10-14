@@ -83,7 +83,14 @@ HTTP 服务重启后可从自动存档重建. 新局和载入会替换当前会�
 (`bit`, `jit`, `load`, TW223 随机数), 用协程模拟 `love.thread`, 并把 ffi 版 nativefs 换成 love.filesystem.
 构建时还会把 `goto` 改写成 `repeat ... until true`, 并修正 WebGL1 不接受的着色器写法.
 有 Lua 5.1 的 `luac` 时会做语法检查, 用 `LUAC51` 环境变量指定路径.
-存档在浏览器 IndexedDB 里, 没有真线程, 帧间隔会比桌面版长. 随机数与桌面版的一致性尚未核对.
+存档在浏览器 IndexedDB 里, 没有真线程, 帧间隔会比桌面版长.
+
+带 `?replay=<相对地址>` 打开 `/play/` 时, 页面把回放文件与环境变量塞进虚拟文件系统 (`os.getenv` 由兼容层换成
+先查页面给的那份), 于是浏览器版能像命令行回放那样自己跑一局并逐手对拍, 可加 `&pacing=tight|original|fast`.
+对拍时标签页必须留在前台: 浏览器会暂停后台标签页的 rAF, 游戏不再推进, 回放侧会等响应超时.
+随机数与桌面版的一致性用引擎生成的回放核对过: 开局两次洗牌的种子与 51 次交换全部逐位相同, 前 82 步的状态
+摘要全对; 期间发现 emscripten 的 `math.exp(1)` 比正确的 e 大 1 ULP, 会让约六分之一的种子洗出不同的牌序,
+已改成字面量常量 (见 `game/lua/prng.lua`).
 必须通过 HTTP/HTTPS 打开, 不支持 `file://`. WASM 在 Worker 内运行, 不把大块计算放在 UI 线程.
 
 HTTP 服务只绑定 127.0.0.1, 检查 Host 与 Origin, 不启用宽松 CORS, 不暴露本机文件路径接口.

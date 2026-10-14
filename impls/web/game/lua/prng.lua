@@ -101,7 +101,12 @@ local function double_bits(d)
     return sign + expo * 1048576 + floor(mant / P32), mant % P32
 end
 
-local PI, E = math.pi, math.exp(1)
+-- 这两个常量必须是"正确舍入"的那两个 double, 且不能依赖运行时的库函数:
+-- emscripten 的 math.exp(1) 比正确的 e 大 1 ULP (2.7182818284590455 而不是 2.7182818284590451),
+-- 而播种算的是 d*pi + e, 差这 1 ULP 会让种子状态的低位变掉, 于是部分种子上抽出的牌与桌面版不同
+-- (约 15% 的种子会踩到, 与 lj_prng.c 里那句 FMA 的注释同源). 直接写成字面量, 由词法分析按
+-- 十进制转 double, 各平台的结果就一致了.
+local PI, E = 3.141592653589793, 2.718281828459045
 
 local function randomseed(d)
     d = tonumber(d) or os.time()
