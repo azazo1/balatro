@@ -203,7 +203,19 @@ end
 do
     local update_mode, get_fullscreen = love.window.updateMode, love.window.getFullscreen
     local told = false
+    -- 页面按 ?res= 或屏幕像素密度给出放大倍数 (见 shell.html). 手机上只按 CSS 像素开窗口会糊,
+    -- 这里把游戏算出来的尺寸乘上去; 画布在屏幕上仍被样式铺满, 多出来的像素由浏览器缩回显示.
+    local dpr = tonumber(os.getenv("BALATRO_WEB_DPR") or "") or 1
+    if dpr < 1 then dpr = 1 end
+    local scaled = false
     love.window.updateMode = function(width, height, flags)
+        if dpr > 1 and type(width) == "number" and type(height) == "number" then
+            width, height = math.floor(width * dpr), math.floor(height * dpr)
+            if not scaled then
+                scaled = true
+                log("按屏幕像素密度 %.2f 渲染, 窗口 %dx%d", dpr, width, height)
+            end
+        end
         local auto = false
         if type(flags) == "table" and flags.fullscreen and type(debug) == "table" and debug.getlocal then
             -- 上一层就是 apply_window_changes; 只有它的第一个参数 _initial 为 true 才是开局自动应用.

@@ -6,7 +6,9 @@
   <title>Balatro Modded</title>
   <style>
     html, body { margin: 0; height: 100%; background: #1e2b2d; overflow: hidden; }
-    #canvas { display: block; width: 100vw; height: 100vh; visibility: hidden; outline: none; }
+    /* 画布在屏幕上始终铺满视口; 绘制缓冲另按屏幕像素密度放大 (见下面的 renderScale), 由浏览器缩回显示.
+       用 important 是防 love 自己往 canvas 上写行内尺寸. */
+    #canvas { display: block; width: 100vw !important; height: 100vh !important; visibility: hidden; outline: none; }
     #status { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
               color: #fff; font: 20px sans-serif; text-align: center; white-space: pre-line; }
   </style>
@@ -17,10 +19,20 @@
   <script>
     var statusEl = document.getElementById("status");
     var canvas = document.getElementById("canvas");
+    // 手机屏幕密度普遍是 2-3, 只按 CSS 像素开画布会糊一大截; 上限 2 是留一份性能余量.
+    // ?res=1 可以关掉这个放大; 回放对拍只看状态, 固定按 1 渲染, 跑得快些.
+    var renderScale = (function () {
+      var params = new URLSearchParams(window.location.search);
+      var asked = params.get("res");
+      if (asked) return Math.max(1, parseFloat(asked) || 1);
+      if (params.get("replay")) return 1;
+      return Math.max(1, Math.min(window.devicePixelRatio || 1, 2));
+    })();
     function fitCanvas() {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
+      canvas.width = Math.round(window.innerWidth * renderScale);
+      canvas.height = Math.round(window.innerHeight * renderScale);
     }
+    window.addEventListener("resize", fitCanvas);
     window.addEventListener("keydown", function (e) {
       if ([32, 37, 38, 39, 40].indexOf(e.keyCode) > -1) e.preventDefault();
     });
@@ -33,6 +45,16 @@
       var exit = document.exitFullscreen || document.webkitExitFullscreen;
       if (!request || !(document.fullscreenEnabled || document.webkitFullscreenEnabled)) return;
       function current() { return document.fullscreenElement || document.webkitFullscreenElement || null; }
+      // 手机上进了全屏就顺手锁横屏: Balatro 是横屏游戏, 竖屏只剩中间一条.
+      // 解不了锁 (iOS Safari, 或没给权限) 就不管.
+      function syncOrientation() {
+        var orientation = screen.orientation || screen.mozOrientation;
+        if (!orientation || !orientation.lock) return;
+        if (current()) { var lock = orientation.lock("landscape"); if (lock && lock.catch) lock.catch(function () { }); }
+        else if (orientation.unlock) { try { orientation.unlock(); } catch (error) { } }
+      }
+      document.addEventListener("fullscreenchange", syncOrientation);
+      document.addEventListener("webkitfullscreenchange", syncOrientation);
       window.addEventListener("keydown", function (e) {
         if (e.key !== "F11" && e.keyCode !== 122) return;
         e.preventDefault();
@@ -89,18 +111,19 @@
         Module.setStatus(left ? "准备中... (" + (this.totalDependencies - left) + "/" + this.totalDependencies + ")" : "");
       }
     };
-    // ?replay=<地址> 时按命令行回放那一套起局: 回放文件放进虚拟文件系统, 环境变量写给 Lua 侧
-    // (os.getenv 由 web_compat/lang.lua 换掉). 地址相对于本页, 可带 ?pacing=tight|original|fast.
+    // 页面要把几件事告诉 Lua 侧, 走 web_env.lua 这个文件 (os.getenv 由 web_compat/lang.lua 换掉):
+    // - BALATRO_WEB_DPR: 屏幕像素密度, 游戏按它放大窗口, 见 lua/boot.lua.
+    // - ?replay=<地址> 时再加上"命令行回放"那一套变量, 并把回放文件放进虚拟文件系统.
     (function () {
       var query = new URLSearchParams(window.location.search);
       var replay = query.get("replay");
-      if (!replay) return;
-      var env = {
-        BALATROBOT_ENABLE: "1",
-        BALATRO_SAVE_IDENTITY: "Balatro-Replay",
-        BALATROBOT_REPLAY: "/replay.json",
-        BALATROBOT_REPLAY_PACING: query.get("pacing") || "fast"
-      };
+      var env = { BALATRO_WEB_DPR: String(renderScale) };
+      if (replay) {
+        env.BALATROBOT_ENABLE = "1";
+        env.BALATRO_SAVE_IDENTITY = "Balatro-Replay";
+        env.BALATROBOT_REPLAY = "/replay.json";
+        env.BALATROBOT_REPLAY_PACING = query.get("pacing") || "fast";
+      }
       var lines = ["return {"];
       for (var key in env) lines.push('  ["' + key + '"]="' + env[key] + '",');
       lines.push("}");
@@ -111,6 +134,7 @@
       Module.preRun = Module.preRun || [];
       Module.preRun.push(function () {
         writeFile("/web_env.lua", lines.join("\n"));
+        if (!replay) return;
         Module.addRunDependency("replay");
         fetch(replay).then(function (response) {
           if (!response.ok) throw new Error(response.status + " " + response.statusText);
